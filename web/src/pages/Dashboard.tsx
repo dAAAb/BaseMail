@@ -538,18 +538,20 @@ function ConnectWallet({ onAuth }: { onAuth: (auth: AuthState) => void }) {
 
   const doSiwe = useCallback(async (addr: string) => {
     try {
-      setStatus('Getting nonce...');
+      setStatus('Preparing sign-in...');
       setError('');
 
-      const nonceRes = await fetch(`${API_BASE}/api/auth/nonce`);
-      const { nonce } = await nonceRes.json();
-
-      const msgRes = await fetch(`${API_BASE}/api/auth/message`, {
+      // 2-step flow: POST /start → sign → POST /verify
+      const startRes = await fetch(`${API_BASE}/api/auth/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: addr, nonce }),
+        body: JSON.stringify({ address: addr }),
       });
-      const { message } = await msgRes.json();
+      if (!startRes.ok) {
+        const err = await startRes.json();
+        throw new Error(err.error || 'Failed to start authentication');
+      }
+      const { message } = await startRes.json();
 
       setStatus('Please sign the message in your wallet...');
       const signature = await signMessageAsync({ message });
@@ -611,16 +613,27 @@ function ConnectWallet({ onAuth }: { onAuth: (auth: AuthState) => void }) {
           <div className="text-base-blue text-sm font-mono py-3">{status}</div>
         ) : (
           <div className="space-y-3">
-            {connectors.map((connector) => (
-              <button
-                key={connector.uid}
-                onClick={() => connect({ connector })}
-                disabled={isConnecting}
-                className="w-full bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition disabled:opacity-50"
-              >
-                {isConnecting ? 'Connecting...' : `Connect ${connector.name}`}
-              </button>
-            ))}
+            {connectors.map((connector) => {
+              const isCoinbase = connector.id === 'coinbaseWalletSDK';
+              // 隱藏重複：Coinbase Smart Wallet 會 inject window.ethereum
+              if (connector.id === 'injected' && connector.name === 'Coinbase Wallet') return null;
+              // 隱藏 injected 如果沒有瀏覽器錢包（WalletConnect 已覆蓋）
+              if (connector.id === 'injected' && typeof window !== 'undefined' && !(window as any).ethereum) return null;
+
+              return (
+                <button
+                  key={connector.uid}
+                  onClick={() => connect({ connector })}
+                  disabled={isConnecting}
+                  className={isCoinbase
+                    ? 'w-full bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition disabled:opacity-50'
+                    : 'w-full bg-transparent text-white py-3 rounded-lg font-medium border border-gray-600 hover:border-base-blue hover:text-base-blue transition disabled:opacity-50'
+                  }
+                >
+                  {isConnecting ? 'Connecting...' : `Connect with ${connector.name}`}
+                </button>
+              );
+            })}
           </div>
         )}
 

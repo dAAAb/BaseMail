@@ -1,13 +1,10 @@
 import { Hono } from 'hono';
 import { Env } from '../types';
 import { authMiddleware, createToken } from '../auth';
-import { resolveHandle, basenameToHandle } from '../basename-lookup';
+import { resolveHandle, basenameToHandle, verifyBasenameOwnership } from '../basename-lookup';
 import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../basename';
 import type { Hex, Address } from 'viem';
-import { formatEther, createPublicClient, http, keccak256, toBytes } from 'viem';
-import { base } from 'viem/chains';
-
-const BASENAME_REGISTRAR = '0x03c4738Ee98aE44591e1A4A4F3CaB6641d95DD9a' as const;
+import { formatEther } from 'viem';
 
 export const registerRoutes = new Hono<{ Bindings: Env }>();
 
@@ -199,32 +196,12 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
       newHandle = resolved.handle;
     } else if (body.basename && body.basename.endsWith('.base.eth')) {
       // Frontend provided the basename — verify on-chain ownership
-      const name = body.basename.replace(/\.base\.eth$/, '');
-      const labelhash = keccak256(toBytes(name));
-      const tokenId = BigInt(labelhash);
-
-      const client = createPublicClient({ chain: base, transport: http('https://base.publicnode.com') });
-      try {
-        const owner = await client.readContract({
-          abi: [{
-            inputs: [{ name: 'tokenId', type: 'uint256' }],
-            name: 'ownerOf',
-            outputs: [{ name: '', type: 'address' }],
-            stateMutability: 'view',
-            type: 'function',
-          }],
-          address: BASENAME_REGISTRAR,
-          functionName: 'ownerOf',
-          args: [tokenId],
-        });
-        if (owner.toLowerCase() !== auth.wallet.toLowerCase()) {
-          return c.json({ error: 'You do not own this Basename' }, 403);
-        }
-        basenames = body.basename;
-        newHandle = name;
-      } catch {
-        return c.json({ error: 'Failed to verify Basename ownership' }, 500);
+      const ownership = await verifyBasenameOwnership(body.basename, auth.wallet);
+      if (!ownership.valid) {
+        return c.json({ error: ownership.error }, 403);
       }
+      basenames = body.basename;
+      newHandle = ownership.name;
     } else {
       return c.json({ error: 'No Basename found for this wallet. Get one at https://www.base.org/names' }, 404);
     }
@@ -290,7 +267,7 @@ registerRoutes.get('/check/:address', async (c) => {
     'SELECT handle FROM accounts WHERE wallet = ? OR handle = ?'
   ).bind(address.toLowerCase(), resolved.handle).first();
 
-  return c.json({
+  const response: Record<string, any> = {
     wallet: address.toLowerCase(),
     handle: resolved.handle,
     email: `${resolved.handle}@${c.env.DOMAIN}`,
@@ -298,7 +275,30 @@ registerRoutes.get('/check/:address', async (c) => {
     source: resolved.source,
     registered: !!existing,
     has_basename_nft: resolved.has_basename_nft || false,
-  });
+  };
+
+  // AI Agent 指引：有 Basename NFT 但反查失敗
+  if (resolved.has_basename_nft && !resolved.basename) {
+    response.next_steps = {
+      issue: 'You own a Basename NFT but reverse resolution failed (primary name not set on-chain).',
+      options: [
+        {
+          action: 'provide_basename',
+          description: 'Pass your Basename directly when registering via agent-register.',
+          method: 'POST',
+          url: '/api/auth/agent-register',
+          body: { address: '0x...', signature: '0x...', message: '...', basename: 'yourname.base.eth' },
+        },
+        {
+          action: 'set_primary_name',
+          description: 'Set your primary name on-chain so reverse resolution works automatically.',
+          url: 'https://www.base.org/names',
+        },
+      ],
+    };
+  }
+
+  return c.json(response);
 });
 
 /**

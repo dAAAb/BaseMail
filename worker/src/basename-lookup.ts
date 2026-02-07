@@ -15,6 +15,7 @@ import {
   encodePacked,
   keccak256,
   namehash,
+  toBytes,
   type Address,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
@@ -161,4 +162,43 @@ export async function resolveHandle(address: Address): Promise<{
     source: 'address',
     has_basename_nft: hasNFT || undefined,
   };
+}
+
+/**
+ * Verify on-chain ownership of a Basename via registrar's ownerOf().
+ * Used by both agent-register and upgrade endpoints.
+ *
+ * @param basename Full basename e.g. "alice.base.eth"
+ * @param expectedOwner Wallet address expected to own the NFT
+ * @returns { valid: true, name } or { valid: false, error }
+ */
+export async function verifyBasenameOwnership(
+  basename: string,
+  expectedOwner: string,
+): Promise<{ valid: true; name: string } | { valid: false; error: string }> {
+  const name = basename.replace(/\.base\.eth$/, '');
+  const labelhash = keccak256(toBytes(name));
+  const tokenId = BigInt(labelhash);
+
+  const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+  try {
+    const owner = await client.readContract({
+      abi: [{
+        inputs: [{ name: 'tokenId', type: 'uint256' }],
+        name: 'ownerOf',
+        outputs: [{ name: '', type: 'address' }],
+        stateMutability: 'view',
+        type: 'function',
+      }],
+      address: BASENAME_REGISTRAR,
+      functionName: 'ownerOf',
+      args: [tokenId],
+    });
+    if (owner.toLowerCase() !== expectedOwner.toLowerCase()) {
+      return { valid: false, error: `You do not own ${basename}. The owner is ${owner}.` };
+    }
+    return { valid: true, name };
+  } catch {
+    return { valid: false, error: `Failed to verify ownership of ${basename} on-chain` };
+  }
 }

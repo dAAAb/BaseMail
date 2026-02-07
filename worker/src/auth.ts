@@ -14,23 +14,31 @@ export async function generateNonce(kv: KVNamespace): Promise<string> {
 }
 
 /**
+ * SIWE 驗證結果（區分錯誤原因）
+ */
+export type SiweResult =
+  | { ok: true }
+  | { ok: false; reason: 'no_nonce_in_message' | 'nonce_expired' | 'signature_invalid' };
+
+/**
  * 驗證 SIWE 簽名
  * 接受客戶端簽名的完整 message，從中解析 nonce 來驗證
+ * 回傳 discriminated result 以區分不同錯誤類型
  */
 export async function verifySiwe(
   kv: KVNamespace,
   address: string,
   signature: string,
   message: string,
-): Promise<boolean> {
+): Promise<SiweResult> {
   // 從 message 中解析 nonce
   const nonceMatch = message.match(/Nonce: ([a-f0-9-]+)/);
-  if (!nonceMatch) return false;
+  if (!nonceMatch) return { ok: false, reason: 'no_nonce_in_message' };
   const nonce = nonceMatch[1];
 
   // 檢查 nonce 是否有效
   const stored = await kv.get(`nonce:${nonce}`);
-  if (!stored) return false;
+  if (!stored) return { ok: false, reason: 'nonce_expired' };
 
   // 用完即刪，防止重放攻擊
   await kv.delete(`nonce:${nonce}`);
@@ -42,9 +50,9 @@ export async function verifySiwe(
       message,
       signature: signature as `0x${string}`,
     });
-    return valid;
+    return valid ? { ok: true } : { ok: false, reason: 'signature_invalid' };
   } catch {
-    return false;
+    return { ok: false, reason: 'signature_invalid' };
   }
 }
 

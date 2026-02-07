@@ -67,10 +67,11 @@ app.get('/api/docs', (c) => {
           method: 'POST',
           url: `${BASE}/api/auth/agent-register`,
           headers: { 'Content-Type': 'application/json' },
-          body: { address: 'YOUR_WALLET_ADDRESS', signature: '0xSIGNED...', message: 'MESSAGE_FROM_STEP_1' },
+          body: { address: 'YOUR_WALLET_ADDRESS', signature: '0xSIGNED...', message: 'MESSAGE_FROM_STEP_1', basename: '(optional) yourname.base.eth' },
           curl: `curl -X POST ${BASE}/api/auth/agent-register -H "Content-Type: application/json" -d '{"address":"YOUR_WALLET_ADDRESS","signature":"0xSIGNED...","message":"MESSAGE_FROM_STEP_1"}'`,
           response_example: { token: 'eyJ...', email: 'yourname@basemail.ai', handle: 'yourname', wallet: '0x...', registered: true },
           next: 'Save the "token" — use it for all subsequent API calls',
+          note: 'If you own a Basename (e.g. alice.base.eth), pass it in the "basename" field for guaranteed correct handle. Otherwise, BaseMail auto-detects via reverse resolution.',
         },
         {
           step: 3,
@@ -144,9 +145,10 @@ app.get('/api/docs', (c) => {
         response: '{ nonce, message }',
       },
       'POST /api/auth/agent-register': {
-        description: 'Verify signature + auto-register in one call (agent-friendly). If already registered, returns existing account.',
-        body: '{ address: "0x...", signature: "0x...", message: "..." }',
-        response: '{ token, email, handle, wallet, registered, new_account }',
+        description: 'Verify signature + auto-register in one call (agent-friendly). If already registered, returns existing account. Pass optional "basename" to register with a specific Basename handle.',
+        body: '{ address: "0x...", signature: "0x...", message: "...", basename?: "yourname.base.eth" }',
+        response: '{ token, email, handle, wallet, registered, new_account, source }',
+        note: 'If basename is provided, on-chain ownership is verified via ownerOf. Errors include a "code" field: nonce_expired, signature_invalid, no_nonce_in_message.',
       },
       'GET /api/auth/nonce': {
         description: 'Get a one-time nonce (legacy, use /start instead)',
@@ -240,6 +242,8 @@ app.get('/api/docs', (c) => {
       'Both addresses receive mail if you have a Basename',
       'Already registered with 0x handle? Use PUT /api/register/upgrade with auto_basename:true to purchase a Basename and upgrade',
       'Check name availability first: GET /api/register/price/:name',
+      'Auth errors include a "code" field (nonce_expired, signature_invalid, no_nonce_in_message) for programmatic error handling',
+      'If GET /api/register/check shows has_basename_nft:true but basename:null, pass your basename directly in agent-register: { basename: "yourname.base.eth" }',
     ],
   });
 });
