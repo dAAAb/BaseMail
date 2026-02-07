@@ -413,18 +413,6 @@ export default function Dashboard() {
               <span className="text-gray-300 font-mono">{mainnetUsdc ? parseFloat(formatUnits(mainnetUsdc.value, 6)).toFixed(2) : '—'}</span>
             </div>
           </div>
-          {/* Basename card image — cropped to blue card only */}
-          {hasBasename && auth.basename && (
-            <div className="mb-3 rounded-lg overflow-hidden" style={{ aspectRatio: '900/550' }}>
-              <img
-                src={`https://www.base.org/api/basenames/${auth.basename}/assets/cardImage.svg`}
-                alt={auth.basename}
-                className="max-w-none"
-                loading="lazy"
-                style={{ width: '111%', marginLeft: '-5.5%', marginTop: '-25%' }}
-              />
-            </div>
-          )}
           <div className="text-xs text-gray-500 font-mono truncate mb-2" title={auth.wallet}>
             {auth.wallet.slice(0, 6)}...{auth.wallet.slice(-4)}
           </div>
@@ -1700,7 +1688,7 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
                     }
                   }}
                   disabled={proStatus === 'paying' || proStatus === 'confirming'}
-                  className="w-full bg-gradient-to-r from-yellow-600 to-amber-600 text-white py-3 rounded-lg font-medium hover:from-yellow-500 hover:to-amber-500 transition disabled:opacity-50"
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-medium hover:from-blue-500 hover:to-indigo-500 transition disabled:opacity-50"
                 >
                   {proStatus === 'paying' ? 'Confirm in wallet...' : proStatus === 'confirming' ? 'Verifying on-chain...' : 'Upgrade to Pro'}
                 </button>
