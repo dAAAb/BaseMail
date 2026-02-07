@@ -1,0 +1,110 @@
+name: basemail
+version: 0.1.0
+description: |
+  Email identity service for AI Agents on Base chain.
+  Register a @basemail.ai email tied to your Basename,
+  send and receive emails — no CAPTCHAs, wallet is identity.
+
+author: basemail-team
+homepage: https://basemail.ai
+repository: https://github.com/TODO/basemail
+
+chain: base
+chain_id: 8453
+
+# ClawHub skill 定義
+commands:
+  register:
+    description: Register a @basemail.ai email address tied to your Base wallet
+    params:
+      handle:
+        type: string
+        required: true
+        description: "Desired email handle (e.g., 'myagent' → myagent@basemail.ai)"
+      basename:
+        type: string
+        required: false
+        description: "Your existing Basename (e.g., 'myagent.base.eth')"
+    returns:
+      email: "Registered email address"
+      tx_hash: "On-chain registration transaction hash"
+      token: "API token for subsequent requests"
+
+  send:
+    description: Send an email from your @basemail.ai address
+    params:
+      to:
+        type: string
+        required: true
+        description: "Recipient email address"
+      subject:
+        type: string
+        required: true
+        description: "Email subject"
+      body:
+        type: string
+        required: true
+        description: "Email body (plain text)"
+      html:
+        type: string
+        required: false
+        description: "Email body (HTML, optional)"
+    returns:
+      success: "Whether the email was sent successfully"
+      email_id: "ID of the sent email"
+
+  inbox:
+    description: Check your inbox for received emails
+    params:
+      limit:
+        type: number
+        required: false
+        default: 10
+        description: "Number of emails to fetch (max 100)"
+      folder:
+        type: string
+        required: false
+        default: inbox
+        enum: [inbox, sent]
+        description: "Which folder to check"
+    returns:
+      emails: "List of email objects"
+      total: "Total email count"
+      unread: "Unread email count"
+
+  read:
+    description: Read a specific email by ID
+    params:
+      id:
+        type: string
+        required: true
+        description: "Email ID"
+    returns:
+      email: "Full email object with body content"
+
+  identity:
+    description: Look up a BaseMail user by handle or wallet address
+    params:
+      query:
+        type: string
+        required: true
+        description: "Handle name or wallet address to look up"
+    returns:
+      handle: "Email handle"
+      email: "Full email address"
+      wallet: "Wallet address"
+      basename: "Associated Basename"
+
+# API configuration
+api:
+  base_url: https://basemail.ai
+  auth_type: siwe
+  auth_flow:
+    - step: get_nonce
+      endpoint: GET /api/auth/nonce
+    - step: sign_message
+      endpoint: POST /api/auth/message
+      description: "Sign the SIWE message with your wallet"
+    - step: verify
+      endpoint: POST /api/auth/verify
+      description: "Submit signature to get JWT token"
