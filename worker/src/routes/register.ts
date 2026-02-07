@@ -14,6 +14,7 @@ export const registerRoutes = new Hono<{ Bindings: Env }>();
  * Handle is auto-assigned: Basename → basename handle, no Basename → 0x address.
  *
  * Body: {
+ *   basename?: string,        // e.g. "alice.base.eth" — claim existing Basename (verified on-chain)
  *   auto_basename?: boolean,  // buy a Basename if you don't have one (optional)
  *   basename_name?: string,   // desired Basename name (required if auto_basename)
  * }
@@ -22,6 +23,7 @@ export const registerRoutes = new Hono<{ Bindings: Env }>();
 registerRoutes.post('/', authMiddleware(), async (c) => {
   const auth = c.get('auth');
   const body = await c.req.json<{
+    basename?: string;         // e.g. "littl3lobst3r.base.eth"
     auto_basename?: boolean;
     basename_name?: string;
   }>().catch(() => ({}));
@@ -38,20 +40,29 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
     }, 409);
   }
 
-  // Auto-detect identity
-  let resolved = await resolveHandle(auth.wallet as Address);
+  // Determine handle: explicit basename > auto_basename > resolveHandle
+  let handle: string;
+  let resolvedBasename: string | null = null;
+  let source: 'basename' | 'address' = 'address';
 
-  // Optional: buy a Basename first
-  if (body.auto_basename && resolved.source === 'address') {
+  if (body.basename && body.basename.endsWith('.base.eth')) {
+    // Agent 指定了已有的 Basename → 驗證 on-chain 所有權
+    const ownership = await verifyBasenameOwnership(body.basename, auth.wallet);
+    if (!ownership.valid) {
+      return c.json({ error: ownership.error }, 403);
+    }
+    handle = ownership.name;
+    resolvedBasename = body.basename;
+    source = 'basename';
+  } else if (body.auto_basename) {
+    // 購買新 Basename
     if (!c.env.WALLET_PRIVATE_KEY) {
       return c.json({ error: 'Basename auto-registration is not configured' }, 503);
     }
-
     const name = body.basename_name;
     if (!name || !isValidBasename(name)) {
       return c.json({ error: 'basename_name is required (3-32 chars, a-z, 0-9, -)' }, 400);
     }
-
     try {
       const result = await registerBasename(
         name,
@@ -59,18 +70,19 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
         c.env.WALLET_PRIVATE_KEY as Hex,
         1,
       );
-      // Re-resolve with the new Basename
-      resolved = {
-        handle: name,
-        basename: result.fullName,
-        source: 'basename',
-      };
+      handle = name;
+      resolvedBasename = result.fullName;
+      source = 'basename';
     } catch (e: any) {
       return c.json({ error: `Basename registration failed: ${e.message}` }, 500);
     }
+  } else {
+    // Auto-detect via reverse resolution
+    const resolved = await resolveHandle(auth.wallet as Address);
+    handle = resolved.handle;
+    resolvedBasename = resolved.basename;
+    source = resolved.source;
   }
-
-  const handle = resolved.handle;
 
   // Check if this handle is already taken (shouldn't happen for 0x addresses)
   const existing = await c.env.DB.prepare(
@@ -88,7 +100,7 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
   ).bind(
     handle,
     auth.wallet,
-    resolved.basename,
+    resolvedBasename,
     Math.floor(Date.now() / 1000),
   ).run();
 
@@ -103,13 +115,10 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
   const walletLower = auth.wallet.toLowerCase();
   let migratedCount = 0;
   if (handle !== walletLower) {
-    // 使用者用 Basename 註冊，但預存信件存在 0x handle 下
     const migrated = await c.env.DB.prepare(
       'UPDATE emails SET handle = ? WHERE handle = ?'
     ).bind(handle, walletLower).run();
     migratedCount = migrated.meta?.changes || 0;
-
-    // 搬移 R2 中的信件（更新路徑太昂貴，保留原路徑，只更 D1 索引即可）
   }
 
   // Count pre-stored emails (now under the correct handle)
@@ -117,17 +126,52 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
     'SELECT COUNT(*) as count FROM emails WHERE handle = ?'
   ).bind(handle).first<{ count: number }>();
 
-  return c.json({
+  // 建構回應
+  const response: Record<string, any> = {
     success: true,
     email: `${handle}@${c.env.DOMAIN}`,
     handle,
     wallet: auth.wallet,
-    basename: resolved.basename,
-    source: resolved.source,
+    basename: resolvedBasename,
+    source,
     token: newToken,
     pending_emails: pendingResult?.count || 0,
     migrated_emails: migratedCount,
-  }, 201);
+  };
+
+  // 如果用 0x handle 註冊且有 Basename NFT → 引導升級
+  if (source === 'address') {
+    const { has_basename_nft } = await resolveHandle(auth.wallet as Address);
+    if (has_basename_nft) {
+      response.upgrade_hint = {
+        message: 'You have a Basename NFT! Upgrade your handle for a shorter email address.',
+        method: 'PUT',
+        url: '/api/register/upgrade',
+        body: { basename: 'yourname.base.eth' },
+        note: 'Pass your Basename to verify ownership and upgrade. Or use auto_basename:true + basename_name to buy a new one.',
+      };
+    } else {
+      response.upgrade_hint = {
+        message: 'Want a shorter email like alice@basemail.ai instead of 0x...@basemail.ai?',
+        options: [
+          {
+            action: 'buy_basename',
+            method: 'PUT',
+            url: '/api/register/upgrade',
+            body: { auto_basename: true, basename_name: 'desiredname' },
+            note: 'We buy the Basename for you on-chain. Check price first: GET /api/register/price/:name',
+          },
+          {
+            action: 'buy_yourself',
+            url: 'https://www.base.org/names',
+            note: 'Buy a Basename yourself, then upgrade: PUT /api/register/upgrade { basename: "yourname.base.eth" }',
+          },
+        ],
+      };
+    }
+  }
+
+  return c.json(response, 201);
 });
 
 /**

@@ -166,9 +166,16 @@ app.get('/api/docs', (c) => {
       },
 
       // — Registration —
+      'POST /api/register': {
+        auth: 'Bearer token',
+        description: 'Register a @basemail.ai email. Pass "basename" to claim an existing Basename, or "auto_basename" to buy one.',
+        body: '{ basename?: "yourname.base.eth", auto_basename?: boolean, basename_name?: "desiredname" }',
+        response: '{ success, email, handle, wallet, basename, source, token, upgrade_hint? }',
+        note: 'If no basename provided, defaults to 0x address handle. Response includes upgrade_hint with instructions to upgrade later.',
+      },
       'GET /api/register/check/:address': {
-        description: 'Preview what email a wallet would get (public, no auth)',
-        response: '{ wallet, handle, email, basename, source, registered, has_basename_nft }',
+        description: 'Preview what email a wallet would get (public, no auth). Includes next_steps if basename NFT detected.',
+        response: '{ wallet, handle, email, basename, source, registered, has_basename_nft, next_steps? }',
       },
       'PUT /api/register/upgrade': {
         auth: 'Bearer token',

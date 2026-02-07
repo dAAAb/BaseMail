@@ -140,7 +140,7 @@ authRoutes.post('/agent-register', async (c) => {
     'SELECT COUNT(*) as count FROM emails WHERE handle = ?'
   ).bind(handle).first<{ count: number }>();
 
-  return c.json({
+  const response: Record<string, any> = {
     token,
     email: `${handle}@${c.env.DOMAIN}`,
     handle,
@@ -151,7 +151,33 @@ authRoutes.post('/agent-register', async (c) => {
     new_account: true,
     pending_emails: pendingResult?.count || 0,
     migrated_emails: migratedCount,
-  }, 201);
+  };
+
+  // 如果用 0x handle 註冊 → 引導升級到 Basename
+  if (source === 'address') {
+    response.upgrade_hint = {
+      message: 'Want a shorter email like alice@basemail.ai? You can upgrade your handle anytime.',
+      options: [
+        {
+          action: 'claim_existing_basename',
+          description: 'If you already own a Basename, claim it now.',
+          method: 'PUT',
+          url: '/api/register/upgrade',
+          body: { basename: 'yourname.base.eth' },
+        },
+        {
+          action: 'buy_basename',
+          description: 'Buy a new Basename on-chain (we pay gas).',
+          method: 'PUT',
+          url: '/api/register/upgrade',
+          body: { auto_basename: true, basename_name: 'desiredname' },
+          price_check: 'GET /api/register/price/:name',
+        },
+      ],
+    };
+  }
+
+  return c.json(response, 201);
 });
 
 /**
