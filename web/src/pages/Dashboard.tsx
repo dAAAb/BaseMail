@@ -23,6 +23,7 @@ interface AuthState {
   handle: string | null;
   registered: boolean;
   basename?: string | null;
+  tier?: 'free' | 'pro';
   suggested_handle?: string | null;
   suggested_source?: string | null;
   suggested_email?: string | null;
@@ -342,7 +343,10 @@ export default function Dashboard() {
         {/* Email address card — with toggle for basename users */}
         <div className="bg-base-dark rounded-lg p-3 mb-6">
           <div className="text-gray-400 text-xs mb-1 flex items-center justify-between">
-            <span>{showAltEmail ? '0x Address' : 'Your Email'}</span>
+            <span className="flex items-center gap-1">
+              {showAltEmail ? '0x Address' : 'Your Email'}
+              {auth.tier === 'pro' && <span title="BaseMail Pro" style={{ color: '#FFD700' }}>&#10003;</span>}
+            </span>
             {altEmail && (
               <button
                 onClick={() => setShowAltEmail(!showAltEmail)}
@@ -499,7 +503,7 @@ export default function Dashboard() {
           <Route path="sent" element={<Inbox auth={auth} folder="sent" />} />
           <Route path="compose" element={<Compose auth={auth} />} />
           <Route path="credits" element={<Credits auth={auth} />} />
-          <Route path="settings" element={<Settings auth={auth} onUpgrade={(canUpgrade || hasNFTOnly) ? handleUpgrade : undefined} upgrading={upgrading} />} />
+          <Route path="settings" element={<Settings auth={auth} setAuth={setAuth} onUpgrade={(canUpgrade || hasNFTOnly) ? handleUpgrade : undefined} upgrading={upgrading} />} />
           <Route path="email/:id" element={<EmailDetail auth={auth} />} />
         </Routes>
       </main>
@@ -575,6 +579,7 @@ function ConnectWallet({ onAuth }: { onAuth: (auth: AuthState) => void }) {
         handle: data.handle,
         registered: data.registered,
         basename: data.basename,
+        tier: data.tier || 'free',
         suggested_handle: data.suggested_handle,
         suggested_source: data.suggested_source,
         suggested_email: data.suggested_email,
@@ -1497,12 +1502,17 @@ function Credits({ auth }: { auth: AuthState }) {
 }
 
 // ─── Settings ───────────────────────────────────────────
-function Settings({ auth, onUpgrade, upgrading }: { auth: AuthState; onUpgrade?: (basename?: string) => void; upgrading?: boolean }) {
+function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; setAuth: (a: AuthState) => void; onUpgrade?: (basename?: string) => void; upgrading?: boolean }) {
+  const { sendTransactionAsync } = useSendTransaction();
+  const { switchChainAsync } = useSwitchChain();
   const [webhook, setWebhook] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [settingsBasenameInput, setSettingsBasenameInput] = useState('');
   const [settingsUpgradeError, setSettingsUpgradeError] = useState('');
+  const [proStatus, setProStatus] = useState<'idle' | 'paying' | 'confirming' | 'success' | 'error'>('idle');
+  const [proError, setProError] = useState('');
+  const [showProConfetti, setShowProConfetti] = useState(false);
 
   const fullEmail = `${auth.handle}@basemail.ai`;
   const hasBasename = !!auth.basename && !/^0x/i.test(auth.handle!);
@@ -1626,6 +1636,78 @@ function Settings({ auth, onUpgrade, upgrading }: { auth: AuthState; onUpgrade?:
               </div>
             </div>
           </div>
+        </div>
+
+        {/* BaseMail Pro */}
+        <div className={`rounded-xl p-6 border ${auth.tier === 'pro' ? 'bg-gradient-to-r from-yellow-900/20 to-amber-900/20 border-yellow-700/50' : 'bg-base-gray border-gray-800'}`}>
+          {showProConfetti && <ConfettiEffect />}
+          <h3 className="font-bold mb-4 flex items-center gap-2">
+            {auth.tier === 'pro' ? (
+              <><span style={{ color: '#FFD700' }}>&#10003;</span> BaseMail Pro</>
+            ) : (
+              'BaseMail Pro'
+            )}
+          </h3>
+          {auth.tier === 'pro' ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-green-400">You are a Pro member!</p>
+              <ul className="text-gray-400 space-y-1">
+                <li>&#10003; No email signature on outgoing emails</li>
+                <li>&#10003; Gold badge</li>
+                <li>&#10003; Priority support</li>
+              </ul>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-gray-400 text-sm">
+                Remove the BaseMail signature from your emails and get a gold badge. One-time lifetime purchase.
+              </p>
+              <div className="bg-base-dark rounded-lg p-4 border border-gray-700">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-gray-400 text-sm">Price</span>
+                  <span className="text-xl font-bold text-base-blue">0.008 ETH</span>
+                </div>
+                <ul className="text-gray-500 text-xs space-y-1 mb-4">
+                  <li>&#10003; Remove email signature forever</li>
+                  <li>&#10003; Gold badge on your profile</li>
+                  <li>&#10003; Priority support</li>
+                </ul>
+                <button
+                  onClick={async () => {
+                    setProStatus('paying');
+                    setProError('');
+                    try {
+                      await switchChainAsync({ chainId: base.id });
+                      const hash = await sendTransactionAsync({
+                        to: DEPOSIT_ADDRESS as `0x${string}`,
+                        value: parseEther('0.008'),
+                        chainId: base.id,
+                      });
+                      setProStatus('confirming');
+                      const res = await apiFetch('/api/pro/buy', auth.token, {
+                        method: 'POST',
+                        body: JSON.stringify({ tx_hash: hash, chain_id: base.id }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      setProStatus('success');
+                      setShowProConfetti(true);
+                      setTimeout(() => setShowProConfetti(false), 4000);
+                      setAuth({ ...auth, tier: 'pro' });
+                    } catch (e: any) {
+                      setProError(e.message || 'Purchase failed');
+                      setProStatus('idle');
+                    }
+                  }}
+                  disabled={proStatus === 'paying' || proStatus === 'confirming'}
+                  className="w-full bg-gradient-to-r from-yellow-600 to-amber-600 text-white py-3 rounded-lg font-medium hover:from-yellow-500 hover:to-amber-500 transition disabled:opacity-50"
+                >
+                  {proStatus === 'paying' ? 'Confirm in wallet...' : proStatus === 'confirming' ? 'Verifying on-chain...' : 'Upgrade to Pro'}
+                </button>
+              </div>
+              {proError && <p className="text-red-400 text-sm">{proError}</p>}
+            </div>
+          )}
         </div>
 
         <div className="bg-base-gray rounded-xl p-6 border border-gray-800">

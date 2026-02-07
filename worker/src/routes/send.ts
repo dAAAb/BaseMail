@@ -8,6 +8,11 @@ export const sendRoutes = new Hono<{ Bindings: Env }>();
 
 sendRoutes.use('/*', authMiddleware());
 
+// ── Email Signature (appended for free-tier users) ──
+const TEXT_SIGNATURE = `\n\n--\nSent via BaseMail.ai — Email Identity for AI Agents on Base\nhttps://basemail.ai`;
+
+const HTML_SIGNATURE = `<br><br><div style="border-top:1px solid #333;padding-top:12px;margin-top:24px;font-size:12px;color:#888;font-family:sans-serif;">Sent via <a href="https://basemail.ai" style="color:#3B82F6;text-decoration:none;font-weight:bold;">BaseMail.ai</a> — Email Identity for AI Agents on Base</div>`;
+
 interface Attachment {
   filename: string;
   content_type: string;
@@ -72,14 +77,24 @@ sendRoutes.post('/', async (c) => {
   const emailId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
+  // Check tier for signature
+  const acctTier = await c.env.DB.prepare(
+    'SELECT tier FROM accounts WHERE handle = ?'
+  ).bind(auth.handle).first<{ tier: string }>();
+  const isPro = acctTier?.tier === 'pro';
+
+  // Append signature for free-tier users
+  const finalBody = isPro ? body : body + TEXT_SIGNATURE;
+  const finalHtml = html ? (isPro ? html : html + HTML_SIGNATURE) : undefined;
+
   // Build MIME message
   const msg = createMimeMessage();
   msg.setSender({ name: auth.handle, addr: fromAddr });
   msg.setRecipient(to);
   msg.setSubject(subject);
-  msg.addMessage({ contentType: 'text/plain', data: body });
-  if (html) {
-    msg.addMessage({ contentType: 'text/html', data: html });
+  msg.addMessage({ contentType: 'text/plain', data: finalBody });
+  if (finalHtml) {
+    msg.addMessage({ contentType: 'text/html', data: finalHtml });
   }
   msg.setHeader('X-BaseMail-Agent', auth.handle);
   msg.setHeader('X-BaseMail-Wallet', auth.wallet);
@@ -193,8 +208,8 @@ sendRoutes.post('/', async (c) => {
           from: fromAddr,
           to: [to],
           subject,
-          text: body,
-          ...(html ? { html } : {}),
+          text: finalBody,
+          ...(finalHtml ? { html: finalHtml } : {}),
           headers: {
             'X-BaseMail-Agent': auth.handle,
             'X-BaseMail-Wallet': auth.wallet,

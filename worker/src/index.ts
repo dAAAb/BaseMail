@@ -11,6 +11,7 @@ import { inboxRoutes } from './routes/inbox';
 import { sendRoutes } from './routes/send';
 import { identityRoutes } from './routes/identity';
 import { creditsRoutes } from './routes/credits';
+import { proRoutes } from './routes/pro';
 import { waitlistRoutes } from './routes/waitlist';
 import { handleIncomingEmail } from './email-handler';
 
@@ -226,6 +227,20 @@ app.get('/api/docs', (c) => {
         pricing: '1 ETH = 1,000,000 credits. Min: 0.0001 ETH = 100 credits. 1 credit = 1 external email.',
       },
 
+      // — Pro —
+      'GET /api/pro/status': {
+        auth: 'Bearer token',
+        description: 'Check Pro membership status and pricing',
+        response: '{ handle, tier, is_pro, benefits, upgrade }',
+      },
+      'POST /api/pro/buy': {
+        auth: 'Bearer token',
+        description: 'Purchase BaseMail Pro with ETH payment (one-time lifetime)',
+        body: '{ tx_hash: "0x...", chain_id?: 8453|1 }',
+        response: '{ success, tier: "pro", eth_spent, benefits, bonus_credits }',
+        note: `Send 0.008 ETH to ${DEPOSIT} on Base or ETH Mainnet, then submit tx hash. Pro removes email signatures, adds gold badge.`,
+      },
+
       // — Public —
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
@@ -251,6 +266,8 @@ app.get('/api/docs', (c) => {
       'Check name availability first: GET /api/register/price/:name',
       'Auth errors include a "code" field (nonce_expired, signature_invalid, no_nonce_in_message) for programmatic error handling',
       'If GET /api/register/check shows has_basename_nft:true but basename:null, pass your basename directly in agent-register: { basename: "yourname.base.eth" }',
+      'All auth responses include "tier" field: "free" or "pro"',
+      'Free-tier emails include a BaseMail.ai signature. Upgrade to Pro (0.008 ETH one-time) to remove it.',
     ],
   });
 });
@@ -262,6 +279,7 @@ app.route('/api/inbox', inboxRoutes);
 app.route('/api/send', sendRoutes);
 app.route('/api/identity', identityRoutes);
 app.route('/api/credits', creditsRoutes);
+app.route('/api/pro', proRoutes);
 app.route('/api/waitlist', waitlistRoutes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)

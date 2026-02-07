@@ -70,8 +70,8 @@ authRoutes.post('/agent-register', async (c) => {
 
   // Check if wallet already registered
   const existingAccount = await c.env.DB.prepare(
-    'SELECT handle, basename FROM accounts WHERE wallet = ?'
-  ).bind(wallet).first<{ handle: string; basename: string | null }>();
+    'SELECT handle, basename, tier FROM accounts WHERE wallet = ?'
+  ).bind(wallet).first<{ handle: string; basename: string | null; tier: string }>();
 
   if (existingAccount) {
     // Already registered — just return token + existing info
@@ -82,6 +82,7 @@ authRoutes.post('/agent-register', async (c) => {
       handle: existingAccount.handle,
       wallet,
       basename: existingAccount.basename,
+      tier: existingAccount.tier || 'free',
       registered: true,
       new_account: false,
     });
@@ -147,6 +148,7 @@ authRoutes.post('/agent-register', async (c) => {
     wallet,
     basename: resolvedBasename,
     source,
+    tier: 'free',
     registered: true,
     new_account: true,
     pending_emails: pendingResult?.count || 0,
@@ -229,8 +231,8 @@ authRoutes.post('/verify', async (c) => {
 
   // Check if wallet already registered
   const account = await c.env.DB.prepare(
-    'SELECT handle, basename FROM accounts WHERE wallet = ?'
-  ).bind(wallet).first<{ handle: string; basename: string | null }>();
+    'SELECT handle, basename, tier FROM accounts WHERE wallet = ?'
+  ).bind(wallet).first<{ handle: string; basename: string | null; tier: string }>();
 
   // Always resolve Basename（不管是否已註冊，都偵測 Basename）
   const resolved = await resolveHandle(wallet as Address);
@@ -278,6 +280,7 @@ authRoutes.post('/verify', async (c) => {
     handle: account?.handle || null,
     registered: !!account,
     basename,
+    tier: account?.tier || 'free',
     suggested_handle: suggestedHandle,
     suggested_source: suggestedSource,
     suggested_email: suggestedHandle ? `${suggestedHandle}@${c.env.DOMAIN}` : null,

@@ -21,6 +21,7 @@ export interface Account {
   webhook_url: string | null;
   created_at: number;
   tx_hash: string | null;
+  tier: 'free' | 'pro';
 }
 
 export interface Email {
