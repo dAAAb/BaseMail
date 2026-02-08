@@ -136,7 +136,7 @@ export function authMiddleware() {
     }
 
     const token = authHeader.slice(7);
-    const secret = c.env.JWT_SECRET || '***REDACTED***';
+    const secret = c.env.JWT_SECRET!;
     const auth = await verifyToken(token, secret);
 
     if (!auth) {

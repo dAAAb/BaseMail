@@ -66,7 +66,7 @@ authRoutes.post('/agent-register', async (c) => {
   }
 
   const wallet = address.toLowerCase();
-  const secret = c.env.JWT_SECRET || '***REDACTED***';
+  const secret = c.env.JWT_SECRET!;
 
   // Check if wallet already registered
   const existingAccount = await c.env.DB.prepare(
@@ -259,7 +259,7 @@ authRoutes.post('/verify', async (c) => {
     suggestedSource = resolved.source;
   }
 
-  const secret = c.env.JWT_SECRET || '***REDACTED***';
+  const secret = c.env.JWT_SECRET!;
   const token = await createToken(
     { wallet, handle: account?.handle || '' },
     secret,

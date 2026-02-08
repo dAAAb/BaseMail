@@ -105,7 +105,7 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
   ).run();
 
   // Issue new JWT with handle
-  const secret = c.env.JWT_SECRET || '***REDACTED***';
+  const secret = c.env.JWT_SECRET!;
   const newToken = await createToken(
     { wallet: auth.wallet, handle },
     secret,
@@ -275,7 +275,7 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   const migratedCount = batchResults[2]?.meta?.changes || 0;
 
   // 發新 token
-  const secret = c.env.JWT_SECRET || '***REDACTED***';
+  const secret = c.env.JWT_SECRET!;
   const newToken = await createToken({ wallet: auth.wallet, handle: newHandle }, secret);
 
   return c.json({

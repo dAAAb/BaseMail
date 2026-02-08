@@ -18,5 +18,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Test files with credentials
+worker/test-*.mjs
+
 # Build
 *.tsbuildinfo
