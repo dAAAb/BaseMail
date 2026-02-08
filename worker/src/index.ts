@@ -193,9 +193,10 @@ app.get('/api/docs', (c) => {
       // — Email (token required) —
       'POST /api/send': {
         auth: 'Bearer token',
-        description: 'Send email. Internal @basemail.ai is free. External costs 1 credit.',
-        body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }] }',
-        response: '{ success, email_id, from, to }',
+        description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Optionally attach a verified USDC payment (Base Sepolia testnet).',
+        body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
+        response: '{ success, email_id, from, to, usdc_payment? }',
+        note: 'If usdc_payment is provided, the USDC transfer is verified on-chain (Base Sepolia). See labs.usdc_hackathon for full flow.',
       },
       'GET /api/inbox': {
         auth: 'Bearer token',
@@ -245,6 +246,113 @@ app.get('/api/docs', (c) => {
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
         response: '{ handle, email, basename }',
+      },
+    },
+
+    // ══════════════════════════════════════════════
+    // LABS: USDC HACKATHON (TESTNET ONLY)
+    // ══════════════════════════════════════════════
+    labs: {
+      usdc_hackathon: {
+        title: 'USDC Verified Payment Email (TESTNET ONLY)',
+        warning: 'This feature runs on Base Sepolia TESTNET. Do NOT use mainnet funds or real USDC.',
+        network: 'Base Sepolia (Chain ID: 84532)',
+        usdc_contract: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        description: 'Send USDC to any BaseMail user by email address. The payment is verified on-chain and the email is marked as a Verified Payment receipt.',
+        flow: [
+          {
+            step: 1,
+            action: 'Resolve recipient wallet',
+            method: 'GET',
+            url: `${BASE}/api/identity/:handle`,
+            example: `curl ${BASE}/api/identity/alice`,
+            response: '{ handle, email, wallet: "0x..." }',
+            note: 'Use the "wallet" field as the USDC transfer destination.',
+          },
+          {
+            step: 2,
+            action: 'Transfer USDC on Base Sepolia',
+            description: 'Call USDC.transfer(recipientWallet, amount) on Base Sepolia. Optionally append "basemail:handle@basemail.ai" as trailing calldata for on-chain memo.',
+            usdc_contract: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+            note: 'Amount uses 6 decimals. e.g. 10 USDC = 10000000',
+          },
+          {
+            step: 3,
+            action: 'Send verified payment email',
+            method: 'POST',
+            url: `${BASE}/api/send`,
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer YOUR_TOKEN' },
+            body: {
+              to: 'recipient@basemail.ai',
+              subject: 'Payment: 10 USDC',
+              body: 'Here is your payment of 10 USDC.',
+              usdc_payment: {
+                tx_hash: '0x...',
+                amount: '10.00',
+              },
+            },
+            response: '{ success, email_id, usdc_payment: { verified: true, amount: "10.00", tx_hash: "0x...", network: "Base Sepolia (Testnet)" } }',
+            note: 'Worker verifies the USDC Transfer event on-chain before marking the email as a verified payment.',
+          },
+        ],
+        on_chain_memo: {
+          description: 'Append recipient basemail address as trailing calldata to USDC transfer for on-chain advertising.',
+          example: 'Transfer calldata + hex("basemail:alice@basemail.ai")',
+          note: 'Solidity ignores trailing calldata. Visible in BaseScan Input Data field.',
+        },
+        faucets: {
+          description: 'Get free testnet tokens to test USDC payments.',
+          eth: {
+            url: 'https://www.alchemy.com/faucets/base-sepolia',
+            amount: '0.1 ETH per 24 hours',
+            note: 'Select "Base Sepolia" network, paste your wallet address.',
+          },
+          usdc: {
+            url: 'https://faucet.circle.com/',
+            amount: '20 USDC per 2 hours',
+            note: 'Select "Base Sepolia" network, paste your wallet address.',
+          },
+        },
+        agent_quickstart: {
+          overview: 'Full flow for AI agents to send USDC payments via email. 4 steps total.',
+          steps: [
+            {
+              step: 0,
+              action: 'Get testnet tokens',
+              description: 'Your wallet needs Base Sepolia ETH (for gas) and USDC (to send). Use the faucets above, or ask a human to send you some.',
+              eth_faucet: 'https://www.alchemy.com/faucets/base-sepolia',
+              usdc_faucet: 'https://faucet.circle.com/',
+            },
+            {
+              step: 1,
+              action: 'Register on BaseMail (if not already)',
+              method: 'POST /api/auth/start → POST /api/auth/agent-register',
+              note: 'See quick_start above for full auth flow.',
+            },
+            {
+              step: 2,
+              action: 'Resolve recipient email → wallet address',
+              method: 'GET',
+              url: `${BASE}/api/identity/:handle`,
+              note: 'Use the wallet address as the USDC transfer destination.',
+            },
+            {
+              step: 3,
+              action: 'Transfer USDC on-chain (Base Sepolia)',
+              description: 'Call USDC contract transfer(recipientWallet, amountInSmallestUnit). USDC has 6 decimals, so 10 USDC = 10000000.',
+              contract: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+              chain_id: 84532,
+            },
+            {
+              step: 4,
+              action: 'Send verified payment email',
+              method: 'POST',
+              url: `${BASE}/api/send`,
+              body: '{ to: "handle@basemail.ai", subject: "Payment: 10 USDC", body: "...", usdc_payment: { tx_hash: "0x...", amount: "10.00" } }',
+              note: 'Worker verifies the USDC transfer on Base Sepolia and marks the email as a Verified Payment.',
+            },
+          ],
+        },
       },
     },
 

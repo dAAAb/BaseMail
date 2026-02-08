@@ -1,8 +1,15 @@
 import { Hono } from 'hono';
 import { EmailMessage } from 'cloudflare:email';
 import { createMimeMessage } from 'mimetext';
+import { createPublicClient, http, parseAbi, type Hex } from 'viem';
+import { baseSepolia } from 'viem/chains';
 import { Env } from '../types';
 import { authMiddleware } from '../auth';
+
+// ── USDC Hackathon (TESTNET ONLY — Base Sepolia) ──
+const BASE_SEPOLIA_RPC = 'https://sepolia.base.org';
+const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+const USDC_TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
 
 export const sendRoutes = new Hono<{ Bindings: Env }>();
 
@@ -17,6 +24,11 @@ interface Attachment {
   filename: string;
   content_type: string;
   data: string; // base64 encoded
+}
+
+interface UsdcPayment {
+  tx_hash: string;
+  amount: string; // human-readable e.g. "10.00"
 }
 
 /**
@@ -43,13 +55,14 @@ sendRoutes.post('/', async (c) => {
     return c.json({ error: 'No email registered for this wallet' }, 403);
   }
 
-  const { to, subject, body, html, in_reply_to, attachments } = await c.req.json<{
+  const { to, subject, body, html, in_reply_to, attachments, usdc_payment } = await c.req.json<{
     to: string;
     subject: string;
     body: string;
     html?: string;
     in_reply_to?: string;
     attachments?: Attachment[];
+    usdc_payment?: UsdcPayment;
   }>();
 
   if (!to || !subject || !body) {
@@ -70,6 +83,56 @@ sendRoutes.post('/', async (c) => {
       if (!att.filename || !att.content_type || !att.data) {
         return c.json({ error: 'Each attachment must have filename, content_type, and data (base64)' }, 400);
       }
+    }
+  }
+
+  // ── USDC Payment Verification (Base Sepolia TESTNET) ──
+  let verifiedUsdc: { amount: string; tx_hash: string } | null = null;
+
+  if (usdc_payment?.tx_hash) {
+    try {
+      const client = createPublicClient({ chain: baseSepolia, transport: http(BASE_SEPOLIA_RPC) });
+      const receipt = await client.waitForTransactionReceipt({
+        hash: usdc_payment.tx_hash as Hex,
+        timeout: 15_000,
+      });
+
+      if (receipt.status !== 'success') {
+        return c.json({ error: 'USDC payment transaction failed on-chain' }, 400);
+      }
+
+      // Parse Transfer events from USDC contract
+      const transferLog = receipt.logs.find(
+        (log) => log.address.toLowerCase() === BASE_SEPOLIA_USDC.toLowerCase() && log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+      );
+
+      if (!transferLog || !transferLog.topics[1] || !transferLog.topics[2]) {
+        return c.json({ error: 'No USDC Transfer event found in transaction' }, 400);
+      }
+
+      const txFrom = ('0x' + transferLog.topics[1].slice(26)).toLowerCase();
+      const txTo = ('0x' + transferLog.topics[2].slice(26)).toLowerCase();
+      const txAmount = BigInt(transferLog.data);
+      const humanAmount = (Number(txAmount) / 1e6).toFixed(2);
+
+      // Verify sender matches
+      if (txFrom !== auth.wallet.toLowerCase()) {
+        return c.json({ error: 'USDC sender does not match authenticated wallet' }, 400);
+      }
+
+      // Resolve recipient wallet
+      const recipientHandle = to.split('@')[0].toLowerCase();
+      const recipientAcct = await c.env.DB.prepare(
+        'SELECT wallet FROM accounts WHERE handle = ? OR wallet = ?'
+      ).bind(recipientHandle, recipientHandle).first<{ wallet: string }>();
+
+      if (recipientAcct && txTo !== recipientAcct.wallet.toLowerCase()) {
+        return c.json({ error: 'USDC recipient does not match email recipient wallet' }, 400);
+      }
+
+      verifiedUsdc = { amount: humanAmount, tx_hash: usdc_payment.tx_hash };
+    } catch (e: any) {
+      return c.json({ error: `USDC verification failed: ${e.message}` }, 400);
     }
   }
 
@@ -98,6 +161,13 @@ sendRoutes.post('/', async (c) => {
   }
   msg.setHeader('X-BaseMail-Agent', auth.handle);
   msg.setHeader('X-BaseMail-Wallet', auth.wallet);
+
+  // USDC payment headers
+  if (verifiedUsdc) {
+    msg.setHeader('X-BaseMail-USDC-Payment', `${verifiedUsdc.amount} USDC`);
+    msg.setHeader('X-BaseMail-USDC-TxHash', verifiedUsdc.tx_hash);
+    msg.setHeader('X-BaseMail-USDC-Network', 'Base Sepolia (Testnet)');
+  }
 
   // Reply headers
   if (in_reply_to) {
@@ -175,8 +245,8 @@ sendRoutes.post('/', async (c) => {
     await c.env.EMAIL_STORE.put(inboxR2Key, rawMime);
 
     await c.env.DB.prepare(
-      `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at)
-       VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?)`
+      `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx)
+       VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
     ).bind(
       inboxEmailId,
       recipientHandle,
@@ -187,6 +257,8 @@ sendRoutes.post('/', async (c) => {
       inboxR2Key,
       rawMime.length,
       now,
+      verifiedUsdc?.amount || null,
+      verifiedUsdc?.tx_hash || null,
     ).run();
   } else {
     // ── External sending (paid, costs 1 credit) ──
@@ -282,8 +354,8 @@ sendRoutes.post('/', async (c) => {
   await c.env.EMAIL_STORE.put(sentR2Key, rawMime);
 
   await c.env.DB.prepare(
-    `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at)
-     VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?)`
+    `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx)
+     VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
   ).bind(
     emailId,
     auth.handle,
@@ -294,6 +366,8 @@ sendRoutes.post('/', async (c) => {
     sentR2Key,
     rawMime.length,
     now,
+    verifiedUsdc?.amount || null,
+    verifiedUsdc?.tx_hash || null,
   ).run();
 
   return c.json({
@@ -304,6 +378,14 @@ sendRoutes.post('/', async (c) => {
     subject,
     internal: isInternal,
     attachments: attachments?.length || 0,
+    ...(verifiedUsdc ? {
+      usdc_payment: {
+        verified: true,
+        amount: verifiedUsdc.amount,
+        tx_hash: verifiedUsdc.tx_hash,
+        network: 'Base Sepolia (Testnet)',
+      },
+    } : {}),
   });
 });
 

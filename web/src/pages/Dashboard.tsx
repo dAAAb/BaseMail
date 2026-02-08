@@ -1,11 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSendTransaction, useBalance, useSwitchChain } from 'wagmi';
-import { parseEther, formatUnits } from 'viem';
+import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'viem';
 import { base, mainnet } from 'wagmi/chains';
+import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 const DEPOSIT_ADDRESS = '0x4BbdB896eCEd7d202AD7933cEB220F7f39d0a9Fe';
+
+// USDC Hackathon — Base Sepolia Testnet
+const BASE_SEPOLIA_CHAIN_ID = 84532;
+const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`;
+const ERC20_ABI = parseAbi([
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function balanceOf(address account) view returns (uint256)',
+]);
 
 interface EmailItem {
   id: string;
@@ -15,6 +25,8 @@ interface EmailItem {
   snippet: string | null;
   read: number;
   created_at: number;
+  usdc_amount?: string | null;
+  usdc_tx?: string | null;
 }
 
 interface AuthState {
@@ -231,6 +243,13 @@ export default function Dashboard() {
   const { data: baseUsdc } = useBalance({ address: walletAddr, chainId: base.id, token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' });
   const { data: mainnetUsdc } = useBalance({ address: walletAddr, chainId: mainnet.id, token: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' });
 
+  // USDC Hackathon — Base Sepolia testnet balances
+  const { data: sepoliaEth } = useBalance({ address: walletAddr, chainId: BASE_SEPOLIA_CHAIN_ID });
+  const { data: sepoliaUsdc } = useBalance({ address: walletAddr, chainId: BASE_SEPOLIA_CHAIN_ID, token: BASE_SEPOLIA_USDC });
+
+  // USDC Send modal state
+  const [showUsdcSend, setShowUsdcSend] = useState(false);
+
   // Auto-detect Basename upgrade for 0x handle users
   useEffect(() => {
     if (!auth?.registered || !auth.handle || !/^0x/i.test(auth.handle)) return;
@@ -413,6 +432,35 @@ export default function Dashboard() {
               <span className="text-gray-300 font-mono">{mainnetUsdc ? parseFloat(formatUnits(mainnetUsdc.value, 6)).toFixed(2) : '—'}</span>
             </div>
           </div>
+          {/* USDC Hackathon Box */}
+          <div className="mb-3 border border-dashed border-purple-700/50 rounded-lg p-2.5 bg-purple-900/10">
+            <div className="flex items-center justify-between mb-1.5">
+              <a href="https://www.moltbook.com/m/usdc" target="_blank" rel="noopener noreferrer"
+                className="text-[10px] text-purple-400 hover:text-purple-300 uppercase tracking-wider font-bold">
+                USDC Hackathon
+              </a>
+              <span className="text-[9px] text-purple-600 bg-purple-900/30 px-1.5 py-0.5 rounded">TESTNET</span>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <a href="https://www.alchemy.com/faucets/base-sepolia" target="_blank" rel="noopener noreferrer"
+                  className="text-gray-500 hover:text-purple-400 transition underline decoration-dotted cursor-pointer" title="Get free testnet ETH">Sepolia ETH</a>
+                <span className="text-gray-300 font-mono">{sepoliaEth ? parseFloat(formatUnits(sepoliaEth.value, 18)).toFixed(4) : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer"
+                  className="text-gray-500 hover:text-purple-400 transition underline decoration-dotted cursor-pointer" title="Get free testnet USDC">Sepolia USDC</a>
+                <span className="text-gray-300 font-mono">{sepoliaUsdc ? parseFloat(formatUnits(sepoliaUsdc.value, 6)).toFixed(2) : '—'}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowUsdcSend(true)}
+              className="mt-2 w-full bg-purple-700/30 hover:bg-purple-700/50 text-purple-300 text-xs py-1.5 rounded-md transition flex items-center justify-center gap-1.5"
+            >
+              <span style={{ fontSize: '14px' }}>&#9993;</span> Send USDC
+            </button>
+          </div>
+
           <div className="text-xs text-gray-500 font-mono truncate mb-2" title={auth.wallet}>
             {auth.wallet.slice(0, 6)}...{auth.wallet.slice(-4)}
           </div>
@@ -495,6 +543,203 @@ export default function Dashboard() {
           <Route path="email/:id" element={<EmailDetail auth={auth} />} />
         </Routes>
       </main>
+
+      {/* USDC Send Modal */}
+      {showUsdcSend && auth.handle && (
+        <UsdcSendModal auth={auth} onClose={() => setShowUsdcSend(false)} />
+      )}
+    </div>
+  );
+}
+
+// ─── USDC Send Modal (Base Sepolia Testnet) ────────────
+function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void }) {
+  const { switchChainAsync } = useSwitchChain();
+  const [recipient, setRecipient] = useState('');
+  const [amount, setAmount] = useState('');
+  const [recipientWallet, setRecipientWallet] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState('');
+  const [status, setStatus] = useState<'idle' | 'switching' | 'transferring' | 'confirming' | 'sending_email' | 'success' | 'error'>('idle');
+  const [error, setError] = useState('');
+  const [txHash, setTxHash] = useState('');
+  const { writeContractAsync } = useWriteContract();
+
+  // Resolve recipient handle → wallet
+  useEffect(() => {
+    if (!recipient || recipient.length < 2) {
+      setRecipientWallet('');
+      setResolveError('');
+      return;
+    }
+    const handle = recipient.replace(/@basemail\.ai$/i, '').toLowerCase();
+    const timeout = setTimeout(async () => {
+      setResolving(true);
+      setResolveError('');
+      try {
+        const res = await fetch(`${API_BASE}/api/identity/${handle}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Not found');
+        setRecipientWallet(data.wallet);
+      } catch {
+        setRecipientWallet('');
+        setResolveError('Recipient not found');
+      } finally {
+        setResolving(false);
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [recipient]);
+
+  async function handleSend() {
+    if (!recipientWallet || !amount || parseFloat(amount) <= 0) return;
+    setError('');
+
+    try {
+      // 1. Switch to Base Sepolia
+      setStatus('switching');
+      await switchChainAsync({ chainId: BASE_SEPOLIA_CHAIN_ID });
+
+      // 2. Transfer USDC
+      setStatus('transferring');
+      const amountRaw = BigInt(Math.floor(parseFloat(amount) * 1e6));
+      const handle = recipient.replace(/@basemail\.ai$/i, '').toLowerCase();
+      const memo = new TextEncoder().encode(`basemail:${handle}@basemail.ai`);
+      const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Encode transfer + append memo as extra calldata
+      const transferData = encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: 'transfer',
+        args: [recipientWallet as `0x${string}`, amountRaw],
+      });
+      const fullData = (transferData + memoHex) as `0x${string}`;
+
+      const hash = await writeContractAsync({
+        address: BASE_SEPOLIA_USDC,
+        abi: ERC20_ABI,
+        functionName: 'transfer',
+        args: [recipientWallet as `0x${string}`, amountRaw],
+        chainId: BASE_SEPOLIA_CHAIN_ID,
+        // Use raw data with memo appended
+        dataSuffix: `0x${memoHex}` as `0x${string}`,
+      });
+      setTxHash(hash);
+
+      // 3. Wait for confirmation + send verified payment email
+      setStatus('sending_email');
+      const emailTo = handle.startsWith('0x') ? `${handle}@basemail.ai` : `${handle}@basemail.ai`;
+      const res = await apiFetch('/api/send', auth.token, {
+        method: 'POST',
+        body: JSON.stringify({
+          to: emailTo,
+          subject: `USDC Payment: $${parseFloat(amount).toFixed(2)}`,
+          body: `You received a payment of ${parseFloat(amount).toFixed(2)} USDC on Base Sepolia (testnet).\n\nTransaction: https://sepolia.basescan.org/tx/${hash}\n\nSent via BaseMail.ai`,
+          usdc_payment: { tx_hash: hash, amount: parseFloat(amount).toFixed(2) },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send payment email');
+
+      setStatus('success');
+    } catch (e: any) {
+      setError(e.message || 'Transaction failed');
+      setStatus('error');
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-base-gray rounded-xl p-6 max-w-md w-full border border-purple-700/50 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold">Send USDC</h3>
+            <span className="text-[10px] text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">Base Sepolia Testnet</span>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">&times;</button>
+        </div>
+
+        {status === 'success' ? (
+          <div className="text-center py-6">
+            <div className="text-4xl mb-3">$</div>
+            <h4 className="text-xl font-bold text-green-400 mb-2">Payment Sent!</h4>
+            <p className="text-gray-400 text-sm mb-2">
+              {parseFloat(amount).toFixed(2)} USDC sent to {recipient}
+            </p>
+            {txHash && (
+              <a
+                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-400 hover:text-purple-300 text-xs underline"
+              >
+                View on BaseScan
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="mt-4 w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition"
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Recipient */}
+            <div className="mb-4">
+              <label className="text-gray-400 text-xs mb-1 block">Recipient</label>
+              <input
+                type="text"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value.toLowerCase().trim())}
+                placeholder="handle or handle@basemail.ai"
+                className="w-full bg-base-dark border border-gray-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500"
+              />
+              {resolving && <p className="text-gray-500 text-xs mt-1">Resolving...</p>}
+              {resolveError && <p className="text-red-400 text-xs mt-1">{resolveError}</p>}
+              {recipientWallet && (
+                <p className="text-green-500 text-xs mt-1 font-mono">
+                  {recipientWallet.slice(0, 6)}...{recipientWallet.slice(-4)}
+                </p>
+              )}
+            </div>
+
+            {/* Amount */}
+            <div className="mb-4">
+              <label className="text-gray-400 text-xs mb-1 block">Amount (USDC)</label>
+              <input
+                type="text"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="10.00"
+                className="w-full bg-base-dark border border-gray-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500"
+              />
+            </div>
+
+            {/* Info */}
+            <div className="bg-base-dark rounded-lg p-3 mb-4 text-xs text-gray-500 space-y-1">
+              <p>Payment goes directly to recipient's wallet on Base Sepolia.</p>
+              <p>A verified payment email will be sent automatically.</p>
+              <p className="text-purple-400">On-chain memo: basemail:{recipient || '...'}@basemail.ai</p>
+            </div>
+
+            {/* Send button */}
+            <button
+              onClick={handleSend}
+              disabled={!recipientWallet || !amount || parseFloat(amount) <= 0 || status !== 'idle' && status !== 'error'}
+              className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition disabled:opacity-50"
+            >
+              {status === 'switching' ? 'Switching to Base Sepolia...'
+                : status === 'transferring' ? 'Confirm in wallet...'
+                : status === 'confirming' ? 'Waiting for confirmation...'
+                : status === 'sending_email' ? 'Sending payment email...'
+                : `Send ${amount || '0'} USDC`}
+            </button>
+
+            {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -855,7 +1100,12 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                       {new Date(email.created_at * 1000).toLocaleString()}
                     </span>
                   </div>
-                  <div className={`text-sm ${!email.read ? 'text-white' : 'text-gray-400'}`}>
+                  <div className={`text-sm flex items-center gap-2 ${!email.read ? 'text-white' : 'text-gray-400'}`}>
+                    {email.usdc_amount && (
+                      <span className="text-green-400 text-xs font-bold bg-green-900/30 px-1.5 py-0.5 rounded" title="Verified USDC Payment">
+                        ${email.usdc_amount}
+                      </span>
+                    )}
                     {email.subject || '(no subject)'}
                   </div>
                   <div className="text-gray-600 text-xs truncate mt-1">{cleanSnippet(email.snippet)}</div>
@@ -931,6 +1181,30 @@ function EmailDetail({ auth }: { auth: AuthState }) {
 
       <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
         <h2 className="text-xl font-bold mb-4">{email.subject || '(no subject)'}</h2>
+
+        {/* Verified USDC Payment banner */}
+        {email.usdc_amount && (
+          <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">$</span>
+              <div>
+                <div className="text-green-400 font-bold text-lg">{email.usdc_amount} USDC</div>
+                <div className="text-green-600 text-xs">Verified Payment (Base Sepolia Testnet)</div>
+              </div>
+            </div>
+            {email.usdc_tx && (
+              <a
+                href={`https://sepolia.basescan.org/tx/${email.usdc_tx}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-500 hover:text-green-400 text-xs underline"
+              >
+                View on BaseScan
+              </a>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-400 mb-6 pb-4 border-b border-gray-800">
           <div>
             <span className="text-gray-500">From:</span>{' '}
