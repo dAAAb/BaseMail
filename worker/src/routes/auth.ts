@@ -67,7 +67,10 @@ authRoutes.post('/agent-register', async (c) => {
   }
 
   const wallet = address.toLowerCase();
-  const secret = c.env.JWT_SECRET!;
+  const secret = c.env.JWT_SECRET;
+  if (!secret) {
+    return c.json({ error: 'Server misconfigured: JWT_SECRET missing' }, 503);
+  }
 
   // Check if wallet already registered
   const existingAccount = await c.env.DB.prepare(
@@ -77,7 +80,13 @@ authRoutes.post('/agent-register', async (c) => {
   if (existingAccount) {
     // Already registered — just return token + existing info
     const token = await createToken({ wallet, handle: existingAccount.handle }, secret);
-    const refresh_token = await issueRefreshToken(c.env, wallet, existingAccount.handle);
+    let refresh_token: string | null = null;
+    try {
+      refresh_token = await issueRefreshToken(c.env, wallet, existingAccount.handle);
+    } catch {
+      // Backward compatible: ignore refresh issuance failure
+      refresh_token = null;
+    }
     return c.json({
       token,
       refresh_token,
@@ -138,7 +147,12 @@ authRoutes.post('/agent-register', async (c) => {
   }
 
   const token = await createToken({ wallet, handle }, secret);
-  const refresh_token = await issueRefreshToken(c.env, wallet, handle);
+  let refresh_token: string | null = null;
+  try {
+    refresh_token = await issueRefreshToken(c.env, wallet, handle);
+  } catch {
+    refresh_token = null;
+  }
 
   // Count pending emails
   const pendingResult = await c.env.DB.prepare(
@@ -264,16 +278,24 @@ authRoutes.post('/verify', async (c) => {
     suggestedSource = resolved.source;
   }
 
-  const secret = c.env.JWT_SECRET!;
+  const secret = c.env.JWT_SECRET;
+  if (!secret) {
+    return c.json({ error: 'Server misconfigured: JWT_SECRET missing' }, 503);
+  }
   const token = await createToken(
     { wallet, handle: account?.handle || '' },
     secret,
   );
 
   // Issue refresh token only if user is registered (handle exists)
-  const refresh_token = account?.handle
-    ? await issueRefreshToken(c.env, wallet, account.handle)
-    : null;
+  let refresh_token: string | null = null;
+  if (account?.handle) {
+    try {
+      refresh_token = await issueRefreshToken(c.env, wallet, account.handle);
+    } catch {
+      refresh_token = null;
+    }
+  }
 
   // Count pre-stored emails for unregistered users
   let pendingEmails = 0;

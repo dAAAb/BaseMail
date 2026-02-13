@@ -19,7 +19,9 @@ authRefreshRoutes.post('/refresh', async (c) => {
   const verified = await verifyRefreshToken(c.env, refresh_token);
   if (!verified) return c.json({ error: 'Invalid or expired refresh token' }, 401);
 
-  const token = await createToken({ wallet: verified.wallet, handle: verified.handle }, c.env.JWT_SECRET!);
+  const secret = c.env.JWT_SECRET;
+  if (!secret) return c.json({ error: 'Server misconfigured: JWT_SECRET missing' }, 503);
+  const token = await createToken({ wallet: verified.wallet, handle: verified.handle }, secret);
 
   if (rotate) {
     const newRefresh = await issueRefreshToken(c.env, verified.wallet, verified.handle);
