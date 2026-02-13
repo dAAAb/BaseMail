@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { generateNonce, verifySiwe, createToken, buildSiweMessage } from '../auth';
 import type { SiweResult } from '../auth';
+import { issueRefreshToken } from '../refresh';
 import { resolveHandle, verifyBasenameOwnership } from '../basename-lookup';
 import type { Address } from 'viem';
 
@@ -11,7 +12,7 @@ const SIWE_ERROR_MESSAGES: Record<string, string> = {
   signature_invalid: 'Signature verification failed. Ensure you sign the exact message string with the correct private key (personal_sign / EIP-191).',
 };
 
-export const authRoutes = new Hono<{ Bindings: Env }>();
+export const authRoutes = new Hono<AppBindings>();
 
 /**
  * POST /api/auth/start
@@ -76,8 +77,10 @@ authRoutes.post('/agent-register', async (c) => {
   if (existingAccount) {
     // Already registered — just return token + existing info
     const token = await createToken({ wallet, handle: existingAccount.handle }, secret);
+    const refresh_token = await issueRefreshToken(c.env, wallet, existingAccount.handle);
     return c.json({
       token,
+      refresh_token,
       email: `${existingAccount.handle}@${c.env.DOMAIN}`,
       handle: existingAccount.handle,
       wallet,
@@ -135,6 +138,7 @@ authRoutes.post('/agent-register', async (c) => {
   }
 
   const token = await createToken({ wallet, handle }, secret);
+  const refresh_token = await issueRefreshToken(c.env, wallet, handle);
 
   // Count pending emails
   const pendingResult = await c.env.DB.prepare(
@@ -143,6 +147,7 @@ authRoutes.post('/agent-register', async (c) => {
 
   const response: Record<string, any> = {
     token,
+    refresh_token,
     email: `${handle}@${c.env.DOMAIN}`,
     handle,
     wallet,
@@ -265,6 +270,11 @@ authRoutes.post('/verify', async (c) => {
     secret,
   );
 
+  // Issue refresh token only if user is registered (handle exists)
+  const refresh_token = account?.handle
+    ? await issueRefreshToken(c.env, wallet, account.handle)
+    : null;
+
   // Count pre-stored emails for unregistered users
   let pendingEmails = 0;
   if (!account && suggestedHandle) {
@@ -276,6 +286,7 @@ authRoutes.post('/verify', async (c) => {
 
   return c.json({
     token,
+    refresh_token,
     wallet,
     handle: account?.handle || null,
     registered: !!account,

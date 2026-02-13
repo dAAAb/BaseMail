@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
-export const waitlistRoutes = new Hono<{ Bindings: Env }>();
+export const waitlistRoutes = new Hono<AppBindings>();
 
 /**
  * POST /api/waitlist

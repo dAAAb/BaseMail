@@ -6,10 +6,10 @@ import {
   type Hex,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
-export const creditsRoutes = new Hono<{ Bindings: Env }>();
+export const creditsRoutes = new Hono<AppBindings>();
 
 creditsRoutes.use('/*', authMiddleware());
 
@@ -85,7 +85,7 @@ creditsRoutes.post('/buy', async (c) => {
   }
 
   // 自動偵測交易在哪條鏈上（先嘗試指定鏈，再嘗試另一條）
-  const chainsToTry: Array<{ chain: typeof base; rpc: string; id: number }> = chain_id === 1
+  const chainsToTry: Array<{ chain: any; rpc: string; id: number }> = chain_id === 1
     ? [{ chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }, { chain: base, rpc: BASE_RPC, id: 8453 }]
     : [{ chain: base, rpc: BASE_RPC, id: 8453 }, { chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }];
 

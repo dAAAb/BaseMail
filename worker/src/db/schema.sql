@@ -39,3 +39,30 @@ CREATE TABLE IF NOT EXISTS waitlist (
 );
 
 CREATE INDEX IF NOT EXISTS idx_waitlist_handle ON waitlist(desired_handle);
+
+-- Refresh tokens (long-lived) for access token re-issue
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token_hash   TEXT PRIMARY KEY,
+    wallet       TEXT NOT NULL,
+    handle       TEXT NOT NULL,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+    expires_at   INTEGER NOT NULL,
+    last_used_at INTEGER,
+    FOREIGN KEY (handle) REFERENCES accounts(handle)
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_wallet ON refresh_tokens(wallet);
+
+-- API keys (long-lived, revocable) for agent usage without private keys
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_hash     TEXT PRIMARY KEY,
+    handle       TEXT NOT NULL,
+    name         TEXT,
+    scopes       TEXT NOT NULL DEFAULT 'send,inbox',
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+    last_used_at INTEGER,
+    revoked_at   INTEGER,
+    FOREIGN KEY (handle) REFERENCES accounts(handle)
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_handle ON api_keys(handle);

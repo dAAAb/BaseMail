@@ -50,3 +50,11 @@ export interface AuthContext {
   wallet: string;
   handle: string;
 }
+
+// Hono app types (so c.get('auth') is strongly typed)
+export type AppBindings = {
+  Bindings: Env;
+  Variables: {
+    auth: AuthContext;
+  };
+};

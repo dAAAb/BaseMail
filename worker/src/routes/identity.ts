@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 
-export const identityRoutes = new Hono<{ Bindings: Env }>();
+export const identityRoutes = new Hono<AppBindings>();
 
 /**
  * GET /api/identity/:handle

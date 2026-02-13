@@ -1,11 +1,14 @@
-import { Buffer } from 'node:buffer';
+// Buffer polyfill (for viem)
+// Note: this is a Node compat import; keep types via @types/node in dev.
+import { Buffer } from 'buffer';
 // @ts-ignore — polyfill Buffer for viem in Cloudflare Workers
 globalThis.Buffer = Buffer;
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env } from './types';
+import { AppBindings } from './types';
 import { authRoutes } from './routes/auth';
+import { authRefreshRoutes } from './routes/auth-refresh';
 import { registerRoutes } from './routes/register';
 import { inboxRoutes } from './routes/inbox';
 import { sendRoutes } from './routes/send';
@@ -13,9 +16,11 @@ import { identityRoutes } from './routes/identity';
 import { creditsRoutes } from './routes/credits';
 import { proRoutes } from './routes/pro';
 import { waitlistRoutes } from './routes/waitlist';
+import { statsRoutes } from './routes/stats';
+import { keyRoutes } from './routes/keys';
 import { handleIncomingEmail } from './email-handler';
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppBindings>();
 
 // CORS — 允許所有來源（Agent API 需要）
 app.use('/*', cors({
@@ -382,6 +387,7 @@ app.get('/api/docs', (c) => {
 
 // API 路由
 app.route('/api/auth', authRoutes);
+app.route('/api/auth', authRefreshRoutes);
 app.route('/api/register', registerRoutes);
 app.route('/api/inbox', inboxRoutes);
 app.route('/api/send', sendRoutes);
@@ -389,6 +395,8 @@ app.route('/api/identity', identityRoutes);
 app.route('/api/credits', creditsRoutes);
 app.route('/api/pro', proRoutes);
 app.route('/api/waitlist', waitlistRoutes);
+app.route('/api/stats', statsRoutes);
+app.route('/api/keys', keyRoutes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {

@@ -1,6 +1,7 @@
 import { Context, Next } from 'hono';
-import { Env, AuthContext } from './types';
+import { Env, AuthContext, AppBindings } from './types';
 import { verifyMessage } from 'viem';
+import { verifyApiKey } from './api-keys';
 
 const NONCE_TTL = 300; // 5 分鐘過期
 
@@ -129,15 +130,29 @@ export async function verifyToken(token: string, secret: string): Promise<AuthCo
  * Hono 中介軟體：驗證 JWT 並注入 auth context
  */
 export function authMiddleware() {
-  return async (c: Context<{ Bindings: Env }>, next: Next) => {
+  return async (c: Context<AppBindings>, next: Next) => {
     const authHeader = c.req.header('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return c.json({ error: 'Missing authorization token' }, 401);
     }
 
-    const token = authHeader.slice(7);
+    const tokenOrKey = authHeader.slice(7);
+
+    // 1) API key auth (agent-friendly)
+    if (tokenOrKey.startsWith('bm_live_')) {
+      const apiKeyAuth = await verifyApiKey(c.env, tokenOrKey);
+      if (!apiKeyAuth) {
+        return c.json({ error: 'Invalid or revoked API key' }, 401);
+      }
+      // Map API key to a handle. Wallet is unknown in this mode.
+      c.set('auth', { wallet: '', handle: apiKeyAuth.handle });
+      await next();
+      return;
+    }
+
+    // 2) JWT auth (backward compatible)
     const secret = c.env.JWT_SECRET!;
-    const auth = await verifyToken(token, secret);
+    const auth = await verifyToken(tokenOrKey, secret);
 
     if (!auth) {
       return c.json({ error: 'Invalid or expired token' }, 401);

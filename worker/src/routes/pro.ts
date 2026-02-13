@@ -6,10 +6,10 @@ import {
   type Hex,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { authMiddleware, createToken } from '../auth';
 
-export const proRoutes = new Hono<{ Bindings: Env }>();
+export const proRoutes = new Hono<AppBindings>();
 
 proRoutes.use('/*', authMiddleware());
 
@@ -93,7 +93,7 @@ proRoutes.post('/buy', async (c) => {
   }
 
   // Auto-detect chain
-  const chainsToTry: Array<{ chain: typeof base; rpc: string; id: number }> = chain_id === 1
+  const chainsToTry: Array<{ chain: any; rpc: string; id: number }> = chain_id === 1
     ? [{ chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }, { chain: base, rpc: BASE_RPC, id: 8453 }]
     : [{ chain: base, rpc: BASE_RPC, id: 8453 }, { chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }];
 

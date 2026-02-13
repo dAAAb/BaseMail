@@ -289,22 +289,25 @@ export default function Dashboard() {
     return (
       <RegisterEmail
         auth={auth}
-        onRegistered={(handle, token) => setAuth({ ...auth, handle, registered: true, token })}
+        onRegistered={(handle, token) =>
+          setAuth((prev) => (prev ? { ...prev, handle, registered: true, token } : prev))
+        }
       />
     );
   }
 
-  const hasBasename = !!auth.basename && !/^0x/i.test(auth.handle!);
+  const a = auth!;
+  const hasBasename = !!a.basename && !/^0x/i.test(a.handle!);
   // Can upgrade: either reverse resolution found the name, or we know they have a Basename NFT
-  const hasKnownName = auth.suggested_handle && /^0x/i.test(auth.handle!);
-  const hasNFTOnly = auth.has_basename_nft && /^0x/i.test(auth.handle!) && !auth.suggested_handle;
-  const canUpgrade = auth.upgrade_available && (hasKnownName || hasNFTOnly);
-  const primaryEmail = `${auth.handle}@basemail.ai`;
-  const altEmail = hasBasename ? `${auth.wallet.toLowerCase()}@basemail.ai` : null;
+  const hasKnownName = a.suggested_handle && /^0x/i.test(a.handle!);
+  const hasNFTOnly = a.has_basename_nft && /^0x/i.test(a.handle!) && !a.suggested_handle;
+  const canUpgrade = a.upgrade_available && (hasKnownName || hasNFTOnly);
+  const primaryEmail = `${a.handle}@basemail.ai`;
+  const altEmail = hasBasename ? `${a.wallet.toLowerCase()}@basemail.ai` : null;
   const displayEmail = showAltEmail && altEmail ? altEmail : primaryEmail;
 
   async function handleUpgrade(overrideBasename?: string) {
-    const basename = overrideBasename || auth.basename;
+    const basename = overrideBasename || a.basename;
     if (!basename && !basenameInput.trim()) {
       setUpgradeError('Please enter your Basename');
       return;
@@ -330,14 +333,18 @@ export default function Dashboard() {
       setShowUpgradeConfetti(true);
       setTimeout(() => {
         setShowUpgradeConfetti(false);
-        setAuth({
-          ...auth,
-          handle: data.handle,
-          token: data.token,
-          basename: data.basename,
-          upgrade_available: false,
-          has_basename_nft: false,
-        });
+        setAuth((prev) =>
+          prev
+            ? {
+                ...prev,
+                handle: data.handle,
+                token: data.token,
+                basename: data.basename,
+                upgrade_available: false,
+                has_basename_nft: false,
+              }
+            : prev,
+        );
       }, 3500);
     } catch (e: any) {
       setUpgradeError(e.message || 'Upgrade failed');
@@ -1266,7 +1273,7 @@ function BuyCreditsModal({
       const payAmount = parseEther(amount);
 
       // Smart chain selection: prefer Base, fallback to ETH mainnet
-      let targetChainId = base.id;
+      let targetChainId: number = base.id;
       if (baseEthBal && baseEthBal.value < payAmount && mainnetEthBal && mainnetEthBal.value >= payAmount) {
         targetChainId = mainnet.id;
       }

@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { authMiddleware, createToken } from '../auth';
 import { resolveHandle, basenameToHandle, verifyBasenameOwnership } from '../basename-lookup';
 import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../basename';
 import type { Hex, Address } from 'viem';
 import { formatEther } from 'viem';
 
-export const registerRoutes = new Hono<{ Bindings: Env }>();
+export const registerRoutes = new Hono<AppBindings>();
 
 /**
  * POST /api/register
@@ -22,11 +22,20 @@ export const registerRoutes = new Hono<{ Bindings: Env }>();
  */
 registerRoutes.post('/', authMiddleware(), async (c) => {
   const auth = c.get('auth');
-  const body = await c.req.json<{
-    basename?: string;         // e.g. "littl3lobst3r.base.eth"
+  let body: {
+    basename?: string; // e.g. "littl3lobst3r.base.eth"
     auto_basename?: boolean;
     basename_name?: string;
-  }>().catch(() => ({}));
+  } = {};
+  try {
+    body = await c.req.json<{
+      basename?: string;
+      auto_basename?: boolean;
+      basename_name?: string;
+    }>();
+  } catch {
+    body = {};
+  }
 
   // Check if wallet already registered
   const walletAccount = await c.env.DB.prepare(
@@ -181,11 +190,20 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
 registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   try {
   const auth = c.get('auth');
-  const body = await c.req.json<{
-    basename?: string;        // e.g. "juchunko.base.eth" — from frontend
-    auto_basename?: boolean;  // true = buy a Basename on-chain (worker pays)
-    basename_name?: string;   // desired name (required if auto_basename)
-  }>().catch(() => ({}));
+  let body: {
+    basename?: string; // e.g. "juchunko.base.eth" — from frontend
+    auto_basename?: boolean; // true = buy a Basename on-chain (worker pays)
+    basename_name?: string; // desired name (required if auto_basename)
+  } = {};
+  try {
+    body = await c.req.json<{
+      basename?: string;
+      auto_basename?: boolean;
+      basename_name?: string;
+    }>();
+  } catch {
+    body = {};
+  }
 
   // 確認帳號存在且目前是 0x handle
   const account = await c.env.DB.prepare(

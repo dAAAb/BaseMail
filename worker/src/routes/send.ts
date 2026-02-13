@@ -3,7 +3,7 @@ import { EmailMessage } from 'cloudflare:email';
 import { createMimeMessage } from 'mimetext';
 import { createPublicClient, http, parseAbi, type Hex } from 'viem';
 import { baseSepolia } from 'viem/chains';
-import { Env } from '../types';
+import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
 // ── USDC Hackathon (TESTNET ONLY — Base Sepolia) ──
@@ -11,7 +11,7 @@ const BASE_SEPOLIA_RPC = 'https://sepolia.base.org';
 const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
 const USDC_TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
 
-export const sendRoutes = new Hono<{ Bindings: Env }>();
+export const sendRoutes = new Hono<AppBindings>();
 
 sendRoutes.use('/*', authMiddleware());
 
@@ -52,7 +52,7 @@ sendRoutes.post('/', async (c) => {
   const auth = c.get('auth');
 
   if (!auth.handle) {
-    return c.json({ error: 'No email registered for this wallet' }, 403);
+    return c.json({ error: 'No email registered for this wallet or API key' }, 403);
   }
 
   const { to, subject, body, html, in_reply_to, attachments, usdc_payment } = await c.req.json<{
@@ -115,7 +115,10 @@ sendRoutes.post('/', async (c) => {
       const txAmount = BigInt(transferLog.data);
       const humanAmount = (Number(txAmount) / 1e6).toFixed(2);
 
-      // Verify sender matches
+      // Verify sender matches (requires wallet-based auth)
+      if (!auth.wallet) {
+        return c.json({ error: 'USDC verification requires wallet-based auth (JWT), not API key' }, 400);
+      }
       if (txFrom !== auth.wallet.toLowerCase()) {
         return c.json({ error: 'USDC sender does not match authenticated wallet' }, 400);
       }
@@ -140,6 +143,15 @@ sendRoutes.post('/', async (c) => {
   const emailId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
+  // If API key auth, resolve wallet for headers when possible
+  let walletForHeaders = auth.wallet;
+  if (!walletForHeaders) {
+    const acct = await c.env.DB.prepare('SELECT wallet FROM accounts WHERE handle = ?')
+      .bind(auth.handle)
+      .first<{ wallet: string }>();
+    walletForHeaders = acct?.wallet || '';
+  }
+
   // Check tier for signature
   const acctTier = await c.env.DB.prepare(
     'SELECT tier FROM accounts WHERE handle = ?'
@@ -160,7 +172,7 @@ sendRoutes.post('/', async (c) => {
     msg.addMessage({ contentType: 'text/html', data: finalHtml });
   }
   msg.setHeader('X-BaseMail-Agent', auth.handle);
-  msg.setHeader('X-BaseMail-Wallet', auth.wallet);
+  if (walletForHeaders) msg.setHeader('X-BaseMail-Wallet', walletForHeaders);
 
   // USDC payment headers
   if (verifiedUsdc) {
