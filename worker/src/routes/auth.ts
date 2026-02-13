@@ -306,11 +306,16 @@ authRoutes.post('/verify', async (c) => {
     pendingEmails = result?.count || 0;
   }
 
+  const email = account?.handle
+    ? `${account.handle}@${c.env.DOMAIN}`
+    : (suggestedHandle ? `${suggestedHandle}@${c.env.DOMAIN}` : null);
+
   return c.json({
     token,
     refresh_token,
     wallet,
     handle: account?.handle || null,
+    email,
     registered: !!account,
     basename,
     tier: account?.tier || 'free',
