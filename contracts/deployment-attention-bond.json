@@ -1,0 +1,14 @@
+{
+  "contract": "AttentionBondEscrow",
+  "address": "0x0f686c8ac82654fe0d3e3309f4243f13c9576b27",
+  "deployer": "0x94c72f43F9F2E04Bcf1545021725353DC177f7E6",
+  "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "treasury": "0x94c72f43F9F2E04Bcf1545021725353DC177f7E6",
+  "txHash": "0x377d3f58b08f656e1ad6ac1bfeacc8f82840eba2064615fea65c63417ba2caa5",
+  "blockNumber": 42323184,
+  "gasUsed": 1338864,
+  "network": "Base Mainnet",
+  "chainId": 8453,
+  "deployedAt": "2026-02-18T17:28:33.678Z",
+  "paper": "Ko, Tang, Weyl (2026) — Connection-Oriented QAF"
+}
