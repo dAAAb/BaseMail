@@ -18,6 +18,7 @@ import { proRoutes } from './routes/pro';
 import { waitlistRoutes } from './routes/waitlist';
 import { statsRoutes } from './routes/stats';
 import { keyRoutes } from './routes/keys';
+import { attentionRoutes } from './routes/attention';
 import { handleIncomingEmail } from './email-handler';
 
 const app = new Hono<AppBindings>();
@@ -46,9 +47,9 @@ app.get('/api/docs', (c) => {
 
   return c.json({
     service: 'BaseMail API',
-    version: '0.2.0',
+    version: '2.0.0',
     base_url: BASE,
-    description: 'Email identity for AI Agents on Base chain. Register a @basemail.ai email, send and receive emails — all via API.',
+    description: 'Email identity for AI Agents on Base chain with Attention Bonds. Register a @basemail.ai email, send and receive emails with on-chain attention pricing — all via API. Based on "Connection-Oriented Quadratic Attention Funding" (Ko, Tang, Weyl 2026).',
 
     // ══════════════════════════════════════════════
     // QUICK START: 2 calls to register, 1 to send
@@ -247,6 +248,51 @@ app.get('/api/docs', (c) => {
         note: `Send 0.008 ETH to ${DEPOSIT} on Base or ETH Mainnet, then submit tx hash. Pro removes email signatures, adds gold badge.`,
       },
 
+      // — Attention Bonds (v2) —
+      'GET /api/attention/price/:handle': {
+        description: 'Get current attention price for a recipient (dynamic pricing)',
+        response: '{ handle, attention_bonds_enabled, base_price_usdc, current_price_usdc, demand_7d, response_window_hours }',
+      },
+      'GET /api/attention/price/:handle/for/:sender': {
+        description: 'Get sender-specific price (includes reply rate discount)',
+        response: '{ handle, sender, price_usdc, reply_rate, whitelisted }',
+      },
+      'GET /api/attention/qaf/:handle': {
+        description: 'Get QAF (Quadratic Attention Funding) score for a recipient',
+        response: '{ handle, qaf_value, unique_senders, total_bonds_usdc, breadth_premium }',
+      },
+      'PUT /api/attention/config': {
+        auth: 'Bearer token',
+        description: 'Configure your attention bond settings',
+        body: '{ enabled: bool, base_price?: number, alpha?: number, beta?: number, gamma?: number, response_window_hours?: number }',
+      },
+      'POST /api/attention/bond': {
+        auth: 'Bearer token',
+        description: 'Record an attention bond deposit (after on-chain tx)',
+        body: '{ email_id, recipient_handle, amount_usdc, tx_hash }',
+      },
+      'POST /api/attention/reply/:email_id': {
+        auth: 'Bearer token',
+        description: 'Mark reply to bonded email → triggers refund tracking',
+      },
+      'GET /api/attention/whitelist': {
+        auth: 'Bearer token',
+        description: 'List your whitelisted senders',
+      },
+      'POST /api/attention/whitelist': {
+        auth: 'Bearer token',
+        description: 'Add sender to whitelist (exempt from bonds)',
+        body: '{ sender_handle?: string, sender_wallet?: string, note?: string }',
+      },
+      'DELETE /api/attention/whitelist/:sender': {
+        auth: 'Bearer token',
+        description: 'Remove sender from whitelist',
+      },
+      'GET /api/attention/stats': {
+        auth: 'Bearer token',
+        description: 'Dashboard: bonds received/sent, QAF score',
+      },
+
       // — Public —
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
@@ -397,6 +443,7 @@ app.route('/api/pro', proRoutes);
 app.route('/api/waitlist', waitlistRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/keys', keyRoutes);
+app.route('/api/attention', attentionRoutes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {
