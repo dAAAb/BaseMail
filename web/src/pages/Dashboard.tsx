@@ -245,6 +245,14 @@ export default function Dashboard() {
   const [basenameInput, setBasenameInput] = useState('');
   const [upgradeError, setUpgradeError] = useState('');
 
+  // URL params: ?claim=name (verify ownership + upgrade) or ?buy=name (purchase + register)
+  const urlParams = new URLSearchParams(location.search);
+  const claimParam = urlParams.get('claim');
+  const buyParam = urlParams.get('buy');
+  const [pendingAction, setPendingAction] = useState<{ type: 'claim' | 'buy'; name: string } | null>(
+    claimParam ? { type: 'claim', name: claimParam } : buyParam ? { type: 'buy', name: buyParam } : null
+  );
+
   // Wallet balances for sidebar display
   const walletAddr = auth?.wallet as `0x${string}` | undefined;
   const { data: baseEth } = useBalance({ address: walletAddr, chainId: base.id });
@@ -323,18 +331,33 @@ export default function Dashboard() {
     }
 
     // Build the basename string
-    let fullBasename = basename || basenameInput.trim();
-    if (!fullBasename.endsWith('.base.eth')) {
-      fullBasename = `${fullBasename}.base.eth`;
-    }
+    let nameOnly = basename || basenameInput.trim();
+    nameOnly = nameOnly.replace(/\.base\.eth$/i, '');
+    const fullBasename = `${nameOnly}.base.eth`;
 
     setUpgrading(true);
     setUpgradeError('');
     try {
-      const res = await apiFetch('/api/register/upgrade', auth!.token, {
+      // First try claiming existing Basename (verify ownership)
+      let res = await apiFetch('/api/register/upgrade', auth!.token, {
         method: 'PUT',
         body: JSON.stringify({ basename: fullBasename }),
       });
+
+      // If ownership verification fails, try auto_basename (buy + register)
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        const errMsg = errData?.error || '';
+        if (errMsg.includes('not own') || errMsg.includes('ownership') || errMsg.includes('not the owner')) {
+          // Try auto-purchase
+          res = await apiFetch('/api/register/upgrade', auth!.token, {
+            method: 'PUT',
+            body: JSON.stringify({ auto_basename: true, basename_name: nameOnly }),
+          });
+        } else {
+          throw new Error(errMsg || 'Upgrade failed');
+        }
+      }
       const text = await res.text();
       let data: any;
       try { data = JSON.parse(text); } catch { throw new Error(`Server error: ${text.slice(0, 100)}`); }
@@ -496,8 +519,22 @@ export default function Dashboard() {
 
       {/* Main content */}
       <main className="flex-1 p-8 overflow-y-auto">
+        {/* Pending action from URL params: ?claim=name or ?buy=name */}
+        {pendingAction && auth?.handle && (
+          <PendingActionBanner
+            action={pendingAction}
+            auth={auth}
+            onUpgrade={handleUpgrade}
+            upgrading={upgrading}
+            onDismiss={() => {
+              setPendingAction(null);
+              // Clean URL params
+              window.history.replaceState({}, '', '/dashboard');
+            }}
+          />
+        )}
         {/* Basename upgrade banner at top */}
-        {canUpgrade && hasKnownName && (
+        {!pendingAction && canUpgrade && hasKnownName && (
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-5 mb-6 flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -519,7 +556,7 @@ export default function Dashboard() {
             </button>
           </div>
         )}
-        {canUpgrade && hasNFTOnly && (
+        {!pendingAction && canUpgrade && hasNFTOnly && (
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-5 mb-6">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">&#10024;</span>
@@ -969,13 +1006,6 @@ function RegisterEmail({
               </div>
             </div>
           )}
-
-          <button
-            disabled
-            className="w-full bg-gray-700 text-gray-400 py-3 rounded-lg font-medium mb-3 cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            <span>&#127941;</span> Claim NFT Badge (Coming Soon)
-          </button>
 
           <button
             onClick={() => onRegistered(claimedHandle, auth.token)}
@@ -2422,6 +2452,181 @@ function Attention({ auth }: { auth: AuthState }) {
           <div>QAF Formula: AV = (Σ√bᵢ)² — more diverse senders = higher score</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Pending Action Banner (from ?claim= or ?buy= URL params) ────
+function PendingActionBanner({
+  action, auth, onUpgrade, upgrading, onDismiss,
+}: {
+  action: { type: 'claim' | 'buy'; name: string };
+  auth: AuthState;
+  onUpgrade: (basename?: string) => void;
+  upgrading: boolean;
+  onDismiss: () => void;
+}) {
+  const [checking, setChecking] = useState(true);
+  const [ownsName, setOwnsName] = useState(false);
+  const [priceEth, setPriceEth] = useState<string | null>(null);
+  const [available, setAvailable] = useState(false);
+  const [error, setError] = useState('');
+  const { writeContract, isPending: isBuying, data: txHash } = useWriteContract();
+  const { switchChain } = useSwitchChain();
+  const { chain } = useAccount();
+  const txResult = useWaitForTransactionReceipt({ hash: txHash });
+
+  useEffect(() => {
+    (async () => {
+      setChecking(true);
+      try {
+        if (action.type === 'claim') {
+          // Verify ownership on-chain
+          const res = await apiFetch(`/api/register/check/${auth.wallet}`, auth.token);
+          const data = await res.json();
+          // Check if wallet's resolved basename matches the claim
+          const resolvedName = data.basename?.replace('.base.eth', '').toLowerCase();
+          if (resolvedName === action.name.toLowerCase()) {
+            setOwnsName(true);
+          } else {
+            // Also try verifyBasenameOwnership via upgrade endpoint check
+            setOwnsName(false);
+            setError(`Your wallet does not own ${action.name}.base.eth. You can buy it below or try a different name.`);
+            // Check if available to buy
+            const priceRes = await fetch(`${API_BASE}/api/register/price/${action.name}`);
+            if (priceRes.ok) {
+              const priceData = await priceRes.json();
+              if (priceData.available) {
+                setAvailable(true);
+                setPriceEth(priceData.price_eth);
+              }
+            }
+          }
+        } else {
+          // Buy flow — check price
+          const priceRes = await fetch(`${API_BASE}/api/register/price/${action.name}`);
+          if (priceRes.ok) {
+            const priceData = await priceRes.json();
+            setAvailable(priceData.available);
+            setPriceEth(priceData.price_eth);
+            if (!priceData.available) {
+              setError(`${action.name}.base.eth is not available for purchase.`);
+            }
+          }
+        }
+      } catch {}
+      setChecking(false);
+    })();
+  }, [action, auth]);
+
+  // After successful claim verification, trigger upgrade
+  useEffect(() => {
+    if (ownsName && action.type === 'claim' && !upgrading) {
+      onUpgrade(action.name);
+    }
+  }, [ownsName]);
+
+  // After buy tx confirms, trigger upgrade
+  useEffect(() => {
+    if (txResult.isSuccess) {
+      // Wait a bit for chain state to propagate, then upgrade
+      setTimeout(() => onUpgrade(action.name), 3000);
+    }
+  }, [txResult.isSuccess]);
+
+  if (checking) {
+    return (
+      <div className="bg-gray-800/50 rounded-xl p-6 mb-6 text-center">
+        <div className="text-gray-400">Checking {action.name}.base.eth...</div>
+      </div>
+    );
+  }
+
+  // Claim flow: verified owner → auto-upgrading
+  if (action.type === 'claim' && ownsName) {
+    return (
+      <div className="bg-gradient-to-r from-green-900/30 to-blue-900/30 border border-green-700/50 rounded-xl p-6 mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xl">✅</span>
+          <h3 className="font-bold text-lg">Ownership Verified!</h3>
+        </div>
+        <p className="text-gray-400 text-sm">
+          You own <span className="text-base-blue font-mono font-bold">{action.name}.base.eth</span>. Upgrading your email...
+        </p>
+      </div>
+    );
+  }
+
+  // Not owner or buy flow → show purchase option
+  return (
+    <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">{action.type === 'claim' ? '⚠️' : '🛒'}</span>
+          <h3 className="font-bold text-lg">
+            {action.type === 'claim'
+              ? `You don't own ${action.name}.base.eth`
+              : `Buy ${action.name}.base.eth`}
+          </h3>
+        </div>
+        <button onClick={onDismiss} className="text-gray-500 hover:text-white text-sm">✕</button>
+      </div>
+
+      {error && !available && (
+        <p className="text-red-400 text-sm mb-3">{error}</p>
+      )}
+
+      {available && priceEth && (
+        <>
+          {action.type === 'claim' && (
+            <p className="text-yellow-400 text-sm mb-3">
+              Your wallet doesn't own this Basename yet. You can buy it now:
+            </p>
+          )}
+          <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-4">
+            <div className="flex justify-between text-sm mb-1">
+              <span className="text-gray-400">Registration fee (1 year)</span>
+              <span className="text-white font-mono">{parseFloat(priceEth).toFixed(4)} ETH</span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-600">
+              <span>≈ ${(parseFloat(priceEth) * 2800).toFixed(2)} USD</span>
+              <span>{action.name}.base.eth</span>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                if (chain?.id !== base.id) {
+                  switchChain({ chainId: base.id });
+                  return;
+                }
+                // Use auto_basename via API — worker handles on-chain purchase
+                onUpgrade(action.name);
+              }}
+              disabled={upgrading || isBuying}
+              className="flex-1 bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-500 transition disabled:opacity-50"
+            >
+              {upgrading ? 'Purchasing...' : isBuying ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `✨ Buy ${action.name}.base.eth + Register Email`}
+            </button>
+            <a
+              href={`https://www.base.org/names/${action.name}`}
+              target="_blank" rel="noopener noreferrer"
+              className="border border-gray-600 text-gray-300 px-4 py-3 rounded-lg font-medium hover:bg-gray-800 transition text-sm flex items-center"
+            >
+              Base.org ↗
+            </a>
+          </div>
+
+          {txResult.isSuccess && (
+            <p className="text-green-400 text-sm mt-3">✅ Purchase confirmed! Setting up your email...</p>
+          )}
+        </>
+      )}
+
+      {!available && action.type === 'buy' && (
+        <p className="text-red-400 text-sm">This Basename is not available. Try a different name.</p>
+      )}
     </div>
   );
 }

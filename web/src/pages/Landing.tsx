@@ -242,7 +242,7 @@ export default function Landing() {
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
+                  <a href={`/dashboard?claim=${encodeURIComponent(result.handle)}`} className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
                     I own this — Connect Wallet
                   </a>
                   <a href={`https://www.base.org/names/${result.handle}`} target="_blank" rel="noopener noreferrer"
@@ -282,7 +282,7 @@ export default function Landing() {
                 )}
 
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
+                  <a href={`/dashboard?buy=${encodeURIComponent(result.handle)}`} className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
                     ✨ Buy & Register in Dashboard
                   </a>
                   {result.price_info?.buy_url && (
