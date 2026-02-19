@@ -2667,10 +2667,10 @@ function Attention({ auth }: { auth: AuthState }) {
                   </div>
                   <button
                     onClick={setOnChainPrice}
-                    disabled={isWriting}
+                    disabled={false}
                     className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
                   >
-                    {isWriting ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `Set ${basePrice} USDC`}
+                    {chain?.id !== base.id ? 'Switch to Base' : `Set ${basePrice} USDC`}
                   </button>
                 </div>
               </div>
