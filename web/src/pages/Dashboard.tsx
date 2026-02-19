@@ -417,8 +417,8 @@ export default function Dashboard() {
       {showUpgradeConfetti && <ConfettiEffect />}
 
       {/* Sidebar */}
-      {!sidebarCollapsed && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarCollapsed(true)} />}
-      <aside className={`${sidebarCollapsed ? 'hidden' : 'fixed inset-y-0 left-0 z-40 w-64'} md:${sidebarCollapsed ? 'hidden' : 'relative'} bg-base-gray border-r border-gray-800 p-6 flex flex-col`}>
+      <div className={`fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-200 ${sidebarCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} onClick={() => setSidebarCollapsed(true)} />
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-base-gray border-r border-gray-800 p-6 flex flex-col transform transition-transform duration-200 ease-in-out ${sidebarCollapsed ? '-translate-x-full' : 'translate-x-0'}`}>
         <div className="flex items-center gap-2 mb-8">
           <Link to="/" className="flex items-center gap-2 flex-1">
             <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
