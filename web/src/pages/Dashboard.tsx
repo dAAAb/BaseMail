@@ -251,8 +251,10 @@ export default function Dashboard() {
   const urlParams = new URLSearchParams(location.search);
   const claimParam = urlParams.get('claim');
   const buyParam = urlParams.get('buy');
+  // Only use PendingActionBanner for ?buy= (purchase flow). 
+  // For ?claim=, we use the existing NFT upgrade banner with pre-filled input.
   const [pendingAction, setPendingAction] = useState<{ type: 'claim' | 'buy'; name: string } | null>(
-    claimParam ? { type: 'claim', name: claimParam } : buyParam ? { type: 'buy', name: buyParam } : null
+    buyParam ? { type: 'buy', name: buyParam } : null
   );
 
   // Wallet balances for sidebar display
@@ -574,14 +576,16 @@ export default function Dashboard() {
             </button>
           </div>
         )}
-        {!pendingAction && canUpgrade && hasNFTOnly && (
+        {!pendingAction && ((canUpgrade && hasNFTOnly) || (claimParam && /^0x/i.test(a.handle!))) && (
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-5 mb-6">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">&#10024;</span>
-              <h3 className="font-bold text-lg">You own a Basename!</h3>
+              <h3 className="font-bold text-lg">{claimParam ? `Claim ${claimParam}.base.eth` : 'You own a Basename!'}</h3>
             </div>
             <p className="text-gray-400 text-sm mb-4">
-              We detected a Basename NFT in your wallet. Enter your Basename to upgrade your email.
+              {claimParam
+                ? 'Verify ownership and upgrade your email address.'
+                : 'We detected a Basename NFT in your wallet. Enter your Basename to upgrade your email.'}
             </p>
             <div className="flex gap-3">
               <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-3">
