@@ -23,3 +23,6 @@ worker/test-*.mjs
 
 # Build
 *.tsbuildinfo
+contracts/build-info.json
+contracts/standard-json-input.json
+test-attention-bond.js
