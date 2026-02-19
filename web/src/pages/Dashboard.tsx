@@ -323,7 +323,7 @@ export default function Dashboard() {
   const altEmail = hasBasename ? `${a.wallet.toLowerCase()}@basemail.ai` : null;
   const displayEmail = showAltEmail && altEmail ? altEmail : primaryEmail;
 
-  async function handleUpgrade(overrideBasename?: string) {
+  async function handleUpgrade(overrideBasename?: string, autoBuy?: boolean) {
     const basename = overrideBasename || a.basename;
     if (!basename && !basenameInput.trim()) {
       setUpgradeError('Please enter your Basename');
@@ -338,24 +338,33 @@ export default function Dashboard() {
     setUpgrading(true);
     setUpgradeError('');
     try {
-      // First try claiming existing Basename (verify ownership)
-      let res = await apiFetch('/api/register/upgrade', auth!.token, {
-        method: 'PUT',
-        body: JSON.stringify({ basename: fullBasename }),
-      });
+      let res: Response;
 
-      // If ownership verification fails, try auto_basename (buy + register)
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null);
-        const errMsg = errData?.error || '';
-        if (errMsg.includes('not own') || errMsg.includes('ownership') || errMsg.includes('not the owner')) {
-          // Try auto-purchase
-          res = await apiFetch('/api/register/upgrade', auth!.token, {
-            method: 'PUT',
-            body: JSON.stringify({ auto_basename: true, basename_name: nameOnly }),
-          });
-        } else {
-          throw new Error(errMsg || 'Upgrade failed');
+      if (autoBuy) {
+        // Direct auto-purchase path (from ?buy= flow)
+        res = await apiFetch('/api/register/upgrade', auth!.token, {
+          method: 'PUT',
+          body: JSON.stringify({ auto_basename: true, basename_name: nameOnly }),
+        });
+      } else {
+        // First try claiming existing Basename (verify ownership)
+        res = await apiFetch('/api/register/upgrade', auth!.token, {
+          method: 'PUT',
+          body: JSON.stringify({ basename: fullBasename }),
+        });
+
+        // If ownership verification fails, try auto_basename (buy + register)
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          const errMsg = errData?.error || '';
+          if (errMsg.includes('not own') || errMsg.includes('ownership') || errMsg.includes('not the owner') || errMsg.includes('Failed to verify')) {
+            res = await apiFetch('/api/register/upgrade', auth!.token, {
+              method: 'PUT',
+              body: JSON.stringify({ auto_basename: true, basename_name: nameOnly }),
+            });
+          } else {
+            throw new Error(errMsg || 'Upgrade failed');
+          }
         }
       }
       const text = await res.text();
@@ -526,6 +535,7 @@ export default function Dashboard() {
             auth={auth}
             onUpgrade={handleUpgrade}
             upgrading={upgrading}
+            error={upgradeError}
             onDismiss={() => {
               setPendingAction(null);
               // Clean URL params
@@ -2462,8 +2472,9 @@ function PendingActionBanner({
 }: {
   action: { type: 'claim' | 'buy'; name: string };
   auth: AuthState;
-  onUpgrade: (basename?: string) => void;
+  onUpgrade: (basename?: string, autoBuy?: boolean) => void;
   upgrading: boolean;
+  error?: string;
   onDismiss: () => void;
 }) {
   const [checking, setChecking] = useState(true);
@@ -2596,18 +2607,23 @@ function PendingActionBanner({
 
           <div className="flex gap-3">
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (chain?.id !== base.id) {
                   switchChain({ chainId: base.id });
                   return;
                 }
-                // Use auto_basename via API — worker handles on-chain purchase
-                onUpgrade(action.name);
+                // First try auto_basename (worker buys), fallback to direct buy link
+                try {
+                  onUpgrade(action.name, true);
+                } catch {
+                  // If worker can't buy, redirect to Base.org
+                  window.open(`https://www.base.org/names/${action.name}`, '_blank');
+                }
               }}
               disabled={upgrading || isBuying}
               className="flex-1 bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-500 transition disabled:opacity-50"
             >
-              {upgrading ? 'Purchasing...' : isBuying ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `✨ Buy ${action.name}.base.eth + Register Email`}
+              {upgrading ? '⏳ Purchasing & Registering...' : isBuying ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `✨ Buy ${action.name}.base.eth + Register Email`}
             </button>
             <a
               href={`https://www.base.org/names/${action.name}`}
@@ -2620,6 +2636,9 @@ function PendingActionBanner({
 
           {txResult.isSuccess && (
             <p className="text-green-400 text-sm mt-3">✅ Purchase confirmed! Setting up your email...</p>
+          )}
+          {error && (
+            <p className="text-red-400 text-sm mt-3">❌ {error}</p>
           )}
         </>
       )}
