@@ -242,7 +242,9 @@ export default function Dashboard() {
   const [showAltEmail, setShowAltEmail] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [showUpgradeConfetti, setShowUpgradeConfetti] = useState(false);
-  const [basenameInput, setBasenameInput] = useState('');
+  const [basenameInput, setBasenameInput] = useState(
+    new URLSearchParams(location.search).get('claim') || ''
+  );
   const [upgradeError, setUpgradeError] = useState('');
 
   // URL params: ?claim=name (verify ownership + upgrade) or ?buy=name (purchase + register)
@@ -536,6 +538,12 @@ export default function Dashboard() {
             onUpgrade={handleUpgrade}
             upgrading={upgrading}
             error={upgradeError}
+            onSessionExpired={() => {
+              // Clear auth → forces re-SIWE; URL params preserved so claim resumes after
+              sessionStorage.removeItem('basemail_auth');
+              disconnect();
+              setAuth(null);
+            }}
             onDismiss={() => {
               setPendingAction(null);
               // Clean URL params
@@ -2651,7 +2659,7 @@ const BASENAME_REGISTRAR_ABI = parseAbi([
 ]);
 
 function PendingActionBanner({
-  action, auth, onUpgrade, upgrading, onDismiss,
+  action, auth, onUpgrade, upgrading, onDismiss, onSessionExpired,
 }: {
   action: { type: 'claim' | 'buy'; name: string };
   auth: AuthState;
@@ -2659,6 +2667,7 @@ function PendingActionBanner({
   upgrading: boolean;
   error?: string;
   onDismiss: () => void;
+  onSessionExpired?: () => void;
 }) {
   const [checking, setChecking] = useState(true);
   const [ownsName, setOwnsName] = useState(false);
@@ -2695,8 +2704,9 @@ function PendingActionBanner({
             window.location.href = '/dashboard';
             return;
           }
-          // Auth expired → prompt reconnect
+          // Auth expired → auto reconnect (URL params preserved)
           if (upgradeRes.status === 401) {
+            if (onSessionExpired) { onSessionExpired(); return; }
             setError('Session expired. Please disconnect and reconnect your wallet.');
             setChecking(false);
             return;
@@ -2732,6 +2742,7 @@ function PendingActionBanner({
               return;
             }
             if (upgradeRes.status === 401) {
+              if (onSessionExpired) { onSessionExpired(); return; }
               setError('Session expired. Please disconnect and reconnect your wallet.');
               setChecking(false);
               return;
