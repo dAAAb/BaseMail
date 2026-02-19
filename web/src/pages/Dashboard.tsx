@@ -5,7 +5,7 @@ import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'vi
 import { base, mainnet } from 'wagmi/chains';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 
-const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
+const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
 const DEPOSIT_ADDRESS = '0x4BbdB896eCEd7d202AD7933cEB220F7f39d0a9Fe';
 
 // USDC Hackathon — Base Sepolia Testnet
