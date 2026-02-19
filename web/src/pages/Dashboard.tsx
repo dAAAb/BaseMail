@@ -2501,16 +2501,27 @@ function PendingActionBanner({
       setChecking(true);
       try {
         if (action.type === 'claim') {
-          // Verify ownership (public endpoint)
-          const res = await fetch(`${API_BASE}/api/register/check/${auth.wallet}`);
-          const data = await res.json();
-          const resolvedName = data.basename?.replace('.base.eth', '').toLowerCase();
-          if (resolvedName === action.name.toLowerCase()) {
+          // Verify ownership via upgrade endpoint (checks ownerOf on-chain)
+          const upgradeRes = await apiFetch('/api/register/upgrade', auth.token, {
+            method: 'PUT',
+            body: JSON.stringify({ basename: `${action.name}.base.eth` }),
+          });
+          if (upgradeRes.ok) {
+            // Upgrade succeeded — ownership verified and email upgraded!
+            const data = await upgradeRes.json();
             setOwnsName(true);
             setChecking(false);
+            // Reload auth state
+            window.location.href = '/dashboard';
             return;
           }
-          setError(`Your wallet does not own ${action.name}.base.eth. You can buy it below.`);
+          const errData = await upgradeRes.json().catch(() => ({}));
+          // If "already has Basename handle" — user already upgraded
+          if (errData.error?.includes('already has')) {
+            window.location.href = '/dashboard';
+            return;
+          }
+          setError(errData.error || `Could not verify ownership of ${action.name}.base.eth.`);
         }
 
         // Get buy data from API (public endpoint, no auth needed)
@@ -2523,7 +2534,26 @@ function PendingActionBanner({
           setStep('ready');
         } else {
           const err = await buyRes.json().catch(() => ({}));
-          setError(err.error || `${action.name}.base.eth is not available.`);
+          if (err.error?.includes('not available')) {
+            // Name was already bought — maybe by this user! Try claiming it.
+            const upgradeRes = await apiFetch('/api/register/upgrade', auth.token, {
+              method: 'PUT',
+              body: JSON.stringify({ basename: `${action.name}.base.eth` }),
+            });
+            if (upgradeRes.ok) {
+              // User owns it! Upgrade succeeded.
+              window.location.href = '/dashboard';
+              return;
+            }
+            const upgradeErr = await upgradeRes.json().catch(() => ({}));
+            if (upgradeErr.error?.includes('already has')) {
+              window.location.href = '/dashboard';
+              return;
+            }
+            setError(`${action.name}.base.eth is already taken. ${upgradeErr.error || 'Someone else owns it.'}`);
+          } else {
+            setError(err.error || `${action.name}.base.eth is not available.`);
+          }
         }
       } catch (e: any) {
         setError(e.message || 'Failed to check availability');
