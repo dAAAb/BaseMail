@@ -16,7 +16,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: cd worker && npm install
+        run: npm install
 
       - name: Migrate D1 (schema.sql)
         run: cd worker && npx wrangler d1 execute basemail-db --file=src/db/schema.sql
@@ -41,7 +41,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: cd web && npm install
+        run: npm install
 
       - name: Build
         run: cd web && npx vite build
