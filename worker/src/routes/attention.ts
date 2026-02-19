@@ -148,6 +148,85 @@ attentionRoutes.get('/price/:handle/for/:sender', async (c) => {
 });
 
 // ══════════════════════════════════════════════
+// PUBLIC: Get CO-QAF breakdown (α_ij graph)
+// ══════════════════════════════════════════════
+
+attentionRoutes.get('/coqaf/:handle', async (c) => {
+  const handle = c.req.param('handle').toLowerCase();
+
+  // Get senders with bonds
+  const bonds = await c.env.DB.prepare(`
+    SELECT sender_handle, SUM(amount_usdc) as total_bond
+    FROM attention_bonds
+    WHERE recipient_handle = ? AND status IN ('active', 'refunded')
+    GROUP BY sender_handle
+  `).bind(handle).all<{ sender_handle: string; total_bond: number }>();
+
+  if (!bonds.results || bonds.results.length === 0) {
+    return c.json({ handle, coqaf_value: 0, qaf_value: 0, senders: [] });
+  }
+
+  const senders = bonds.results;
+
+  // Compute recipient sets for Jaccard
+  const recipientSets: Map<string, Set<string>> = new Map();
+  for (const s of senders) {
+    const bondRecipients = await c.env.DB.prepare(
+      'SELECT DISTINCT recipient_handle FROM attention_bonds WHERE sender_handle = ?'
+    ).bind(s.sender_handle).all<{ recipient_handle: string }>();
+    const set = new Set<string>();
+    for (const r of (bondRecipients.results || [])) set.add(r.recipient_handle.toLowerCase());
+    recipientSets.set(s.sender_handle, set);
+  }
+
+  // Build α_ij matrix and sender details
+  const senderDetails = senders.map(si => {
+    const Ri = recipientSets.get(si.sender_handle) || new Set();
+    const connections: { sender: string; alpha: number }[] = [];
+    let sumAlpha = 0;
+
+    for (const sj of senders) {
+      if (sj.sender_handle === si.sender_handle) continue;
+      const Rj = recipientSets.get(sj.sender_handle) || new Set();
+      // Inline jaccard
+      let inter = 0;
+      for (const x of Ri) if (Rj.has(x)) inter++;
+      const union = Ri.size + Rj.size - inter;
+      const alpha = union > 0 ? inter / union : 0;
+      if (alpha > 0) connections.push({ sender: sj.sender_handle, alpha: Math.round(alpha * 1000) / 1000 });
+      sumAlpha += alpha;
+    }
+
+    const bTilde = si.total_bond / (1 + sumAlpha);
+    return {
+      sender: si.sender_handle,
+      bond_usdc: si.total_bond,
+      sum_alpha: Math.round(sumAlpha * 1000) / 1000,
+      discounted_bond: Math.round(bTilde * 1e6) / 1e6,
+      connections: connections.filter(c => c.alpha > 0),
+    };
+  });
+
+  // Compute values
+  let sumSqrtB = 0, sumSqrtBtilde = 0;
+  for (const s of senderDetails) {
+    const original = senders.find(x => x.sender_handle === s.sender)!;
+    sumSqrtB += Math.sqrt(original.total_bond);
+    sumSqrtBtilde += Math.sqrt(s.discounted_bond);
+  }
+
+  return c.json({
+    handle,
+    qaf_value: Math.round(sumSqrtB * sumSqrtB * 1e6) / 1e6,
+    coqaf_value: Math.round(sumSqrtBtilde * sumSqrtBtilde * 1e6) / 1e6,
+    discount_ratio: sumSqrtB > 0 ? Math.round((sumSqrtBtilde * sumSqrtBtilde) / (sumSqrtB * sumSqrtB) * 1000) / 1000 : 1,
+    alpha_method: 'jaccard_recipient_overlap',
+    alpha_description: 'α_ij = Jaccard(recipients_i, recipients_j) — high overlap means bonding (discounted), low overlap means bridging (full weight)',
+    senders: senderDetails,
+  });
+});
+
+// ══════════════════════════════════════════════
 // AUTHENTICATED: Configure attention bonds
 // ══════════════════════════════════════════════
 
@@ -505,14 +584,20 @@ async function recalculateQAF(db: D1Database, handle: string) {
     return;
   }
 
-  // QAF: AV = (Σ√bᵢ)²
+  const senders = bonds.results;
+
+  // ── Standard QAF: AV = (Σ√bᵢ)² ──
   let sumSqrtB = 0;
   let totalBonds = 0;
-  for (const row of bonds.results) {
+  for (const row of senders) {
     sumSqrtB += Math.sqrt(row.total_bond);
     totalBonds += row.total_bond;
   }
   const qafValue = sumSqrtB * sumSqrtB;
+
+  // ── CO-QAF: AV_CO = (Σ√b̃ᵢ)² where b̃ᵢ = bᵢ / (1 + Σⱼ αᵢⱼ) ──
+  // Estimate α_ij via shared-recipient Jaccard similarity from email history
+  const coqafValue = await computeCoQAF(db, senders);
 
   const now = Math.floor(Date.now() / 1000);
   await db.prepare(`
@@ -521,7 +606,93 @@ async function recalculateQAF(db: D1Database, handle: string) {
     ON CONFLICT(handle) DO UPDATE SET
       qaf_value = ?, coqaf_value = ?, unique_senders = ?, total_bonds = ?, updated_at = ?
   `).bind(
-    handle, qafValue, qafValue, bonds.results.length, totalBonds, now,
-    qafValue, qafValue, bonds.results.length, totalBonds, now,
+    handle, qafValue, coqafValue, senders.length, totalBonds, now,
+    qafValue, coqafValue, senders.length, totalBonds, now,
   ).run();
+}
+
+/**
+ * Compute CO-QAF with α_ij estimated from email behavior.
+ *
+ * α_ij = social proximity between senders i and j, estimated as:
+ *   Jaccard(R_i, R_j) where R_i = set of recipients sender i has emailed
+ *
+ * This captures the ISD insight: senders who email the same people are
+ * "bonding" (high α → heavy discount), while senders from different
+ * communities are "bridging" (low α → full weight).
+ *
+ * Formula: b̃ᵢ = bᵢ / (1 + Σⱼ≠ᵢ αᵢⱼ), AV_CO = (Σ√b̃ᵢ)²
+ */
+async function computeCoQAF(
+  db: D1Database,
+  senders: { sender_handle: string; total_bond: number }[],
+): Promise<number> {
+  if (senders.length <= 1) {
+    // Single sender — no graph discount possible, CO-QAF = QAF
+    const b = senders[0]?.total_bond ?? 0;
+    return b; // (√b)² = b
+  }
+
+  // Fetch recipient sets for each sender (from sent emails)
+  const recipientSets: Map<string, Set<string>> = new Map();
+
+  for (const s of senders) {
+    const rows = await db.prepare(`
+      SELECT DISTINCT
+        CASE WHEN folder = 'sent' THEN handle ELSE from_addr END as counterpart
+      FROM emails
+      WHERE (from_addr = ? OR (handle = ? AND folder = 'sent'))
+      LIMIT 200
+    `).bind(
+      s.sender_handle + '@basemail.ai',
+      s.sender_handle,
+    ).all<{ counterpart: string }>();
+
+    // Also include bond recipients from attention_bonds
+    const bondRecipients = await db.prepare(`
+      SELECT DISTINCT recipient_handle FROM attention_bonds WHERE sender_handle = ?
+    `).bind(s.sender_handle).all<{ recipient_handle: string }>();
+
+    const recipients = new Set<string>();
+    for (const r of (rows.results || [])) {
+      recipients.add(r.counterpart.toLowerCase());
+    }
+    for (const r of (bondRecipients.results || [])) {
+      recipients.add(r.recipient_handle.toLowerCase());
+    }
+    recipientSets.set(s.sender_handle, recipients);
+  }
+
+  // Compute α_ij (Jaccard similarity) and discounted bonds
+  let sumSqrtBtilde = 0;
+
+  for (const si of senders) {
+    const Ri = recipientSets.get(si.sender_handle) || new Set();
+
+    // Σⱼ≠ᵢ αᵢⱼ
+    let sumAlpha = 0;
+    for (const sj of senders) {
+      if (sj.sender_handle === si.sender_handle) continue;
+      const Rj = recipientSets.get(sj.sender_handle) || new Set();
+      const alpha = jaccard(Ri, Rj);
+      sumAlpha += alpha;
+    }
+
+    // b̃ᵢ = bᵢ / (1 + Σⱼ αᵢⱼ)
+    const bTilde = si.total_bond / (1 + sumAlpha);
+    sumSqrtBtilde += Math.sqrt(bTilde);
+  }
+
+  return sumSqrtBtilde * sumSqrtBtilde;
+}
+
+/** Jaccard similarity: |A ∩ B| / |A ∪ B|, returns 0 if both empty */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 0;
+  let intersection = 0;
+  for (const x of a) {
+    if (b.has(x)) intersection++;
+  }
+  const union = a.size + b.size - intersection;
+  return union > 0 ? intersection / union : 0;
 }

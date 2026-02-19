@@ -261,6 +261,11 @@ app.get('/api/docs', (c) => {
         description: 'Get QAF (Quadratic Attention Funding) score for a recipient',
         response: '{ handle, qaf_value, unique_senders, total_bonds_usdc, breadth_premium }',
       },
+      'GET /api/attention/coqaf/:handle': {
+        description: 'Get CO-QAF breakdown with α_ij social graph and per-sender discounted bonds',
+        response: '{ handle, qaf_value, coqaf_value, discount_ratio, alpha_method, senders: [{ sender, bond_usdc, sum_alpha, discounted_bond, connections }] }',
+        note: 'α_ij estimated via Jaccard similarity of recipient sets. Bridging senders (low α) retain full weight; bonding senders (high α) are discounted.',
+      },
       'PUT /api/attention/config': {
         auth: 'Bearer token',
         description: 'Configure your attention bond settings',
