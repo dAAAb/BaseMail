@@ -1,6 +1,6 @@
 # BaseMail
 
-### Email where your attention has a price.
+### Æmail where your attention has a price.
 
 Every day, 3.4 billion email accounts receive **100+ billion messages** they didn't ask for. Spam filters guess. Unsubscribe links lie. The real problem? **Sending a message costs nothing, but reading it costs you.**
 
