@@ -315,49 +315,128 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
  * GET /api/register/check/:address
  * Check what email a wallet address would get
  */
-registerRoutes.get('/check/:address', async (c) => {
-  const address = c.req.param('address');
+/**
+ * GET /api/register/check/:input
+ * Universal lookup — accepts wallet address OR basename.
+ * Returns availability status, price info, and next steps.
+ */
+registerRoutes.get('/check/:input', async (c) => {
+  const input = c.req.param('input').trim();
 
-  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-    return c.json({ error: 'Invalid wallet address' }, 400);
+  // Determine input type
+  const isAddress = /^0x[a-fA-F0-9]{40}$/i.test(input);
+  const nameInput = input.replace(/\.base\.eth$/i, '').toLowerCase();
+  const isName = !isAddress && /^[a-z0-9][a-z0-9_-]*[a-z0-9]$/.test(nameInput) && nameInput.length >= 3;
+
+  if (!isAddress && !isName) {
+    return c.json({ error: 'Invalid input. Provide a wallet address (0x...) or Basename.' }, 400);
   }
 
-  const resolved = await resolveHandle(address.toLowerCase() as Address);
+  const response: Record<string, any> = {};
 
-  // Check if already registered
-  const existing = await c.env.DB.prepare(
-    'SELECT handle FROM accounts WHERE wallet = ? OR handle = ?'
-  ).bind(address.toLowerCase(), resolved.handle).first();
+  if (isAddress) {
+    // ── Wallet address lookup ──
+    const resolved = await resolveHandle(input.toLowerCase() as Address);
+    const existing = await c.env.DB.prepare(
+      'SELECT handle FROM accounts WHERE wallet = ? OR handle = ?'
+    ).bind(input.toLowerCase(), resolved.handle).first();
 
-  const response: Record<string, any> = {
-    wallet: address.toLowerCase(),
-    handle: resolved.handle,
-    email: `${resolved.handle}@${c.env.DOMAIN}`,
-    basename: resolved.basename,
-    source: resolved.source,
-    registered: !!existing,
-    has_basename_nft: resolved.has_basename_nft || false,
-  };
+    response.wallet = input.toLowerCase();
+    response.handle = resolved.handle;
+    response.email = `${resolved.handle}@${c.env.DOMAIN}`;
+    response.basename = resolved.basename;
+    response.source = resolved.source;
+    response.registered = !!existing;
+    response.has_basename_nft = resolved.has_basename_nft || false;
 
-  // AI Agent 指引：有 Basename NFT 但反查失敗
-  if (resolved.has_basename_nft && !resolved.basename) {
-    response.next_steps = {
-      issue: 'You own a Basename NFT but reverse resolution failed (primary name not set on-chain).',
-      options: [
-        {
-          action: 'provide_basename',
-          description: 'Pass your Basename directly when registering via agent-register.',
-          method: 'POST',
-          url: '/api/auth/agent-register',
-          body: { address: '0x...', signature: '0x...', message: '...', basename: 'yourname.base.eth' },
+    // Upgrade hint
+    if (resolved.has_basename_nft && !resolved.basename) {
+      response.next_steps = {
+        issue: 'You own a Basename NFT but reverse resolution failed (primary name not set on-chain).',
+        options: [
+          {
+            action: 'provide_basename',
+            description: 'Pass your Basename directly when registering via agent-register.',
+            method: 'POST',
+            url: '/api/auth/agent-register',
+            body: { address: '0x...', signature: '0x...', message: '...', basename: 'yourname.base.eth' },
+          },
+          {
+            action: 'set_primary_name',
+            description: 'Set your primary name on-chain so reverse resolution works automatically.',
+            url: 'https://www.base.org/names',
+          },
+        ],
+      };
+    }
+  } else {
+    // ── Basename lookup — check both BaseMail DB and on-chain ──
+    const name = nameInput;
+    response.handle = name;
+    response.email = `${name}@${c.env.DOMAIN}`;
+    response.basename = `${name}.base.eth`;
+    response.source = 'basename';
+
+    // Check if already registered on BaseMail
+    const existing = await c.env.DB.prepare(
+      'SELECT handle, wallet FROM accounts WHERE handle = ?'
+    ).bind(name).first<{ handle: string; wallet: string }>();
+    response.registered = !!existing;
+    response.available_basemail = !existing;
+
+    // Check on-chain Basename availability + price
+    try {
+      const available = await isBasenameAvailable(name);
+      response.available_onchain = available;
+
+      if (available) {
+        const priceWei = await getBasenamePrice(name);
+        response.price_info = {
+          available: true,
+          price_wei: priceWei.toString(),
+          price_eth: formatEther(priceWei),
+          duration_years: 1,
+          registrar: '0xa7d2607c6BD39Ae9521e514026CBB078405Ab322',
+          chain_id: 8453,
+          buy_url: `https://www.base.org/names/${name}`,
+        };
+      } else {
+        response.price_info = { available: false };
+        // Not available on-chain — might be owned by someone
+        if (!existing) {
+          response.status = 'reserved';
+          response.note = `${name}.base.eth is owned on-chain but not yet claimed on BaseMail. The Basename holder can claim this email.`;
+        }
+      }
+
+      // Determine overall status
+      if (existing) {
+        response.status = 'taken';
+      } else if (available) {
+        response.status = 'available';
+      } else {
+        response.status = response.status || 'reserved';
+      }
+    } catch (e: any) {
+      response.price_info = { error: e.message };
+      response.status = existing ? 'taken' : 'unknown';
+    }
+
+    // Direct buy flow for available names
+    if (response.status === 'available' && response.price_info?.available) {
+      response.direct_buy = {
+        description: 'Buy this Basename directly with your wallet, then register on BaseMail.',
+        steps: [
+          { step: 1, action: 'Connect wallet in Dashboard', url: '/dashboard' },
+          { step: 2, action: `Buy ${name}.base.eth`, url: response.price_info.buy_url, method: 'on-chain', price: response.price_info.price_eth + ' ETH' },
+          { step: 3, action: 'Register on BaseMail with your new Basename', url: '/dashboard', method: 'POST /api/auth/agent-register' },
+        ],
+        alternative: {
+          description: 'Or use auto_basename in the Dashboard to buy + register in one click.',
+          url: '/dashboard',
         },
-        {
-          action: 'set_primary_name',
-          description: 'Set your primary name on-chain so reverse resolution works automatically.',
-          url: 'https://www.base.org/names',
-        },
-      ],
-    };
+      };
+    }
   }
 
   return c.json(response);

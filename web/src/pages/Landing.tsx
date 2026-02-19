@@ -71,12 +71,30 @@ export default function Landing() {
     basename: string | null;
     source: string;
     registered: boolean;
+    status?: 'available' | 'taken' | 'reserved' | 'unknown';
+    available_basemail?: boolean;
+    available_onchain?: boolean;
+    has_basename_nft?: boolean;
+    upgrade_available?: boolean;
+    price_info?: {
+      available: boolean;
+      price_wei?: string;
+      price_eth?: string;
+      buy_url?: string;
+      error?: string;
+    };
+    direct_buy?: {
+      description: string;
+      steps: { step: number; action: string; url?: string; price?: string }[];
+      alternative?: { description: string; url: string };
+    };
+    note?: string;
   }>(null);
   const [checking, setChecking] = useState(false);
 
   function parseInput(val: string): { type: 'address' | 'basename' | 'invalid'; value: string } {
     const trimmed = val.trim();
-    if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+    if (/^0x[a-fA-F0-9]{40}$/i.test(trimmed)) {
       return { type: 'address', value: trimmed };
     }
     const name = trimmed.replace(/\.base\.eth$/i, '').toLowerCase();
@@ -92,19 +110,10 @@ export default function Landing() {
 
     setChecking(true);
     try {
-      if (parsed.type === 'address') {
-        const res = await fetch(`${API_BASE}/api/register/check/${parsed.value}`);
-        const data = await res.json();
-        setResult(data);
-      } else {
-        setResult({
-          handle: parsed.value,
-          email: `${parsed.value}@basemail.ai`,
-          basename: `${parsed.value}.base.eth`,
-          source: 'basename',
-          registered: false,
-        });
-      }
+      const query = parsed.type === 'address' ? parsed.value : parsed.value;
+      const res = await fetch(`${API_BASE}/api/register/check/${query}`);
+      const data = await res.json();
+      setResult(data);
     } catch {
       setResult(null);
     } finally {
@@ -199,30 +208,132 @@ export default function Landing() {
 
         {result && (
           <div className="mt-6 bg-base-gray rounded-xl p-5 max-w-xl mx-auto text-left border border-gray-800">
-            <div className="text-gray-500 text-xs mb-1">Your BaseMail address</div>
-            <div className="font-mono text-xl text-base-blue font-bold mb-3 break-all">
-              {result.email}
-            </div>
-            <div className="flex items-center gap-4 text-sm mb-4">
-              {result.basename && (
-                <span className="bg-green-900/20 text-green-400 px-2 py-0.5 rounded text-xs font-mono">
-                  {result.basename}
-                </span>
-              )}
-              <span className="text-gray-500">
-                {result.source === 'basename' ? 'Basename detected' : 'Wallet address'}
-              </span>
-              {result.registered && (
-                <span className="text-yellow-400 text-xs">Already claimed</span>
-              )}
-            </div>
-            {!result.registered && (
-              <a
-                href="/dashboard"
-                className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm"
-              >
-                Claim Now
-              </a>
+            {result.status === 'taken' ? (
+              /* ── 🔴 Taken ── */
+              <>
+                <div className="text-gray-500 text-xs mb-1">Unavailable</div>
+                <div className="font-mono text-xl text-red-400 font-bold mb-3 break-all">
+                  {result.email}
+                </div>
+                <p className="text-gray-400 text-sm">
+                  This handle is already registered on BaseMail. Try another name.
+                </p>
+              </>
+            ) : result.status === 'reserved' ? (
+              /* ── 🟡 Reserved — Basename owned but not claimed on BaseMail ── */
+              <>
+                <div className="text-gray-500 text-xs mb-1">Reserved</div>
+                <div className="font-mono text-xl text-yellow-400 font-bold mb-3 break-all">
+                  {result.email}
+                </div>
+                <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">🔒</span>
+                    <span className="text-yellow-300 text-sm font-medium">
+                      Reserved for {result.basename} owner
+                    </span>
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">
+                    <span className="font-mono text-white">{result.basename}</span> is already owned on-chain.
+                    This email is reserved for the Basename holder.
+                  </p>
+                  <p className="text-gray-500 text-xs">
+                    If you own this Basename, connect your wallet in the Dashboard to claim your email.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
+                    I own this — Connect Wallet
+                  </a>
+                  <a href={`https://www.base.org/names/${result.handle}`} target="_blank" rel="noopener noreferrer"
+                    className="inline-block border border-gray-600 text-gray-300 px-6 py-2.5 rounded-lg font-medium hover:bg-gray-800 transition text-sm text-center">
+                    View on Base ↗
+                  </a>
+                </div>
+              </>
+            ) : result.status === 'available' ? (
+              /* ── 🟢 Available ── */
+              <>
+                <div className="text-gray-500 text-xs mb-1">Available!</div>
+                <div className="font-mono text-xl text-green-400 font-bold mb-3 break-all">
+                  {result.email}
+                </div>
+                <p className="text-gray-400 text-sm mb-4">
+                  Register <span className="text-white font-mono">{result.basename}</span> to get this email address.
+                </p>
+
+                {/* Price breakdown */}
+                {result.price_info && result.price_info.available && (
+                  <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-4">
+                    <p className="text-blue-300 text-sm font-medium mb-2">
+                      {result.basename} is available!
+                    </p>
+                    <div className="text-gray-400 text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span>Registration fee (1 year)</span>
+                        <span className="text-white font-mono">{parseFloat(result.price_info.price_eth || '0').toFixed(4)} ETH</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-gray-600">
+                        <span>≈ ${(parseFloat(result.price_info.price_eth || '0') * 2800).toFixed(2)} USD</span>
+                        <span className="font-mono">{result.price_info.price_wei} wei</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
+                    ✨ Buy & Register in Dashboard
+                  </a>
+                  {result.price_info?.buy_url && (
+                    <a href={result.price_info.buy_url} target="_blank" rel="noopener noreferrer"
+                      className="inline-block border border-gray-600 text-gray-300 px-6 py-2.5 rounded-lg font-medium hover:bg-gray-800 transition text-sm text-center">
+                      Buy on Base.org ↗
+                    </a>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* ── Default: wallet lookup or unknown ── */
+              <>
+                <div className="text-gray-500 text-xs mb-1">Your BaseMail address</div>
+                <div className="font-mono text-xl text-base-blue font-bold mb-3 break-all">
+                  {result.email}
+                </div>
+                <div className="flex items-center gap-4 text-sm mb-4">
+                  {result.basename && (
+                    <span className="bg-green-900/20 text-green-400 px-2 py-0.5 rounded text-xs font-mono">
+                      {result.basename}
+                    </span>
+                  )}
+                  <span className="text-gray-500">
+                    {result.source === 'basename' ? 'Basename detected' : 'Wallet address'}
+                  </span>
+                  {result.registered && (
+                    <span className="text-yellow-400 text-xs">Already claimed</span>
+                  )}
+                  {result.has_basename_nft && !result.registered && (
+                    <span className="text-green-400 text-xs">✨ Basename NFT detected</span>
+                  )}
+                </div>
+                {result.has_basename_nft && !result.registered && (
+                  <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
+                    <p className="text-blue-300 text-sm">
+                      You own a Basename! Connect your wallet to claim your email.
+                    </p>
+                  </div>
+                )}
+                {!result.registered && (
+                  <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm">
+                    {result.has_basename_nft ? '✨ Claim Basename Email' : 'Claim Now'}
+                  </a>
+                )}
+                {result.registered && (
+                  <a href="/dashboard" className="inline-block bg-gray-700 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-gray-600 transition text-sm">
+                    Go to Dashboard
+                  </a>
+                )}
+              </>
             )}
           </div>
         )}
