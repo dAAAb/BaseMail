@@ -11,6 +11,15 @@ const DEPOSIT_ADDRESS = '0x4BbdB896eCEd7d202AD7933cEB220F7f39d0a9Fe';
 // USDC Hackathon — Base Sepolia Testnet
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`;
+
+// Attention Bond Escrow — Base Mainnet
+const ESCROW_CONTRACT = '0x0f686c8ac82654fe0d3e3309f4243f13c9576b27' as `0x${string}`;
+const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
+const ESCROW_ABI = parseAbi([
+  'function deposit(address _recipient, bytes32 _emailId, uint256 _amount) external',
+  'function setAttentionPrice(uint256 _price) external',
+  'function getAttentionPrice(address _account) view returns (uint256)',
+]);
 const ERC20_ABI = parseAbi([
   'function transfer(address to, uint256 amount) returns (bool)',
   'function approve(address spender, uint256 amount) returns (bool)',
@@ -415,6 +424,7 @@ export default function Dashboard() {
           <NavLink to="/dashboard/sent" icon="send" label="Sent" active={location.pathname === '/dashboard/sent'} />
           <NavLink to="/dashboard/compose" icon="edit" label="Compose" active={location.pathname === '/dashboard/compose'} />
           <NavLink to="/dashboard/credits" icon="credits" label="Credits" active={location.pathname === '/dashboard/credits'} />
+          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} />
           <NavLink to="/dashboard/settings" icon="settings" label="Settings" active={location.pathname === '/dashboard/settings'} />
         </nav>
 
@@ -546,6 +556,7 @@ export default function Dashboard() {
           <Route path="sent" element={<Inbox auth={auth} folder="sent" />} />
           <Route path="compose" element={<Compose auth={auth} />} />
           <Route path="credits" element={<Credits auth={auth} />} />
+          <Route path="attention" element={<Attention auth={auth} />} />
           <Route path="settings" element={<Settings auth={auth} setAuth={setAuth} onUpgrade={(canUpgrade || hasNFTOnly) ? handleUpgrade : undefined} upgrading={upgrading} />} />
           <Route path="email/:id" element={<EmailDetail auth={auth} />} />
         </Routes>
@@ -758,6 +769,7 @@ function NavLink({ to, icon, label, active }: { to: string; icon: string; label:
     edit: '\u{270F}\u{FE0F}',
     settings: '\u{2699}\u{FE0F}',
     credits: '\u{1FA99}',
+    attention: '\u{1F4B0}',
   };
   return (
     <Link
@@ -2025,6 +2037,400 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
           <p className="text-gray-600 text-xs mt-2">Click to copy</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Attention Bonds ─────────────────────────────────────
+function Attention({ auth }: { auth: AuthState }) {
+  const [tab, setTab] = useState<'config' | 'stats' | 'whitelist'>('stats');
+  const [config, setConfig] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
+  const [whitelist, setWhitelist] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // Form state
+  const [enabled, setEnabled] = useState(false);
+  const [basePrice, setBasePrice] = useState('0.01');
+  const [alpha, setAlpha] = useState('0.1');
+  const [beta, setBeta] = useState('1.0');
+  const [gamma, setGamma] = useState('0.5');
+  const [responseHours, setResponseHours] = useState('168');
+
+  // Whitelist form
+  const [wlHandle, setWlHandle] = useState('');
+  const [wlNote, setWlNote] = useState('');
+
+  // On-chain price setting
+  const { writeContract, isPending: isWriting } = useWriteContract();
+  const { switchChain } = useSwitchChain();
+  const { chain } = useAccount();
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [cfgRes, statsRes, wlRes] = await Promise.all([
+        apiFetch('/api/attention/config', auth.token),
+        apiFetch('/api/attention/stats', auth.token),
+        apiFetch('/api/attention/whitelist', auth.token),
+      ]);
+      const cfgData = await cfgRes.json();
+      const statsData = await statsRes.json();
+      const wlData = await wlRes.json();
+
+      setConfig(cfgData.config);
+      setStats(statsData);
+      setWhitelist(wlData.whitelist || []);
+
+      if (cfgData.config && cfgData.config.enabled !== undefined) {
+        setEnabled(!!cfgData.config.enabled);
+        setBasePrice(String(cfgData.config.base_price ?? '0.01'));
+        setAlpha(String(cfgData.config.alpha ?? '0.1'));
+        setBeta(String(cfgData.config.beta ?? '1.0'));
+        setGamma(String(cfgData.config.gamma ?? '0.5'));
+        setResponseHours(String(Math.round((cfgData.config.response_window ?? 604800) / 3600)));
+      }
+    } catch {}
+    setLoading(false);
+  }, [auth.token]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  async function saveConfig() {
+    setSaving(true);
+    setMsg('');
+    try {
+      const res = await apiFetch('/api/attention/config', auth.token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled,
+          base_price: parseFloat(basePrice),
+          alpha: parseFloat(alpha),
+          beta: parseFloat(beta),
+          gamma: parseFloat(gamma),
+          response_window_hours: parseInt(responseHours),
+        }),
+      });
+      if (res.ok) {
+        setMsg('✅ Config saved!');
+        loadAll();
+      } else {
+        const err = await res.json();
+        setMsg(`❌ ${err.error}`);
+      }
+    } catch (e: any) {
+      setMsg(`❌ ${e.message}`);
+    }
+    setSaving(false);
+  }
+
+  async function setOnChainPrice() {
+    if (chain?.id !== base.id) {
+      switchChain({ chainId: base.id });
+      return;
+    }
+    const priceInUsdc6 = BigInt(Math.round(parseFloat(basePrice) * 1e6));
+    writeContract({
+      address: ESCROW_CONTRACT,
+      abi: ESCROW_ABI,
+      functionName: 'setAttentionPrice',
+      args: [priceInUsdc6],
+    });
+  }
+
+  async function addWhitelist() {
+    if (!wlHandle.trim()) return;
+    await apiFetch('/api/attention/whitelist', auth.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender_handle: wlHandle.toLowerCase(), note: wlNote || undefined }),
+    });
+    setWlHandle('');
+    setWlNote('');
+    loadAll();
+  }
+
+  async function removeWhitelist(sender: string) {
+    await apiFetch(`/api/attention/whitelist/${sender}`, auth.token, { method: 'DELETE' });
+    loadAll();
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>;
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <h2 className="text-2xl font-bold mb-1">💰 Attention Bonds</h2>
+      <p className="text-gray-400 text-sm mb-6">
+        Require senders to deposit USDC to reach your inbox. Bonds are refunded when you reply.
+        Based on <a href="https://blog.juchunko.com/en/attention-bonds-coqaf/" target="_blank" className="text-base-blue hover:underline">CO-QAF</a> (Ko, Tang, Weyl 2026).
+      </p>
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1">
+        {(['stats', 'config', 'whitelist'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
+              tab === t ? 'bg-base-blue text-white' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {t === 'stats' ? '📊 Dashboard' : t === 'config' ? '⚙️ Settings' : '✅ Whitelist'}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats Tab */}
+      {tab === 'stats' && stats && (
+        <div className="space-y-6">
+          {/* QAF Score */}
+          <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">📐</span>
+              <h3 className="font-bold text-lg">QAF Score</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-base-blue">{(stats.qaf?.qaf_value ?? 0).toFixed(2)}</div>
+                <div className="text-xs text-gray-500 mt-1">AV = (Σ√bᵢ)²</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-white">{stats.qaf?.unique_senders ?? 0}</div>
+                <div className="text-xs text-gray-500 mt-1">Unique Senders</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-400">${(stats.qaf?.total_bonds ?? 0).toFixed(2)}</div>
+                <div className="text-xs text-gray-500 mt-1">Total Bonds</div>
+              </div>
+            </div>
+            {(stats.qaf?.total_bonds ?? 0) > 0 && (
+              <div className="mt-3 text-center text-xs text-gray-500">
+                Breadth Premium: {((stats.qaf?.qaf_value ?? 0) / (stats.qaf?.total_bonds ?? 1)).toFixed(2)}× — diverse senders amplify your score
+              </div>
+            )}
+          </div>
+
+          {/* Bonds Received */}
+          <div className="bg-gray-800/40 rounded-xl p-6">
+            <h3 className="font-bold mb-4">📥 Bonds Received</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <Stat label="Total" value={stats.bonds_received?.total ?? 0} />
+              <Stat label="Active" value={stats.bonds_received?.active ?? 0} color="text-yellow-400" />
+              <Stat label="Refunded" value={stats.bonds_received?.refunded ?? 0} color="text-green-400" />
+              <Stat label="Forfeited" value={stats.bonds_received?.forfeited ?? 0} color="text-red-400" />
+            </div>
+            <div className="flex gap-6 mt-4 text-sm">
+              <div className="text-gray-400">Total: <span className="text-white font-mono">${(stats.bonds_received?.total_usdc ?? 0).toFixed(2)}</span></div>
+              <div className="text-gray-400">Refunded: <span className="text-green-400 font-mono">${(stats.bonds_received?.refunded_usdc ?? 0).toFixed(2)}</span></div>
+              <div className="text-gray-400">Earned: <span className="text-red-400 font-mono">${(stats.bonds_received?.forfeited_usdc ?? 0).toFixed(2)}</span></div>
+            </div>
+          </div>
+
+          {/* Bonds Sent */}
+          <div className="bg-gray-800/40 rounded-xl p-6">
+            <h3 className="font-bold mb-4">📤 Bonds Sent</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <Stat label="Total" value={stats.bonds_sent?.total ?? 0} />
+              <Stat label="Active" value={stats.bonds_sent?.active ?? 0} color="text-yellow-400" />
+              <Stat label="Refunded" value={stats.bonds_sent?.refunded ?? 0} color="text-green-400" />
+              <Stat label="Forfeited" value={stats.bonds_sent?.forfeited ?? 0} color="text-red-400" />
+            </div>
+            <div className="mt-4 text-sm text-gray-400">
+              Total bonded: <span className="text-white font-mono">${(stats.bonds_sent?.total_usdc ?? 0).toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Config Tab */}
+      {tab === 'config' && (
+        <div className="bg-gray-800/40 rounded-xl p-6 space-y-5">
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-bold">Enable Attention Bonds</div>
+              <div className="text-xs text-gray-500">Require USDC deposit to reach your inbox</div>
+            </div>
+            <button
+              onClick={() => setEnabled(!enabled)}
+              className={`w-14 h-7 rounded-full transition relative ${enabled ? 'bg-base-blue' : 'bg-gray-600'}`}
+            >
+              <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full transition-all ${enabled ? 'left-7' : 'left-0.5'}`} />
+            </button>
+          </div>
+
+          {enabled && (
+            <>
+              {/* Base Price */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-1">
+                  Base Price (p₀) — USDC
+                </label>
+                <input
+                  type="number" step="0.001" min="0.001" max="1000"
+                  value={basePrice} onChange={e => setBasePrice(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:border-base-blue focus:outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">Starting price before demand adjustment</p>
+              </div>
+
+              {/* Dynamic pricing params */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-300 block mb-1">α (demand)</label>
+                  <input type="number" step="0.01" min="0" max="10"
+                    value={alpha} onChange={e => setAlpha(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-base-blue focus:outline-none" />
+                  <p className="text-[10px] text-gray-600 mt-1">Higher = price grows faster with demand</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-300 block mb-1">β (curve)</label>
+                  <input type="number" step="0.1" min="0.1" max="5"
+                    value={beta} onChange={e => setBeta(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-base-blue focus:outline-none" />
+                  <p className="text-[10px] text-gray-600 mt-1">1=linear, 2=quadratic growth</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-300 block mb-1">γ (reply discount)</label>
+                  <input type="number" step="0.05" min="0" max="0.99"
+                    value={gamma} onChange={e => setGamma(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-base-blue focus:outline-none" />
+                  <p className="text-[10px] text-gray-600 mt-1">Max discount for high reply-rate senders</p>
+                </div>
+              </div>
+
+              {/* Response window */}
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-1">
+                  Response Window (hours)
+                </label>
+                <input type="number" min="24" max="720"
+                  value={responseHours} onChange={e => setResponseHours(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono focus:border-base-blue focus:outline-none" />
+                <p className="text-xs text-gray-500 mt-1">Reply within this window to refund the sender's bond. Default: 168h (7 days)</p>
+              </div>
+
+              {/* Formula preview */}
+              <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
+                <div className="text-xs text-gray-500 mb-2 font-medium">Dynamic Pricing Formula</div>
+                <div className="font-mono text-sm text-gray-300">
+                  p(t,s) = {basePrice} × (1 + {alpha} × D(t))^{beta} × (1 − {gamma} × R̄ₛ)
+                </div>
+                <div className="text-[10px] text-gray-600 mt-1">
+                  D(t) = 7-day message count, R̄ₛ = sender's reply rate
+                </div>
+              </div>
+
+              {/* On-chain price */}
+              <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-blue-300">⛓ Set On-Chain Price</div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Update AttentionBondEscrow contract with your base price
+                    </div>
+                  </div>
+                  <button
+                    onClick={setOnChainPrice}
+                    disabled={isWriting}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                  >
+                    {isWriting ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `Set ${basePrice} USDC`}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Save button */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={saveConfig}
+              disabled={saving}
+              className="bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-500 transition disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
+            {msg && <span className="text-sm">{msg}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Whitelist Tab */}
+      {tab === 'whitelist' && (
+        <div className="space-y-4">
+          <div className="bg-gray-800/40 rounded-xl p-6">
+            <h3 className="font-bold mb-3">Add Sender to Whitelist</h3>
+            <p className="text-xs text-gray-500 mb-4">Whitelisted senders can email you without posting a bond.</p>
+            <div className="flex gap-3">
+              <input
+                type="text" value={wlHandle} onChange={e => setWlHandle(e.target.value)}
+                placeholder="sender handle"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:border-base-blue focus:outline-none text-sm"
+              />
+              <input
+                type="text" value={wlNote} onChange={e => setWlNote(e.target.value)}
+                placeholder="note (optional)"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:border-base-blue focus:outline-none text-sm"
+              />
+              <button onClick={addWhitelist} className="bg-base-blue text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-500 transition">
+                Add
+              </button>
+            </div>
+          </div>
+
+          {whitelist.length === 0 ? (
+            <div className="text-center text-gray-500 py-8">No whitelisted senders yet</div>
+          ) : (
+            <div className="bg-gray-800/40 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
+                    <th className="text-left px-6 py-3">Sender</th>
+                    <th className="text-left px-6 py-3">Note</th>
+                    <th className="text-left px-6 py-3">Added</th>
+                    <th className="px-6 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {whitelist.map((w: any) => (
+                    <tr key={w.sender_handle || w.sender_wallet} className="border-b border-gray-800 hover:bg-gray-800/30">
+                      <td className="px-6 py-3 font-mono">{w.sender_handle || w.sender_wallet?.slice(0, 10) + '...'}</td>
+                      <td className="px-6 py-3 text-gray-500">{w.note || '—'}</td>
+                      <td className="px-6 py-3 text-gray-500">{new Date(w.created_at * 1000).toLocaleDateString()}</td>
+                      <td className="px-6 py-3 text-right">
+                        <button onClick={() => removeWhitelist(w.sender_handle || w.sender_wallet)}
+                          className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contract info */}
+      <div className="mt-8 border-t border-gray-800 pt-6">
+        <div className="text-xs text-gray-600 space-y-1">
+          <div>Escrow Contract: <a href={`https://basescan.org/address/${ESCROW_CONTRACT}`} target="_blank" className="text-gray-500 hover:text-base-blue font-mono">{ESCROW_CONTRACT}</a></div>
+          <div>Protocol Fee: 10% (τ) · Response Window: {responseHours}h · Min Bond: 0.001 USDC</div>
+          <div>QAF Formula: AV = (Σ√bᵢ)² — more diverse senders = higher score</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div className="text-center">
+      <div className={`text-2xl font-bold ${color || 'text-white'}`}>{value}</div>
+      <div className="text-xs text-gray-500 mt-0.5">{label}</div>
     </div>
   );
 }
