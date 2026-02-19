@@ -2695,6 +2695,12 @@ function PendingActionBanner({
             window.location.href = '/dashboard';
             return;
           }
+          // Auth expired → prompt reconnect
+          if (upgradeRes.status === 401) {
+            setError('Session expired. Please disconnect and reconnect your wallet.');
+            setChecking(false);
+            return;
+          }
           const errData = await upgradeRes.json().catch(() => ({}));
           // If "already has Basename handle" — user already upgraded
           if (errData.error?.includes('already has')) {
@@ -2723,6 +2729,11 @@ function PendingActionBanner({
             if (upgradeRes.ok) {
               // User owns it! Upgrade succeeded.
               window.location.href = '/dashboard';
+              return;
+            }
+            if (upgradeRes.status === 401) {
+              setError('Session expired. Please disconnect and reconnect your wallet.');
+              setChecking(false);
               return;
             }
             const upgradeErr = await upgradeRes.json().catch(() => ({}));
