@@ -116,6 +116,35 @@ export async function hasBasenameNFT(address: Address): Promise<boolean> {
 }
 
 /**
+ * Get expiry timestamp for a Basename from on-chain nameExpires().
+ * Returns unix timestamp or 0 on error.
+ */
+export async function getBasenameExpiry(name: string): Promise<number> {
+  try {
+    const label = name.replace(/\.base\.eth$/, '');
+    const labelhash = keccak256(toBytes(label));
+    const tokenId = BigInt(labelhash);
+
+    const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+    const expiry = await client.readContract({
+      abi: [{
+        inputs: [{ name: 'id', type: 'uint256' }],
+        name: 'nameExpires',
+        outputs: [{ name: '', type: 'uint256' }],
+        stateMutability: 'view',
+        type: 'function',
+      }],
+      address: BASENAME_REGISTRAR,
+      functionName: 'nameExpires',
+      args: [tokenId],
+    });
+    return Number(expiry);
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Extract handle from a Basename.
  * "alice.base.eth" → "alice"
  */

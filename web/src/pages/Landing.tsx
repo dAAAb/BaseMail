@@ -538,6 +538,10 @@ export default function Landing() {
             q="Is there a Pro plan?"
             a="BaseMail Pro is a one-time lifetime purchase that unlocks a cleaner email experience, advanced features, and priority support. Available in the Dashboard settings after you register."
           />
+          <FAQItem
+            q="What happens if my Basename expires?"
+            a="Basenames are leased for 1 year. We'll send you reminders before expiry. During the 90-day grace period after expiry, your email continues to work but with a warning. After the grace period, your handle reverts to your wallet address (0x...@basemail.ai) and becomes available for the new Basename owner. Your email history is preserved under your wallet. Automated handle transfer for expired names is coming soon."
+          />
         </div>
       </section>
 

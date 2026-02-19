@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
 import { authMiddleware, createToken } from '../auth';
-import { resolveHandle, basenameToHandle, verifyBasenameOwnership } from '../basename-lookup';
+import { resolveHandle, basenameToHandle, verifyBasenameOwnership, getBasenameExpiry, getBasenameForAddress } from '../basename-lookup';
 import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../basename';
 import type { Hex, Address } from 'viem';
 import { formatEther, encodeFunctionData, namehash } from 'viem';
@@ -293,6 +293,18 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   ]);
   const migratedCount = batchResults[2]?.meta?.changes || 0;
 
+  // Insert into basename_aliases with is_primary=1
+  if (basenames) {
+    const aliasId = `alias-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+    let expiry = 0;
+    try { expiry = await getBasenameExpiry(basenames); } catch {}
+    await c.env.DB.prepare(
+      `INSERT INTO basename_aliases (id, wallet, handle, basename, is_primary, expiry)
+       VALUES (?, ?, ?, ?, 1, ?)
+       ON CONFLICT(handle) DO UPDATE SET is_primary = 1, expiry = ?`
+    ).bind(aliasId, auth.wallet, newHandle, basenames, expiry || null, expiry || null).run();
+  }
+
   // 發新 token
   const secret = c.env.JWT_SECRET!;
   const newToken = await createToken({ wallet: auth.wallet, handle: newHandle }, secret);
@@ -554,6 +566,40 @@ registerRoutes.get('/buy-data/:name', async (c) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
+});
+
+/**
+ * GET /api/register/basenames/:address
+ * Public endpoint — returns Basenames owned by a wallet (via reverse resolution).
+ */
+registerRoutes.get('/basenames/:address', async (c) => {
+  const address = c.req.param('address');
+  if (!/^0x[a-fA-F0-9]{40}$/i.test(address)) {
+    return c.json({ error: 'Invalid address' }, 400);
+  }
+
+  const basename = await getBasenameForAddress(address.toLowerCase() as Address);
+  const basenames: { name: string; handle: string; expiry: number }[] = [];
+
+  if (basename) {
+    const handle = basenameToHandle(basename);
+    let expiry = 0;
+    try { expiry = await getBasenameExpiry(basename); } catch {}
+    basenames.push({ name: basename, handle, expiry });
+  }
+
+  // Also check aliases stored in DB
+  const aliases = await c.env.DB.prepare(
+    'SELECT handle, basename, expiry FROM basename_aliases WHERE wallet = ?'
+  ).bind(address.toLowerCase()).all<{ handle: string; basename: string; expiry: number | null }>();
+
+  for (const a of (aliases.results || [])) {
+    if (!basenames.find(b => b.handle === a.handle)) {
+      basenames.push({ name: a.basename, handle: a.handle, expiry: a.expiry || 0 });
+    }
+  }
+
+  return c.json({ address: address.toLowerCase(), basenames });
 });
 
 function isValidBasename(name: string): boolean {

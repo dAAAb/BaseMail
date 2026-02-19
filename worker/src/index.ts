@@ -19,6 +19,7 @@ import { waitlistRoutes } from './routes/waitlist';
 import { statsRoutes } from './routes/stats';
 import { keyRoutes } from './routes/keys';
 import { attentionRoutes } from './routes/attention';
+import { settingsRoutes } from './routes/settings';
 import { handleIncomingEmail } from './email-handler';
 
 const app = new Hono<AppBindings>();
@@ -449,6 +450,7 @@ app.route('/api/waitlist', waitlistRoutes);
 app.route('/api/stats', statsRoutes);
 app.route('/api/keys', keyRoutes);
 app.route('/api/attention', attentionRoutes);
+app.route('/api/settings', settingsRoutes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {

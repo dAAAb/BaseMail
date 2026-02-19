@@ -1835,6 +1835,41 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
   const [proError, setProError] = useState('');
   const [showProConfetti, setShowProConfetti] = useState(false);
 
+  // v2: Notification email, aliases, expiry
+  const [notifEmail, setNotifEmail] = useState('');
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifSaved, setNotifSaved] = useState(false);
+  const [aliases, setAliases] = useState<{ id: string; handle: string; basename: string; is_primary: number; expiry: number | null }[]>([]);
+  const [newAliasInput, setNewAliasInput] = useState('');
+  const [aliasAdding, setAliasAdding] = useState(false);
+  const [aliasError, setAliasError] = useState('');
+  const [aliasMsg, setAliasMsg] = useState('');
+
+  // Load settings on mount
+  useEffect(() => {
+    apiFetch('/api/settings', auth.token).then(r => r.json()).then((data: any) => {
+      if (data.notification_email) setNotifEmail(data.notification_email);
+      if (data.aliases) setAliases(data.aliases);
+    }).catch(() => {});
+  }, [auth.token]);
+
+  function getExpiryColor(expiry: number | null): string {
+    if (!expiry) return 'text-gray-400';
+    const daysLeft = (expiry - Date.now() / 1000) / 86400;
+    if (daysLeft < 0) return 'text-red-500';
+    if (daysLeft < 7) return 'text-red-400';
+    if (daysLeft < 30) return 'text-orange-400';
+    if (daysLeft < 90) return 'text-yellow-400';
+    return 'text-green-400';
+  }
+
+  function getExpiryText(expiry: number | null): string {
+    if (!expiry) return 'Unknown';
+    const daysLeft = Math.floor((expiry - Date.now() / 1000) / 86400);
+    if (daysLeft < 0) return `Expired ${Math.abs(daysLeft)}d ago`;
+    return `${daysLeft}d remaining`;
+  }
+
   const fullEmail = `${auth.handle}@basemail.ai`;
   const hasBasename = !!auth.basename && !/^0x/i.test(auth.handle!);
   const altEmail = hasBasename ? `${auth.wallet.toLowerCase()}@basemail.ai` : null;
@@ -2062,6 +2097,148 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
               {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
             </button>
           </div>
+        </div>
+
+        {/* Notification Email */}
+        <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
+          <h3 className="font-bold mb-4">Notification Email</h3>
+          <p className="text-gray-400 text-sm mb-4">
+            Where to send expiry reminders and important notifications. Defaults to your BaseMail address.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={notifEmail}
+              onChange={(e) => { setNotifEmail(e.target.value); setNotifSaved(false); }}
+              placeholder={`${auth.handle}@basemail.ai`}
+              className="flex-1 bg-base-dark border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:border-base-blue"
+            />
+            <button
+              onClick={async () => {
+                setNotifSaving(true);
+                try {
+                  await apiFetch('/api/settings', auth.token, {
+                    method: 'PUT',
+                    body: JSON.stringify({ notification_email: notifEmail }),
+                  });
+                  setNotifSaved(true);
+                } catch {}
+                setNotifSaving(false);
+              }}
+              disabled={notifSaving}
+              className="bg-base-blue text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 transition disabled:opacity-50"
+            >
+              {notifSaving ? 'Saving...' : notifSaved ? 'Saved!' : 'Save'}
+            </button>
+          </div>
+        </div>
+
+        {/* Your Basenames */}
+        <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
+          <h3 className="font-bold mb-4">Your Basenames</h3>
+          {aliases.length > 0 ? (
+            <div className="space-y-3 mb-4">
+              {aliases.map((a) => (
+                <div key={a.handle} className="flex items-center justify-between bg-base-dark rounded-lg p-3 border border-gray-700">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="primary-alias"
+                      checked={a.is_primary === 1}
+                      onChange={async () => {
+                        try {
+                          const res = await apiFetch('/api/settings/primary', auth.token, {
+                            method: 'PUT',
+                            body: JSON.stringify({ handle: a.handle }),
+                          });
+                          const data = await res.json() as any;
+                          if (res.ok && data.token) {
+                            setAuth({ ...auth, token: data.token, handle: data.handle, basename: data.basename });
+                            // Reload aliases
+                            const sr = await apiFetch('/api/settings', data.token);
+                            const sd = await sr.json() as any;
+                            if (sd.aliases) setAliases(sd.aliases);
+                          }
+                        } catch {}
+                      }}
+                      className="accent-blue-500"
+                    />
+                    <div>
+                      <span className="font-mono text-sm text-base-blue">{a.handle}@basemail.ai</span>
+                      {a.is_primary === 1 && <span className="ml-2 text-xs bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded">Primary</span>}
+                      <div className={`text-xs mt-0.5 ${getExpiryColor(a.expiry)}`}>
+                        {a.expiry ? (
+                          <>
+                            {getExpiryText(a.expiry)}
+                            {' · '}
+                            <a href={`https://www.base.org/names/${a.handle}`} target="_blank" rel="noopener noreferrer" className="text-base-blue hover:underline">Renew</a>
+                          </>
+                        ) : (
+                          <span className="text-gray-500">Expiry unknown</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {a.is_primary !== 1 && (
+                    <button
+                      onClick={async () => {
+                        await apiFetch(`/api/settings/alias/${a.handle}`, auth.token, { method: 'DELETE' });
+                        setAliases(aliases.filter(x => x.handle !== a.handle));
+                      }}
+                      className="text-gray-500 hover:text-red-400 text-xs"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm mb-4">No basename aliases configured yet.</p>
+          )}
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">
+              <input
+                type="text"
+                value={newAliasInput}
+                onChange={(e) => { setNewAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setAliasError(''); setAliasMsg(''); }}
+                placeholder="yourname"
+                className="flex-1 bg-transparent py-2 text-white font-mono text-sm focus:outline-none"
+              />
+              <span className="text-gray-500 font-mono text-xs">.base.eth</span>
+            </div>
+            <button
+              onClick={async () => {
+                if (!newAliasInput.trim()) return;
+                setAliasAdding(true);
+                setAliasError('');
+                setAliasMsg('');
+                try {
+                  const res = await apiFetch('/api/settings/alias', auth.token, {
+                    method: 'POST',
+                    body: JSON.stringify({ basename: `${newAliasInput.trim()}.base.eth` }),
+                  });
+                  const data = await res.json() as any;
+                  if (!res.ok) throw new Error(data.error);
+                  setAliasMsg(`Added ${data.handle}@basemail.ai`);
+                  setNewAliasInput('');
+                  // Reload
+                  const sr = await apiFetch('/api/settings', auth.token);
+                  const sd = await sr.json() as any;
+                  if (sd.aliases) setAliases(sd.aliases);
+                } catch (e: any) {
+                  setAliasError(e.message || 'Failed to add alias');
+                }
+                setAliasAdding(false);
+              }}
+              disabled={aliasAdding || !newAliasInput.trim()}
+              className="bg-base-blue text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-500 transition disabled:opacity-50"
+            >
+              {aliasAdding ? 'Verifying...' : 'Add'}
+            </button>
+          </div>
+          {aliasError && <p className="text-red-400 text-xs mt-2">{aliasError}</p>}
+          {aliasMsg && <p className="text-green-400 text-xs mt-2">{aliasMsg}</p>}
         </div>
 
         <div className="bg-base-gray rounded-xl p-6 border border-gray-800">

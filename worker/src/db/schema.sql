@@ -141,6 +141,23 @@ CREATE TABLE IF NOT EXISTS sender_reputation (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reputation_pair ON sender_reputation(sender_handle, recipient_handle);
 
+-- ═══════════════════════════════════════════════════
+-- BaseMail v2: Basename Aliases & Multi-Handle
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS basename_aliases (
+  id TEXT PRIMARY KEY,
+  wallet TEXT NOT NULL,
+  handle TEXT NOT NULL,
+  basename TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  expiry INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  FOREIGN KEY (wallet) REFERENCES accounts(wallet)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alias_handle ON basename_aliases(handle);
+CREATE INDEX IF NOT EXISTS idx_alias_wallet ON basename_aliases(wallet);
+
 -- ── QAF Scores (cached per recipient) ──
 CREATE TABLE IF NOT EXISTS qaf_scores (
     handle          TEXT PRIMARY KEY,

@@ -39,6 +39,22 @@ export async function handleIncomingEmail(
     ).bind(handle).first<{ handle: string; webhook_url: string | null }>();
   }
 
+  // Alias fallback: check basename_aliases table
+  if (!account) {
+    try {
+      const alias = await env.DB.prepare(
+        'SELECT wallet FROM basename_aliases WHERE handle = ?'
+      ).bind(handle).first<{ wallet: string }>();
+      if (alias) {
+        account = await env.DB.prepare(
+          'SELECT handle, webhook_url FROM accounts WHERE wallet = ?'
+        ).bind(alias.wallet).first<{ handle: string; webhook_url: string | null }>();
+      }
+    } catch {
+      // basename_aliases table may not exist yet
+    }
+  }
+
   if (!account) {
     // 外部來信不預存，直接拒絕
     message.setReject(`Mailbox not found: ${toAddr}`);
