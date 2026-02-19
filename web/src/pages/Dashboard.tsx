@@ -2858,11 +2858,29 @@ function Attention({ auth }: { auth: AuthState }) {
                       // Get recipient wallet
                       const checkRes = await fetch(`${API_BASE}/api/register/check/${depRecipient}`);
                       const checkData = await checkRes.json() as any;
-                      if (!checkData.wallet && !checkData.registered) {
+                      if (!checkData.registered) {
                         setDepError(`${depRecipient}@basemail.ai is not registered`);
                         return;
                       }
-                      const recipientWallet = (checkData.wallet || depRecipient) as `0x${string}`;
+                      let recipientWallet = checkData.wallet as `0x${string}`;
+                      // If no wallet in response (old data), look up on-chain via ownerOf
+                      if (!recipientWallet && checkData.basename) {
+                        const { keccak256: k, toBytes: tb, createPublicClient: cpc, http: h } = await import('viem');
+                        const { base: baseChain } = await import('viem/chains');
+                        const pc = cpc({ chain: baseChain, transport: h() });
+                        const label = checkData.basename.replace(/\.base\.eth$/, '');
+                        const tokenId = BigInt(k(tb(label)));
+                        recipientWallet = await pc.readContract({
+                          address: '0x03c4738Ee98aE44591e1A4A4F3CaB6641d95DD9a',
+                          abi: [{ inputs: [{ name: 'tokenId', type: 'uint256' }], name: 'ownerOf', outputs: [{ name: '', type: 'address' }], stateMutability: 'view', type: 'function' }],
+                          functionName: 'ownerOf',
+                          args: [tokenId],
+                        }) as `0x${string}`;
+                      }
+                      if (!recipientWallet) {
+                        setDepError('Could not resolve recipient wallet address');
+                        return;
+                      }
 
                       // Step 1: Check allowance & approve if needed
                       setDepStep('approving');

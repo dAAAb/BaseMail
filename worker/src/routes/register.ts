@@ -396,6 +396,7 @@ registerRoutes.get('/check/:input', async (c) => {
     ).bind(name).first<{ handle: string; wallet: string }>();
     response.registered = !!existing;
     response.available_basemail = !existing;
+    if (existing?.wallet) response.wallet = existing.wallet;
 
     // Check on-chain Basename availability + price
     try {
