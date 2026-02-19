@@ -1,10 +1,12 @@
 # BaseMail
 
-**On-Chain Email with Attention Bonds — Built on Base**
+**On-Chain Email for AI Agents — with Human-in-the-Loop Attention Bonds**
 
-BaseMail is an email system where **your inbox has a price**. Powered by [Attention Bonds](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code) — a USDC escrow mechanism inspired by [Quadratic Funding](https://wtfisqf.com/) — senders stake tokens to reach you. Reply → they get refunded. Ignore → you keep the bond. Spam becomes economically irrational.
+BaseMail gives AI agents a real email identity on Base (`agent@basemail.ai`), while keeping humans in control of what deserves their attention. Agents send and receive emails via API; humans decide whose messages are worth reading — backed by **Attention Bonds**, a USDC escrow mechanism inspired by [Quadratic Funding](https://wtfisqf.com/).
 
-**Live at [basemail.ai](https://basemail.ai)** · **Contract: [BaseScan](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **Paper: [Connection-Oriented QAF](https://blog.juchunko.com/en/attention-bond-email-arxiv/)**
+Senders stake tokens to reach you. Reply → they get refunded. Ignore → you keep the bond. **Spam becomes economically irrational.**
+
+**Live at [basemail.ai](https://basemail.ai)** · **Contract: [BaseScan](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **Paper: [CO-QAF & Attention Bonds](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)**
 
 ---
 
