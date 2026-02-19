@@ -8,6 +8,8 @@ jobs:
   deploy-worker:
     name: Deploy Worker
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: development
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +35,8 @@ jobs:
   deploy-pages:
     name: Deploy Pages
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: development
     steps:
       - uses: actions/checkout@v4
 
