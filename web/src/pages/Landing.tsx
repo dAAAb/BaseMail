@@ -89,6 +89,7 @@ export default function Landing() {
       alternative?: { description: string; url: string };
     };
     note?: string;
+    owner?: string;
   }>(null);
   const [checking, setChecking] = useState(false);
 
@@ -237,6 +238,11 @@ export default function Landing() {
                     <span className="font-mono text-white">{result.basename}</span> is already owned on-chain.
                     This email is reserved for the Basename holder.
                   </p>
+                  {result.owner && (
+                    <p className="text-gray-500 text-xs font-mono mb-2">
+                      Owner: {result.owner.slice(0, 6)}...{result.owner.slice(-4)}
+                    </p>
+                  )}
                   <p className="text-gray-500 text-xs">
                     If you own this Basename, connect your wallet in the Dashboard to claim your email.
                   </p>

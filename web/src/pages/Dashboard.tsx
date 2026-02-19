@@ -242,6 +242,7 @@ export default function Dashboard() {
   const [showAltEmail, setShowAltEmail] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [showUpgradeConfetti, setShowUpgradeConfetti] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [basenameInput, setBasenameInput] = useState(
     new URLSearchParams(location.search).get('claim') || ''
   );
@@ -416,16 +417,25 @@ export default function Dashboard() {
       {showUpgradeConfetti && <ConfettiEffect />}
 
       {/* Sidebar */}
-      <aside className="w-64 bg-base-gray border-r border-gray-800 p-6 flex flex-col">
-        <Link to="/" className="flex items-center gap-2 mb-8">
-          <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm">
-            BM
-          </div>
-          <span className="text-lg font-bold">BaseMail</span>
-        </Link>
+      <aside className={`${sidebarCollapsed ? 'w-16 p-3' : 'w-64 p-6'} bg-base-gray border-r border-gray-800 flex flex-col transition-all duration-200`}>
+        <div className="flex items-center gap-2 mb-8">
+          <Link to="/" className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+              BM
+            </div>
+            {!sidebarCollapsed && <span className="text-lg font-bold">BaseMail</span>}
+          </Link>
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="text-gray-500 hover:text-white transition text-xs flex-shrink-0"
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? '▶' : '◀'}
+          </button>
+        </div>
 
         {/* Email address card — with toggle for basename users */}
-        <div className="bg-base-dark rounded-lg p-3 mb-6">
+        {!sidebarCollapsed && <div className="bg-base-dark rounded-lg p-3 mb-6">
           <div className="text-gray-400 text-xs mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1">
               {showAltEmail ? '0x Address' : 'Your Email'}
@@ -450,10 +460,10 @@ export default function Dashboard() {
               {showAltEmail ? 'Both addresses receive mail' : `Also: ${truncateEmail(auth.wallet.toLowerCase())}`}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Basename upgrade prompt */}
-        {canUpgrade && hasKnownName && (
+        {!sidebarCollapsed && canUpgrade && hasKnownName && (
           <button
             onClick={() => handleUpgrade()}
             disabled={upgrading}
@@ -462,22 +472,35 @@ export default function Dashboard() {
             {upgrading ? 'Upgrading...' : `\u2728 Upgrade to ${auth.suggested_handle}@basemail.ai`}
           </button>
         )}
-        {canUpgrade && hasNFTOnly && (
+        {!sidebarCollapsed && canUpgrade && hasNFTOnly && (
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-lg p-3 mb-4 text-xs">
             <span className="text-blue-300 font-bold">Basename Detected!</span>
           </div>
         )}
 
         <nav className="flex-1 space-y-1">
-          <NavLink to="/dashboard" icon="inbox" label="Inbox" active={location.pathname === '/dashboard'} />
-          <NavLink to="/dashboard/sent" icon="send" label="Sent" active={location.pathname === '/dashboard/sent'} />
-          <NavLink to="/dashboard/compose" icon="edit" label="Compose" active={location.pathname === '/dashboard/compose'} />
-          <NavLink to="/dashboard/credits" icon="credits" label="Credits" active={location.pathname === '/dashboard/credits'} />
-          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} />
-          <NavLink to="/dashboard/settings" icon="settings" label="Settings" active={location.pathname === '/dashboard/settings'} />
+          <NavLink to="/dashboard" icon="inbox" label="Inbox" active={location.pathname === '/dashboard'} collapsed={sidebarCollapsed} />
+          <NavLink to="/dashboard/sent" icon="send" label="Sent" active={location.pathname === '/dashboard/sent'} collapsed={sidebarCollapsed} />
+          <NavLink to="/dashboard/compose" icon="edit" label="Compose" active={location.pathname === '/dashboard/compose'} collapsed={sidebarCollapsed} />
+          <NavLink to="/dashboard/credits" icon="credits" label="Credits" active={location.pathname === '/dashboard/credits'} collapsed={sidebarCollapsed} />
+          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} collapsed={sidebarCollapsed} />
+          <NavLink to="/dashboard/settings" icon="settings" label="Settings" active={location.pathname === '/dashboard/settings'} collapsed={sidebarCollapsed} />
         </nav>
 
         <div className="mt-auto pt-6 border-t border-gray-800">
+          {sidebarCollapsed ? (
+            <button
+              onClick={() => {
+                sessionStorage.removeItem('basemail_auth');
+                disconnect();
+                setAuth(null);
+              }}
+              className="text-gray-600 hover:text-red-400 transition text-xs w-full text-center"
+              title="Disconnect"
+            >
+              ⏻
+            </button>
+          ) : <>
           {/* Wallet balances */}
           <div className="mb-3 space-y-1.5">
             <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Balances</div>
@@ -540,6 +563,7 @@ export default function Dashboard() {
           >
             Disconnect
           </button>
+          </>}
         </div>
       </aside>
 
@@ -834,7 +858,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   );
 }
 
-function NavLink({ to, icon, label, active }: { to: string; icon: string; label: string; active: boolean }) {
+function NavLink({ to, icon, label, active, collapsed }: { to: string; icon: string; label: string; active: boolean; collapsed?: boolean }) {
   const icons: Record<string, string> = {
     inbox: '\u{1F4E5}',
     send: '\u{1F4E4}',
@@ -846,12 +870,13 @@ function NavLink({ to, icon, label, active }: { to: string; icon: string; label:
   return (
     <Link
       to={to}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
+      className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-lg text-sm transition ${
         active ? 'bg-base-blue/10 text-base-blue' : 'text-gray-400 hover:text-white hover:bg-gray-800'
       }`}
+      title={collapsed ? label : undefined}
     >
       <span>{icons[icon]}</span>
-      {label}
+      {!collapsed && label}
     </Link>
   );
 }

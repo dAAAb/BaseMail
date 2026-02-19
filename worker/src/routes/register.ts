@@ -415,10 +415,21 @@ registerRoutes.get('/check/:input', async (c) => {
         };
       } else {
         response.price_info = { available: false };
-        // Not available on-chain — might be owned by someone
+        // Not available on-chain — owned by someone. Look up owner.
         if (!existing) {
           response.status = 'reserved';
           response.note = `${name}.base.eth is owned on-chain but not yet claimed on BaseMail. The Basename holder can claim this email.`;
+          // Fetch on-chain owner address
+          try {
+            const ownership = await verifyBasenameOwnership(`${name}.base.eth`, '0x0000000000000000000000000000000000000000');
+            if (!ownership.valid && ownership.error) {
+              // Error message contains actual owner: "The owner is 0x..."
+              const ownerMatch = ownership.error.match(/owner is (0x[a-fA-F0-9]{40})/i);
+              if (ownerMatch) {
+                response.owner = ownerMatch[1];
+              }
+            }
+          } catch {}
         }
       }
 
