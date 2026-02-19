@@ -1,6 +1,16 @@
 import { Hono } from 'hono';
+import { createPublicClient, http, decodeEventLog, parseAbi, type Hex } from 'viem';
+import { base } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
+
+// ── Base Mainnet constants ──
+const BASE_RPC = 'https://mainnet.base.org';
+const ESCROW_CONTRACT = '0x0f686c8ac82654fe0d3e3309f4243f13c9576b27';
+
+const ESCROW_ABI = parseAbi([
+  'event BondDeposited(bytes32 indexed emailId, address indexed sender, address indexed recipient, uint256 amount)',
+]);
 
 export const attentionRoutes = new Hono<AppBindings>();
 
@@ -307,15 +317,14 @@ authed.post('/bond', async (c) => {
   const auth = c.get('auth');
   if (!auth.handle) return c.json({ error: 'Not registered' }, 403);
 
-  const { email_id, recipient_handle, amount_usdc, tx_hash } = await c.req.json<{
+  const { email_id, recipient_handle, tx_hash } = await c.req.json<{
     email_id: string;
     recipient_handle: string;
-    amount_usdc: number;
     tx_hash: string;
   }>();
 
-  if (!email_id || !recipient_handle || !amount_usdc || !tx_hash) {
-    return c.json({ error: 'email_id, recipient_handle, amount_usdc, tx_hash required' }, 400);
+  if (!email_id || !recipient_handle || !tx_hash) {
+    return c.json({ error: 'email_id, recipient_handle, tx_hash required' }, 400);
   }
 
   // Get recipient wallet
@@ -323,6 +332,65 @@ authed.post('/bond', async (c) => {
     'SELECT wallet FROM accounts WHERE handle = ?'
   ).bind(recipient_handle).first<{ wallet: string }>();
   if (!recipient) return c.json({ error: 'Recipient not found' }, 404);
+
+  // ── On-chain verification: parse BondDeposited event from tx receipt ──
+  let verifiedAmount: number;
+  try {
+    const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+    const receipt = await client.waitForTransactionReceipt({
+      hash: tx_hash as Hex,
+      timeout: 15_000,
+    });
+
+    if (receipt.status !== 'success') {
+      return c.json({ error: 'Transaction failed on-chain' }, 400);
+    }
+
+    // Find BondDeposited event from our escrow contract
+    const bondLog = receipt.logs.find(
+      (log) => log.address.toLowerCase() === ESCROW_CONTRACT.toLowerCase()
+        && log.topics.length >= 4 // emailId, sender, recipient are indexed
+    );
+
+    if (!bondLog) {
+      return c.json({ error: 'No BondDeposited event found from escrow contract' }, 400);
+    }
+
+    // Decode the event
+    const decoded = decodeEventLog({
+      abi: ESCROW_ABI,
+      data: bondLog.data,
+      topics: bondLog.topics,
+    });
+
+    if (decoded.eventName !== 'BondDeposited') {
+      return c.json({ error: 'Unexpected event from escrow contract' }, 400);
+    }
+
+    const { emailId: onChainEmailId, sender: onChainSender, recipient: onChainRecipient, amount } = decoded.args;
+
+    // Verify sender matches authenticated wallet
+    if (!auth.wallet) {
+      return c.json({ error: 'Bond verification requires wallet-based auth (JWT), not API key' }, 400);
+    }
+    if (onChainSender.toLowerCase() !== auth.wallet.toLowerCase()) {
+      return c.json({ error: 'On-chain sender does not match authenticated wallet' }, 400);
+    }
+
+    // Verify recipient matches
+    if (onChainRecipient.toLowerCase() !== recipient.wallet.toLowerCase()) {
+      return c.json({ error: 'On-chain recipient does not match recipient wallet' }, 400);
+    }
+
+    // Amount is in USDC (6 decimals)
+    verifiedAmount = Number(amount) / 1e6;
+
+    if (verifiedAmount < 0.001) {
+      return c.json({ error: 'Bond amount below minimum (0.001 USDC)' }, 400);
+    }
+  } catch (e: any) {
+    return c.json({ error: `On-chain verification failed: ${e.message}` }, 400);
+  }
 
   // Get response window
   const config = await c.env.DB.prepare(
@@ -337,7 +405,7 @@ authed.post('/bond', async (c) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
   `).bind(
     email_id, auth.handle, auth.wallet || '', recipient_handle, recipient.wallet,
-    amount_usdc, tx_hash, now, now + window,
+    verifiedAmount, tx_hash, now, now + window,
   ).run();
 
   // Update sender reputation
@@ -350,14 +418,21 @@ authed.post('/bond', async (c) => {
       last_email_at = ?,
       updated_at = ?
   `).bind(
-    `rep-${Date.now().toString(36)}`, auth.handle, recipient_handle, amount_usdc, now,
-    amount_usdc, now, now,
+    `rep-${Date.now().toString(36)}`, auth.handle, recipient_handle, verifiedAmount, now,
+    verifiedAmount, now, now,
   ).run();
 
   // Recalculate QAF
   await recalculateQAF(c.env.DB, recipient_handle);
 
-  return c.json({ success: true, email_id, bond_status: 'active', deadline: now + window });
+  return c.json({
+    success: true,
+    email_id,
+    bond_status: 'active',
+    verified_amount_usdc: verifiedAmount,
+    deadline: now + window,
+    tx_hash,
+  });
 });
 
 // ── Mark reply → trigger refund tracking ──
