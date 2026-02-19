@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BaseMail Attention Bonds — On-Chain Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 24px; }
+h1 { font-size: 28px; margin-bottom: 8px; color: #fff; }
+.subtitle { color: #888; margin-bottom: 32px; font-size: 14px; }
+.subtitle a { color: #5b9aff; text-decoration: none; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+.card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 20px; }
+.card .label { color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.card .value { font-size: 32px; font-weight: 700; color: #fff; }
+.card .value.green { color: #4ade80; }
+.card .value.blue { color: #60a5fa; }
+.card .value.orange { color: #fb923c; }
+.card .value.purple { color: #c084fc; }
+h2 { font-size: 20px; margin: 32px 0 16px; color: #fff; }
+table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 12px; overflow: hidden; }
+th { background: #2a2a4a; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+td { padding: 12px 16px; border-top: 1px solid #2a2a4a; font-size: 14px; }
+td a { color: #5b9aff; text-decoration: none; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.badge.deposit { background: #1a3a2e; color: #4ade80; }
+.badge.refund { background: #1a2a3e; color: #60a5fa; }
+.badge.forfeit { background: #3a2a1e; color: #fb923c; }
+.badge.priceset { background: #2a1a3e; color: #c084fc; }
+.addr { font-family: monospace; font-size: 12px; color: #aaa; }
+.flow { display: flex; align-items: center; gap: 16px; margin: 32px 0; flex-wrap: wrap; }
+.flow-step { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 16px 24px; text-align: center; flex: 1; min-width: 150px; }
+.flow-step .num { font-size: 32px; margin-bottom: 4px; }
+.flow-arrow { font-size: 24px; color: #555; }
+.footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #2a2a4a; color: #555; font-size: 12px; text-align: center; }
+.live { display: inline-block; width: 8px; height: 8px; background: #4ade80; border-radius: 50%; margin-right: 6px; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+#loading { text-align: center; padding: 40px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>🔒 BaseMail Attention Bonds</h1>
+<p class="subtitle">
+  <span class="live"></span>Live on-chain data · 
+  <a href="https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code" target="_blank">Contract on BaseScan ↗</a> · 
+  <a href="https://basemail.ai" target="_blank">basemail.ai ↗</a>
+</p>
+
+<div class="grid" id="stats">
+  <div class="card"><div class="label">Total Deposits</div><div class="value green" id="total-deposits">—</div></div>
+  <div class="card"><div class="label">USDC Deposited</div><div class="value blue" id="total-usdc">—</div></div>
+  <div class="card"><div class="label">Unique Senders</div><div class="value purple" id="unique-senders">—</div></div>
+  <div class="card"><div class="label">Refunds / Forfeits</div><div class="value orange" id="outcomes">—</div></div>
+</div>
+
+<h2>How It Works</h2>
+<div class="flow">
+  <div class="flow-step"><div class="num">📧</div>Send Email</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step"><div class="num">💰</div>Stake USDC</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step"><div class="num">✉️</div>Recipient Reads</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step"><div class="num">↩️</div>Reply = Refund<br><small style="color:#888">Ignore = Forfeit</small></div>
+</div>
+
+<h2>All Bond Events</h2>
+<div id="loading">Loading on-chain data from Dune...</div>
+<table id="events-table" style="display:none">
+  <thead>
+    <tr><th>Time (UTC)</th><th>Event</th><th>Amount</th><th>Sender</th><th>Recipient</th><th>Tx</th></tr>
+  </thead>
+  <tbody id="events-body"></tbody>
+</table>
+
+<div class="footer">
+  <p>Contract: 0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220 (Base Mainnet) · USDC Escrow · <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" style="color:#5b9aff">CO-QAF Paper ↗</a></p>
+  <p style="margin-top:8px">Data powered by <a href="https://dune.com" style="color:#5b9aff">Dune Analytics API</a></p>
+</div>
+
+<script>
+const DUNE_API_KEY = ''; // Set via URL param or env
+const CONTRACT = '0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220';
+
+const TOPICS = {
+  '0x46e4756f3964bc66ee7f8bfefe755d1260b8e97a11503d05e93fe23e540bbfca': 'Deposit',
+  '0xb34b453fe0dbed79135a2bd8c19a0172be613a03f176691c7294a2eb89934c55': 'Refund',
+  '0x23a217583c5b4b6fc4298ac7f234eb55c4d3d409a7fdf42232d0d7eb0e0a562e': 'Forfeit',
+  '0x1621101222b1172372555c6ce4c616cd5758dc233c29572971069bed04e4ac19': 'PriceSet',
+};
+
+// Static data from latest Dune query (auto-updated)
+const EVENTS = [
+  { time: '2026-02-19 12:49:45', type: 'Deposit', amount: 0.18, sender: '0x12a0e25e62c1dbd32e505446062b26aecb65f028', recipient: '0xbf494bda4ba9e5224eff973d3923660a964338f6', tx: '0xffa8da31f226ecebecbfc02e8593c241b3265f55190a2f533da6fb347b2e2b25' },
+  { time: '2026-02-19 12:01:47', type: 'Deposit', amount: 0.015, sender: '0xbf494bda4ba9e5224eff973d3923660a964338f6', recipient: '0x94c72f43f9f2e04bcf1545021725353dc177f7e6', tx: '0xe2022e716e066425f5bc970a83bf642014673e53b0706277fa0680e4fdc6c94b' },
+  { time: '2026-02-19 11:52:35', type: 'PriceSet', amount: 0.01, sender: null, recipient: null, tx: '0x42a882956b3753ea0eb9a918da00c10b2dd645c1df47e5ae7693d310b2ea642b' },
+];
+
+function shortAddr(a) {
+  if (!a) return '—';
+  a = a.replace(/^0x0+/, '0x');
+  return a.slice(0, 6) + '...' + a.slice(-4);
+}
+
+function render() {
+  const deposits = EVENTS.filter(e => e.type === 'Deposit');
+  const refunds = EVENTS.filter(e => e.type === 'Refund');
+  const forfeits = EVENTS.filter(e => e.type === 'Forfeit');
+  
+  document.getElementById('total-deposits').textContent = deposits.length;
+  document.getElementById('total-usdc').textContent = '$' + deposits.reduce((s, e) => s + e.amount, 0).toFixed(3);
+  
+  const senders = new Set(deposits.map(e => e.sender).filter(Boolean));
+  document.getElementById('unique-senders').textContent = senders.size;
+  document.getElementById('outcomes').textContent = refunds.length + ' / ' + forfeits.length;
+  
+  const tbody = document.getElementById('events-body');
+  EVENTS.forEach(e => {
+    const tr = document.createElement('tr');
+    const badgeClass = e.type.toLowerCase();
+    tr.innerHTML = `
+      <td>${e.time}</td>
+      <td><span class="badge ${badgeClass}">${e.type}</span></td>
+      <td>${e.amount ? '$' + e.amount.toFixed(3) : '—'}</td>
+      <td class="addr">${shortAddr(e.sender)}</td>
+      <td class="addr">${shortAddr(e.recipient)}</td>
+      <td><a href="https://basescan.org/tx/${e.tx}" target="_blank">${e.tx.slice(0, 10)}...</a></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('events-table').style.display = 'table';
+}
+
+render();
+</script>
+</body>
+</html>
