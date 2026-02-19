@@ -14,6 +14,60 @@ const ESCROW_ABI = parseAbi([
 
 export const attentionRoutes = new Hono<AppBindings>();
 
+// ── Auto-migrate: ensure attention tables exist on first request ──
+let migrated = false;
+attentionRoutes.use('/*', async (c, next) => {
+  if (!migrated) {
+    try {
+      await c.env.DB.batch([
+        c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS attention_config (
+          handle TEXT PRIMARY KEY, base_price REAL NOT NULL DEFAULT 0.01,
+          alpha REAL NOT NULL DEFAULT 0.1, beta REAL NOT NULL DEFAULT 1.0,
+          gamma REAL NOT NULL DEFAULT 0.5, response_window INTEGER NOT NULL DEFAULT 604800,
+          enabled INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+        c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS attention_bonds (
+          email_id TEXT PRIMARY KEY, sender_handle TEXT NOT NULL, sender_wallet TEXT NOT NULL,
+          recipient_handle TEXT NOT NULL, recipient_wallet TEXT NOT NULL,
+          amount_usdc REAL NOT NULL, tx_hash TEXT,
+          status TEXT NOT NULL DEFAULT 'active', deposit_time INTEGER NOT NULL DEFAULT (unixepoch()),
+          response_deadline INTEGER NOT NULL, resolved_time INTEGER, refund_tx_hash TEXT,
+          protocol_fee REAL DEFAULT 0,
+          FOREIGN KEY (sender_handle) REFERENCES accounts(handle),
+          FOREIGN KEY (recipient_handle) REFERENCES accounts(handle))`),
+        c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS attention_whitelist (
+          id TEXT PRIMARY KEY, recipient_handle TEXT NOT NULL, sender_handle TEXT, sender_wallet TEXT,
+          note TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (recipient_handle) REFERENCES accounts(handle))`),
+        c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS sender_reputation (
+          id TEXT PRIMARY KEY, sender_handle TEXT NOT NULL, recipient_handle TEXT NOT NULL,
+          emails_sent INTEGER NOT NULL DEFAULT 0, emails_replied INTEGER NOT NULL DEFAULT 0,
+          reply_rate REAL NOT NULL DEFAULT 0.0, total_bonded REAL NOT NULL DEFAULT 0.0,
+          total_refunded REAL NOT NULL DEFAULT 0.0, total_forfeited REAL NOT NULL DEFAULT 0.0,
+          last_email_at INTEGER, updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (sender_handle) REFERENCES accounts(handle),
+          FOREIGN KEY (recipient_handle) REFERENCES accounts(handle))`),
+        c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS qaf_scores (
+          handle TEXT PRIMARY KEY, qaf_value REAL NOT NULL DEFAULT 0.0,
+          coqaf_value REAL NOT NULL DEFAULT 0.0, unique_senders INTEGER NOT NULL DEFAULT 0,
+          total_bonds REAL NOT NULL DEFAULT 0.0, updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+        c.env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_bonds_sender ON attention_bonds(sender_handle, status)`),
+        c.env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_bonds_recipient ON attention_bonds(recipient_handle, status)`),
+        c.env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_bonds_deadline ON attention_bonds(status, response_deadline)`),
+        c.env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_whitelist_recipient ON attention_whitelist(recipient_handle)`),
+        c.env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_reputation_pair ON sender_reputation(sender_handle, recipient_handle)`),
+      ]);
+    } catch (e) {
+      // Tables may already exist — continue
+      console.error('Attention migration:', e);
+    }
+    migrated = true;
+  }
+  await next();
+});
+
 // ══════════════════════════════════════════════
 // PUBLIC: Get attention price for a recipient
 // ══════════════════════════════════════════════
