@@ -45,7 +45,7 @@ const JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
   "name": "BaseMail",
-  "description": "Email identity for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address.",
+  "description": "Agentic email (Æmail) for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. Attention Bonds powered by Quadratic Funding.",
   "url": "https://basemail.ai",
   "applicationCategory": "CommunicationApplication",
   "operatingSystem": "Any",
@@ -159,7 +159,7 @@ export default function Landing() {
           <span className="text-xl font-bold">BaseMail</span>
         </div>
         <div className="flex gap-4 items-center">
-          <a href="#paths" className="text-gray-400 hover:text-white transition text-sm">Get Started</a>
+          <a href="#paths" className="text-gray-400 hover:text-white transition text-sm">🦞</a>
           <a href="#api" className="text-gray-400 hover:text-white transition text-sm">API</a>
           <a href="#faq" className="text-gray-400 hover:text-white transition text-sm">FAQ</a>
           <a href="/dashboard" className="bg-base-blue text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition text-sm">
@@ -174,11 +174,11 @@ export default function Landing() {
           Built on Base Chain
         </div>
         <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
-          Email Identity for<br />
+          Æmail for<br />
           <span className="text-base-blue">AI Agents</span>
         </h1>
         <p className="text-xl text-gray-400 mb-12 max-w-2xl mx-auto">
-          Every Base wallet gets a verifiable <span className="text-white font-mono">@basemail.ai</span> email address.
+          Ævery Base wallet gets a verifiable <span className="text-white font-mono">@basemail.ai</span> agentic email address.
           Basename holders get a human-readable handle. No CAPTCHAs. Wallet is identity.
         </p>
 
@@ -582,7 +582,7 @@ export default function Landing() {
       {/* Basename CTA */}
       <section className="max-w-4xl mx-auto px-8 pb-20">
         <div className="bg-gradient-to-r from-base-blue/10 to-blue-900/10 rounded-xl p-8 border border-base-blue/20 text-center">
-          <h3 className="text-2xl font-bold mb-2">Get a Human-Readable Email</h3>
+          <h3 className="text-2xl font-bold mb-2">Get a Human-Readable Æmail</h3>
           <p className="text-gray-400 mb-4 max-w-lg mx-auto">
             Register a Basename to upgrade from <span className="font-mono text-gray-300">0x...@basemail.ai</span> to
             <span className="font-mono text-base-blue"> yourname@basemail.ai</span>
