@@ -4,7 +4,8 @@ import { authMiddleware, createToken } from '../auth';
 import { resolveHandle, basenameToHandle, verifyBasenameOwnership } from '../basename-lookup';
 import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../basename';
 import type { Hex, Address } from 'viem';
-import { formatEther } from 'viem';
+import { formatEther, encodeFunctionData, namehash } from 'viem';
+import { normalize } from 'viem/ens';
 
 export const registerRoutes = new Hono<AppBindings>();
 
@@ -474,6 +475,81 @@ registerRoutes.get('/price/:name', async (c) => {
     });
   } catch (e: any) {
     return c.json({ error: `Price query failed: ${e.message}` }, 500);
+  }
+});
+
+/**
+ * GET /api/register/buy-data/:name
+ * Returns everything needed for the frontend to call register() directly via wagmi.
+ * User signs + pays from their own wallet — no worker private key needed.
+ */
+registerRoutes.get('/buy-data/:name', authMiddleware(), async (c) => {
+  const name = c.req.param('name');
+  const auth = c.get('auth');
+
+  if (!isValidBasename(name)) {
+    return c.json({ error: 'Invalid name format' }, 400);
+  }
+
+  try {
+    const available = await isBasenameAvailable(name);
+    if (!available) {
+      return c.json({ error: `${name}.base.eth is not available` }, 409);
+    }
+
+    const priceWei = await getBasenamePrice(name);
+    const valueWithBuffer = priceWei + (priceWei / 10n); // +10% buffer
+
+    // Build resolver data
+    const fullName = `${name}.base.eth`;
+    const node = namehash(normalize(fullName));
+
+    const L2_RESOLVER = '0x426fA03fB86E510d0Dd9F70335Cf102a98b10875';
+    const L2ResolverABI = [
+      { name: 'setAddr', type: 'function', stateMutability: 'nonpayable' as const,
+        inputs: [{ name: 'node', type: 'bytes32' }, { name: 'a', type: 'address' }], outputs: [] },
+      { name: 'setName', type: 'function', stateMutability: 'nonpayable' as const,
+        inputs: [{ name: 'node', type: 'bytes32' }, { name: 'newName', type: 'string' }], outputs: [] },
+    ] as const;
+
+    const addressData = encodeFunctionData({
+      abi: L2ResolverABI, functionName: 'setAddr', args: [node, auth.wallet as Address],
+    });
+    const nameData = encodeFunctionData({
+      abi: L2ResolverABI, functionName: 'setName', args: [node, fullName],
+    });
+
+    const ONE_YEAR = BigInt(365 * 24 * 60 * 60);
+
+    return c.json({
+      name,
+      basename: fullName,
+      available: true,
+      price_wei: priceWei.toString(),
+      price_eth: formatEther(priceWei),
+      value_with_buffer: valueWithBuffer.toString(),
+
+      // Contract call params — frontend passes these directly to writeContract
+      contract: {
+        address: '0xa7d2607c6BD39Ae9521e514026CBB078405Ab322',
+        chain_id: 8453,
+        function_name: 'register',
+        args: {
+          name,
+          owner: auth.wallet,
+          duration: ONE_YEAR.toString(),
+          resolver: L2_RESOLVER,
+          data: [addressData, nameData],
+          reverseRecord: true,
+          coinTypes: [],
+          signatureExpiry: '0',
+          signature: '0x',
+        },
+        value: valueWithBuffer.toString(),
+      },
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
   }
 });
 

@@ -2467,6 +2467,12 @@ function Attention({ auth }: { auth: AuthState }) {
 }
 
 // ─── Pending Action Banner (from ?claim= or ?buy= URL params) ────
+// ── Basename Registrar ABI (for direct user purchase via wagmi) ──
+const BASENAME_REGISTRAR = '0xa7d2607c6BD39Ae9521e514026CBB078405Ab322' as `0x${string}`;
+const BASENAME_REGISTRAR_ABI = parseAbi([
+  'function register((string name, address owner, uint256 duration, address resolver, bytes[] data, bool reverseRecord, uint256[] coinTypes, uint256 signatureExpiry, bytes signature) request) payable',
+]);
+
 function PendingActionBanner({
   action, auth, onUpgrade, upgrading, onDismiss,
 }: {
@@ -2481,69 +2487,83 @@ function PendingActionBanner({
   const [ownsName, setOwnsName] = useState(false);
   const [priceEth, setPriceEth] = useState<string | null>(null);
   const [available, setAvailable] = useState(false);
+  const [buyData, setBuyData] = useState<any>(null);
   const [error, setError] = useState('');
-  const { writeContract, isPending: isBuying, data: txHash } = useWriteContract();
+  const [step, setStep] = useState<'check' | 'ready' | 'signing' | 'confirming' | 'upgrading' | 'done'>('check');
+  const { writeContract, isPending: isSigning, data: txHash, error: txError } = useWriteContract();
   const { switchChain } = useSwitchChain();
   const { chain } = useAccount();
   const txResult = useWaitForTransactionReceipt({ hash: txHash });
 
+  // Step 1: Check availability + get buy data
   useEffect(() => {
     (async () => {
       setChecking(true);
       try {
         if (action.type === 'claim') {
-          // Verify ownership on-chain
+          // Verify ownership
           const res = await apiFetch(`/api/register/check/${auth.wallet}`, auth.token);
           const data = await res.json();
-          // Check if wallet's resolved basename matches the claim
           const resolvedName = data.basename?.replace('.base.eth', '').toLowerCase();
           if (resolvedName === action.name.toLowerCase()) {
             setOwnsName(true);
-          } else {
-            // Also try verifyBasenameOwnership via upgrade endpoint check
-            setOwnsName(false);
-            setError(`Your wallet does not own ${action.name}.base.eth. You can buy it below or try a different name.`);
-            // Check if available to buy
-            const priceRes = await fetch(`${API_BASE}/api/register/price/${action.name}`);
-            if (priceRes.ok) {
-              const priceData = await priceRes.json();
-              if (priceData.available) {
-                setAvailable(true);
-                setPriceEth(priceData.price_eth);
-              }
-            }
+            setChecking(false);
+            return;
           }
-        } else {
-          // Buy flow — check price
-          const priceRes = await fetch(`${API_BASE}/api/register/price/${action.name}`);
-          if (priceRes.ok) {
-            const priceData = await priceRes.json();
-            setAvailable(priceData.available);
-            setPriceEth(priceData.price_eth);
-            if (!priceData.available) {
-              setError(`${action.name}.base.eth is not available for purchase.`);
-            }
-          }
+          setError(`Your wallet does not own ${action.name}.base.eth. You can buy it below.`);
         }
-      } catch {}
+
+        // Get buy data from API (includes resolver data + price)
+        const buyRes = await apiFetch(`/api/register/buy-data/${action.name}`, auth.token);
+        if (buyRes.ok) {
+          const data = await buyRes.json();
+          setBuyData(data);
+          setAvailable(true);
+          setPriceEth(data.price_eth);
+          setStep('ready');
+        } else {
+          const err = await buyRes.json().catch(() => ({}));
+          setError(err.error || `${action.name}.base.eth is not available.`);
+        }
+      } catch (e: any) {
+        setError(e.message || 'Failed to check availability');
+      }
       setChecking(false);
     })();
   }, [action, auth]);
 
-  // After successful claim verification, trigger upgrade
+  // Step 2: After claim verification, trigger upgrade
   useEffect(() => {
     if (ownsName && action.type === 'claim' && !upgrading) {
       onUpgrade(action.name);
     }
   }, [ownsName]);
 
-  // After buy tx confirms, trigger upgrade
+  // Step 3: Track tx signing
+  useEffect(() => {
+    if (isSigning) setStep('signing');
+  }, [isSigning]);
+
+  // Step 4: Track tx confirmation
+  useEffect(() => {
+    if (txHash && !txResult.isSuccess) setStep('confirming');
+  }, [txHash, txResult.isSuccess]);
+
+  // Step 5: After buy tx confirms → upgrade email
   useEffect(() => {
     if (txResult.isSuccess) {
-      // Wait a bit for chain state to propagate, then upgrade
+      setStep('upgrading');
       setTimeout(() => onUpgrade(action.name), 3000);
     }
   }, [txResult.isSuccess]);
+
+  // Track tx error
+  useEffect(() => {
+    if (txError) {
+      setError(txError.message?.includes('User rejected') ? 'Transaction cancelled.' : `Transaction failed: ${txError.message?.slice(0, 100)}`);
+      setStep('ready');
+    }
+  }, [txError]);
 
   if (checking) {
     return (
@@ -2568,7 +2588,27 @@ function PendingActionBanner({
     );
   }
 
-  // Not owner or buy flow → show purchase option
+  // Upgrading after purchase
+  if (step === 'upgrading' || step === 'done') {
+    return (
+      <div className="bg-gradient-to-r from-green-900/30 to-blue-900/30 border border-green-700/50 rounded-xl p-6 mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xl">🎉</span>
+          <h3 className="font-bold text-lg">Purchase Confirmed!</h3>
+        </div>
+        <p className="text-gray-400 text-sm">
+          <span className="text-base-blue font-mono font-bold">{action.name}.base.eth</span> is yours! Setting up your email...
+        </p>
+        {txHash && (
+          <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-xs text-gray-500 hover:text-base-blue mt-2 block">
+            View transaction ↗
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // Buy flow → direct on-chain purchase
   return (
     <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6 mb-6">
       <div className="flex items-center justify-between mb-3">
@@ -2583,17 +2623,17 @@ function PendingActionBanner({
         <button onClick={onDismiss} className="text-gray-500 hover:text-white text-sm">✕</button>
       </div>
 
-      {error && !available && (
-        <p className="text-red-400 text-sm mb-3">{error}</p>
-      )}
+      {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
-      {available && priceEth && (
+      {available && priceEth && buyData && (
         <>
           {action.type === 'claim' && (
             <p className="text-yellow-400 text-sm mb-3">
-              Your wallet doesn't own this Basename yet. You can buy it now:
+              Your wallet doesn't own this Basename yet. Buy it now and we'll set up your email:
             </p>
           )}
+
+          {/* Price breakdown */}
           <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-4">
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-400">Registration fee (1 year)</span>
@@ -2601,49 +2641,73 @@ function PendingActionBanner({
             </div>
             <div className="flex justify-between text-xs text-gray-600">
               <span>≈ ${(parseFloat(priceEth) * 2800).toFixed(2)} USD</span>
-              <span>{action.name}.base.eth</span>
+              <span>+ 10% buffer for price fluctuation</span>
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={async () => {
-                if (chain?.id !== base.id) {
-                  switchChain({ chainId: base.id });
-                  return;
-                }
-                // First try auto_basename (worker buys), fallback to direct buy link
-                try {
-                  onUpgrade(action.name, true);
-                } catch {
-                  // If worker can't buy, redirect to Base.org
-                  window.open(`https://www.base.org/names/${action.name}`, '_blank');
-                }
-              }}
-              disabled={upgrading || isBuying}
-              className="flex-1 bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-500 transition disabled:opacity-50"
-            >
-              {upgrading ? '⏳ Purchasing & Registering...' : isBuying ? 'Confirming...' : chain?.id !== base.id ? 'Switch to Base' : `✨ Buy ${action.name}.base.eth + Register Email`}
-            </button>
-            <a
-              href={`https://www.base.org/names/${action.name}`}
-              target="_blank" rel="noopener noreferrer"
-              className="border border-gray-600 text-gray-300 px-4 py-3 rounded-lg font-medium hover:bg-gray-800 transition text-sm flex items-center"
-            >
-              Base.org ↗
-            </a>
-          </div>
+          {/* Step indicator */}
+          {step !== 'ready' && (
+            <div className="bg-gray-900/50 rounded-lg p-3 mb-4 text-sm">
+              {step === 'signing' && <span className="text-yellow-400">✍️ Please confirm the transaction in your wallet...</span>}
+              {step === 'confirming' && (
+                <span className="text-blue-400">
+                  ⏳ Transaction submitted! Waiting for confirmation...
+                  {txHash && (
+                    <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-xs text-gray-500 hover:text-base-blue ml-2">
+                      View ↗
+                    </a>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
 
-          {txResult.isSuccess && (
-            <p className="text-green-400 text-sm mt-3">✅ Purchase confirmed! Setting up your email...</p>
-          )}
-          {error && (
-            <p className="text-red-400 text-sm mt-3">❌ {error}</p>
-          )}
+          {/* Buy button */}
+          <button
+            onClick={() => {
+              if (chain?.id !== base.id) {
+                switchChain({ chainId: base.id });
+                return;
+              }
+              setError('');
+              const args = buyData.contract.args;
+              writeContract({
+                address: BASENAME_REGISTRAR,
+                abi: BASENAME_REGISTRAR_ABI,
+                functionName: 'register',
+                args: [{
+                  name: args.name,
+                  owner: args.owner as `0x${string}`,
+                  duration: BigInt(args.duration),
+                  resolver: args.resolver as `0x${string}`,
+                  data: args.data as `0x${string}`[],
+                  reverseRecord: args.reverseRecord,
+                  coinTypes: [] as readonly bigint[],
+                  signatureExpiry: 0n,
+                  signature: '0x' as `0x${string}`,
+                }],
+                value: BigInt(buyData.contract.value),
+              });
+            }}
+            disabled={step !== 'ready'}
+            className="w-full bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-500 transition disabled:opacity-50 text-lg"
+          >
+            {chain?.id !== base.id
+              ? 'Switch to Base'
+              : step === 'signing'
+                ? '✍️ Confirm in Wallet...'
+                : step === 'confirming'
+                  ? '⏳ Confirming...'
+                  : `✨ Buy ${action.name}.base.eth + Register Email`}
+          </button>
+
+          <p className="text-xs text-gray-600 mt-2 text-center">
+            You pay directly from your wallet to the Base Registrar contract. No middleman.
+          </p>
         </>
       )}
 
-      {!available && action.type === 'buy' && (
+      {!available && action.type === 'buy' && !error && (
         <p className="text-red-400 text-sm">This Basename is not available. Try a different name.</p>
       )}
     </div>
