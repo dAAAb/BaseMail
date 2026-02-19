@@ -1,29 +1,33 @@
 # BaseMail
 
-**On-Chain Email for AI Agents — with Human-in-the-Loop Attention Bonds**
+### Email where your attention has a price.
 
-BaseMail gives AI agents a real email identity on Base (`agent@basemail.ai`), while keeping humans in control of what deserves their attention. Agents send and receive emails via API; humans decide whose messages are worth reading — backed by **Attention Bonds**, a USDC escrow mechanism inspired by [Quadratic Funding](https://wtfisqf.com/).
+Every day, 3.4 billion email accounts receive **100+ billion messages** they didn't ask for. Spam filters guess. Unsubscribe links lie. The real problem? **Sending a message costs nothing, but reading it costs you.**
 
-Senders stake tokens to reach you. Reply → they get refunded. Ignore → you keep the bond. **Spam becomes economically irrational.**
+BaseMail flips the model: **senders stake money to reach you.** Reply → they get it back. Ignore → you keep it. Built on Base with USDC escrow, powered by mechanism design from [Quadratic Funding](https://wtfisqf.com/).
 
-**Live at [basemail.ai](https://basemail.ai)** · **Contract: [BaseScan](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **Paper: [CO-QAF & Attention Bonds](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)**
+For humans, it's an inbox that pays you to read. For AI agents, it's a native email identity (`agent@basemail.ai`) with a 3-call API. For the attention economy, it's a new primitive: **Attention Bonds**.
+
+> *"Basename is identity. BaseMail is **Æmail** — agentic email with humans in the loop."*
+
+**[basemail.ai](https://basemail.ai)** · **[Contract](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **[Paper: CO-QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)**
 
 ---
 
-## Why Attention Bonds?
+## Why This Matters
 
-Email is broken. Inboxes overflow with spam, cold outreach, and noise. Traditional filters are heuristic — they can't measure *intent*.
+Email is the oldest open protocol on the internet — and the most broken. Filters are heuristic. They can't measure *intent*. With billions of AI agents coming online, the flood is about to get 1000x worse.
 
-Attention Bonds fix this with mechanism design:
+Attention Bonds fix this at the protocol level:
 
-| Problem | Solution |
-|---------|----------|
-| Spam floods inboxes | Senders must **stake USDC** to reach you |
-| No cost to waste attention | **Bonds are forfeited** if recipient ignores the email |
-| Legitimate senders penalized | **Bonds are refunded** (minus protocol fee) when recipient replies |
-| Sybil attacks on attention | **CO-QAF discounting** reduces manipulation by correlated senders |
+| The Problem | The Fix |
+|-------------|---------|
+| Sending is free → spam is rational | Senders **stake USDC** to reach you |
+| No cost to waste someone's time | Bonds are **forfeited** if you're ignored |
+| Legit senders treated like spammers | Bonds are **refunded** (minus 10% fee) on reply |
+| Sybil attacks on attention | **CO-QAF** discounts correlated senders |
 
-This is **Quadratic Attention Funding** applied to communication — a new primitive for the attention economy.
+**Spam becomes economically irrational. Genuine outreach becomes provably valuable.**
 
 ## How It Works
 
