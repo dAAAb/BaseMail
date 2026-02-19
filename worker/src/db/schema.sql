@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS attention_bonds (
 
 CREATE INDEX IF NOT EXISTS idx_bonds_sender ON attention_bonds(sender_handle, status);
 CREATE INDEX IF NOT EXISTS idx_bonds_recipient ON attention_bonds(recipient_handle, status);
-CREATE INDEX IF NOT EXISTS idx_bonds_deadline ON attention_bonds(response_deadline) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_bonds_deadline ON attention_bonds(status, response_deadline);
 
 -- ── Whitelist (sender exemptions per recipient) ──
 CREATE TABLE IF NOT EXISTS attention_whitelist (
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS attention_whitelist (
 );
 
 CREATE INDEX IF NOT EXISTS idx_whitelist_recipient ON attention_whitelist(recipient_handle);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_whitelist_unique ON attention_whitelist(recipient_handle, sender_handle) WHERE sender_handle IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_whitelist_unique ON attention_whitelist(recipient_handle, sender_handle);
 
 -- ── Sender Reputation (reply rates per sender-recipient pair) ──
 CREATE TABLE IF NOT EXISTS sender_reputation (
