@@ -418,21 +418,19 @@ export default function Dashboard() {
 
       {/* Sidebar */}
       <aside className={`${sidebarCollapsed ? 'w-16 p-3' : 'w-64 p-6'} bg-base-gray border-r border-gray-800 flex flex-col transition-all duration-200`}>
-        <div className="flex items-center gap-2 mb-8">
-          <Link to="/" className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-              BM
-            </div>
-            {!sidebarCollapsed && <span className="text-lg font-bold">BaseMail</span>}
-          </Link>
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-gray-500 hover:text-white transition text-xs flex-shrink-0"
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {sidebarCollapsed ? '▶' : '◀'}
-          </button>
-        </div>
+        <Link to="/" className="flex items-center gap-2 mb-4">
+          <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+            BM
+          </div>
+          {!sidebarCollapsed && <span className="text-lg font-bold">BaseMail</span>}
+        </Link>
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="text-gray-500 hover:text-white transition text-xs mb-4 w-full text-center"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? '▸' : '◂ Collapse'}
+        </button>
 
         {/* Email address card — with toggle for basename users */}
         {!sidebarCollapsed && <div className="bg-base-dark rounded-lg p-3 mb-6">
@@ -2035,9 +2033,9 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
               </div>
             )}
             <div className="flex items-center justify-between pt-2 border-t border-gray-800">
-              <span className="text-gray-400">Wallet</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-gray-300 text-xs">{auth.wallet}</span>
+              <span className="text-gray-400 flex-shrink-0">Wallet</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-gray-300 text-xs truncate">{auth.wallet.slice(0, 6)}...{auth.wallet.slice(-4)}</span>
                 <CopyButton text={auth.wallet} />
               </div>
             </div>
@@ -2189,8 +2187,7 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
           {aliases.length > 0 ? (
             <div className="space-y-3 mb-4">
               {aliases.map((a) => (
-                <div key={a.handle} className="flex items-center justify-between bg-base-dark rounded-lg p-3 border border-gray-700">
-                  <div className="flex items-center gap-3">
+                <div key={a.handle} className="flex items-start gap-3 bg-base-dark rounded-lg p-3 border border-gray-700">
                     <input
                       type="radio"
                       name="primary-alias"
@@ -2204,18 +2201,19 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
                           const data = await res.json() as any;
                           if (res.ok && data.token) {
                             setAuth({ ...auth, token: data.token, handle: data.handle, basename: data.basename });
-                            // Reload aliases
                             const sr = await apiFetch('/api/settings', data.token);
                             const sd = await sr.json() as any;
                             if (sd.aliases) setAliases(sd.aliases);
                           }
                         } catch {}
                       }}
-                      className="accent-blue-500"
+                      className="accent-blue-500 mt-1 flex-shrink-0"
                     />
-                    <div>
-                      <span className="font-mono text-sm text-base-blue">{a.handle}@basemail.ai</span>
-                      {a.is_primary === 1 && <span className="ml-2 text-xs bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded">Primary</span>}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="font-mono text-sm text-base-blue break-all">{a.handle}@basemail.ai</span>
+                        {a.is_primary === 1 && <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded whitespace-nowrap">Primary</span>}
+                      </div>
                       <div className={`text-xs mt-0.5 ${getExpiryColor(a.expiry)}`}>
                         {a.expiry ? (
                           <>
@@ -2227,35 +2225,34 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
                           <span className="text-gray-500">Expiry unknown</span>
                         )}
                       </div>
+                      {a.is_primary !== 1 && (
+                        <button
+                          onClick={async () => {
+                            await apiFetch(`/api/settings/alias/${a.handle}`, auth.token, { method: 'DELETE' });
+                            setAliases(aliases.filter(x => x.handle !== a.handle));
+                          }}
+                          className="text-gray-500 hover:text-red-400 text-xs mt-1"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  {a.is_primary !== 1 && (
-                    <button
-                      onClick={async () => {
-                        await apiFetch(`/api/settings/alias/${a.handle}`, auth.token, { method: 'DELETE' });
-                        setAliases(aliases.filter(x => x.handle !== a.handle));
-                      }}
-                      className="text-gray-500 hover:text-red-400 text-xs"
-                    >
-                      Remove
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
           ) : (
             <p className="text-gray-500 text-sm mb-4">No basename aliases configured yet.</p>
           )}
-          <div className="flex gap-2">
-            <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">
+          <div className="flex gap-2 max-w-full">
+            <div className="flex-1 min-w-0 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">
               <input
                 type="text"
                 value={newAliasInput}
                 onChange={(e) => { setNewAliasInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setAliasError(''); setAliasMsg(''); }}
                 placeholder="yourname"
-                className="flex-1 bg-transparent py-2 text-white font-mono text-sm focus:outline-none"
+                className="flex-1 min-w-0 bg-transparent py-2 text-white font-mono text-sm focus:outline-none"
               />
-              <span className="text-gray-500 font-mono text-xs">.base.eth</span>
+              <span className="text-gray-500 font-mono text-xs flex-shrink-0">.base.eth</span>
             </div>
             <button
               onClick={async () => {
