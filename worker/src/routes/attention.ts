@@ -6,7 +6,7 @@ import { authMiddleware } from '../auth';
 
 // ── Base Mainnet constants ──
 const BASE_RPC = 'https://mainnet.base.org';
-const ESCROW_CONTRACT = '0x0f686c8ac82654fe0d3e3309f4243f13c9576b27';
+const ESCROW_CONTRACT = '0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220';
 
 const ESCROW_ABI = parseAbi([
   'event BondDeposited(bytes32 indexed emailId, address indexed sender, address indexed recipient, uint256 amount)',

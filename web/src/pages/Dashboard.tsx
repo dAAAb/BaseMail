@@ -13,7 +13,7 @@ const BASE_SEPOLIA_CHAIN_ID = 84532;
 const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`;
 
 // Attention Bond Escrow — Base Mainnet
-const ESCROW_CONTRACT = '0x0f686c8ac82654fe0d3e3309f4243f13c9576b27' as `0x${string}`;
+const ESCROW_CONTRACT = '0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220' as `0x${string}`;
 const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
 const ESCROW_ABI = parseAbi([
   'function deposit(address _recipient, bytes32 _emailId, uint256 _amount) external',
