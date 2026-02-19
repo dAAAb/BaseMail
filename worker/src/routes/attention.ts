@@ -436,11 +436,45 @@ authed.get('/stats', async (c) => {
     'SELECT qaf_value, unique_senders, total_bonds FROM qaf_scores WHERE handle = ?'
   ).bind(auth.handle).first();
 
+  // Email activity stats (from emails table)
+  const emailReceived = await c.env.DB.prepare(`
+    SELECT COUNT(*) as total, COUNT(DISTINCT sender) as unique_senders
+    FROM emails WHERE handle = ? AND folder = 'inbox'
+  `).bind(auth.handle).first<{ total: number; unique_senders: number }>();
+
+  const emailSent = await c.env.DB.prepare(`
+    SELECT COUNT(*) as total, COUNT(DISTINCT recipient) as unique_recipients
+    FROM emails WHERE handle = ? AND folder = 'sent'
+  `).bind(auth.handle).first<{ total: number; unique_recipients: number }>();
+
+  // Reply rate: % of received emails where we sent a reply to that sender
+  const repliedSenders = await c.env.DB.prepare(`
+    SELECT COUNT(DISTINCT e1.sender) as replied
+    FROM emails e1
+    WHERE e1.handle = ? AND e1.folder = 'inbox'
+    AND EXISTS (
+      SELECT 1 FROM emails e2
+      WHERE e2.handle = ? AND e2.folder = 'sent'
+      AND e2.recipient = e1.sender
+    )
+  `).bind(auth.handle, auth.handle).first<{ replied: number }>();
+
+  const replyRate = emailReceived?.unique_senders
+    ? (repliedSenders?.replied || 0) / emailReceived.unique_senders
+    : 0;
+
   return c.json({
     handle: auth.handle,
     bonds_received: received,
     bonds_sent: sent,
     qaf: qaf || { qaf_value: 0, unique_senders: 0, total_bonds: 0 },
+    email_activity: {
+      received: emailReceived?.total || 0,
+      sent: emailSent?.total || 0,
+      unique_senders: emailReceived?.unique_senders || 0,
+      unique_recipients: emailSent?.unique_recipients || 0,
+      reply_rate: Math.round(replyRate * 100) / 100,
+    },
   });
 });
 

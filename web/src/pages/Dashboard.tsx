@@ -1617,6 +1617,32 @@ function Compose({ auth }: { auth: AuthState }) {
   const [error, setError] = useState('');
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
+  // Attention Bond detection
+  const [bondInfo, setBondInfo] = useState<{ enabled: boolean; price: number; handle: string } | null>(null);
+  const [bondChecking, setBondChecking] = useState(false);
+
+  useEffect(() => {
+    const handle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
+    if (!handle || !to.includes('@basemail.ai') || handle === auth.handle) {
+      setBondInfo(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setBondChecking(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/attention/price/${handle}`);
+        const data = await res.json();
+        if (data.attention_bonds_enabled) {
+          setBondInfo({ enabled: true, price: data.current_price_usdc, handle });
+        } else {
+          setBondInfo(null);
+        }
+      } catch { setBondInfo(null); }
+      setBondChecking(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [to, auth.handle]);
+
   async function handleSend() {
     if (!to || !subject || !body) {
       setError('All fields are required');
@@ -1668,6 +1694,33 @@ function Compose({ auth }: { auth: AuthState }) {
             className="w-full bg-base-gray border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-base-blue"
           />
         </div>
+        {/* Attention Bond prompt */}
+        {bondInfo?.enabled && (
+          <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-700/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span>💰</span>
+              <span className="text-yellow-300 text-sm font-bold">Attention Bond Required</span>
+            </div>
+            <p className="text-gray-400 text-xs mb-2">
+              <span className="font-mono text-white">{bondInfo.handle}@basemail.ai</span> requires an Attention Bond of{' '}
+              <span className="text-yellow-300 font-bold">${bondInfo.price.toFixed(4)} USDC</span> to guarantee a response.
+            </p>
+            <p className="text-gray-500 text-xs">
+              The bond is refunded if the recipient replies within the response window. You can still send without a bond — it will be delivered but not guaranteed a response.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <a
+                href={`/dashboard/attention?deposit=${bondInfo.handle}&amount=${bondInfo.price}`}
+                className="bg-yellow-600 text-white px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-yellow-500 transition"
+              >
+                💰 Deposit Bond (${bondInfo.price.toFixed(4)})
+              </a>
+              <span className="text-gray-500 text-xs self-center">or send without bond ↓</span>
+            </div>
+          </div>
+        )}
+        {bondChecking && <div className="text-gray-500 text-xs">Checking attention requirements...</div>}
+
         <div>
           <label className="text-gray-400 text-sm mb-1 block">Subject</label>
           <input
@@ -2447,6 +2500,20 @@ function Attention({ auth }: { auth: AuthState }) {
       {/* Stats Tab */}
       {tab === 'stats' && stats && (
         <div className="space-y-6">
+          {/* Email Activity */}
+          <div className="bg-gray-800/40 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xl">📊</span>
+              <h3 className="font-bold text-lg">Email Activity</h3>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <Stat label="Received" value={stats.email_activity?.received ?? 0} color="text-blue-400" />
+              <Stat label="Sent" value={stats.email_activity?.sent ?? 0} color="text-green-400" />
+              <Stat label="Unique Senders" value={stats.email_activity?.unique_senders ?? 0} />
+              <Stat label="Reply Rate" value={`${Math.round((stats.email_activity?.reply_rate ?? 0) * 100)}%`} color="text-purple-400" />
+            </div>
+          </div>
+
           {/* QAF Score */}
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-3">
