@@ -24,6 +24,7 @@ const ERC20_ABI = parseAbi([
   'function transfer(address to, uint256 amount) returns (bool)',
   'function approve(address spender, uint256 amount) returns (bool)',
   'function balanceOf(address account) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
 ]);
 
 interface EmailItem {
@@ -2346,13 +2347,28 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
 
 // ─── Attention Bonds ─────────────────────────────────────
 function Attention({ auth }: { auth: AuthState }) {
-  const [tab, setTab] = useState<'config' | 'stats' | 'whitelist'>('stats');
+  const location = useLocation();
+  const depositParams = new URLSearchParams(location.search);
+  const depositHandle = depositParams.get('deposit');
+  const depositAmount = depositParams.get('amount');
+
+  const [tab, setTab] = useState<'config' | 'stats' | 'whitelist' | 'deposit'>(depositHandle ? 'deposit' : 'stats');
   const [config, setConfig] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [whitelist, setWhitelist] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+
+  // Deposit flow state
+  const [depRecipient, setDepRecipient] = useState(depositHandle || '');
+  const [depAmount, setDepAmount] = useState(depositAmount || '0.01');
+  const [depEmailId, setDepEmailId] = useState('');
+  const [depStep, setDepStep] = useState<'input' | 'approving' | 'depositing' | 'recording' | 'done' | 'error'>('input');
+  const [depError, setDepError] = useState('');
+  const [depTxHash, setDepTxHash] = useState('');
+  const { writeContractAsync } = useWriteContract();
+  const walletAddr = auth.wallet as `0x${string}`;
 
   // Form state
   const [enabled, setEnabled] = useState(false);
@@ -2366,8 +2382,7 @@ function Attention({ auth }: { auth: AuthState }) {
   const [wlHandle, setWlHandle] = useState('');
   const [wlNote, setWlNote] = useState('');
 
-  // On-chain price setting
-  const { writeContract, isPending: isWriting } = useWriteContract();
+  // On-chain interactions
   const { switchChain } = useSwitchChain();
   const { chain } = useAccount();
 
@@ -2436,7 +2451,7 @@ function Attention({ auth }: { auth: AuthState }) {
       return;
     }
     const priceInUsdc6 = BigInt(Math.round(parseFloat(basePrice) * 1e6));
-    writeContract({
+    writeContractAsync({
       address: ESCROW_CONTRACT,
       abi: ESCROW_ABI,
       functionName: 'setAttentionPrice',
@@ -2472,16 +2487,16 @@ function Attention({ auth }: { auth: AuthState }) {
       </p>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1">
-        {(['stats', 'config', 'whitelist'] as const).map((t) => (
+      <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1 flex-wrap">
+        {(['stats', 'deposit', 'config', 'whitelist'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
+            className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition whitespace-nowrap ${
               tab === t ? 'bg-base-blue text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            {t === 'stats' ? '📊 Dashboard' : t === 'config' ? '⚙️ Settings' : '✅ Whitelist'}
+            {t === 'stats' ? '📊 Dashboard' : t === 'deposit' ? '💰 Deposit' : t === 'config' ? '⚙️ Settings' : '✅ Whitelist'}
           </button>
         ))}
       </div>
@@ -2728,6 +2743,188 @@ function Attention({ auth }: { auth: AuthState }) {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Deposit Tab */}
+      {tab === 'deposit' && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-700/50 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl">💰</span>
+              <h3 className="font-bold text-lg">Deposit Attention Bond</h3>
+            </div>
+            <p className="text-gray-400 text-sm mb-6">
+              Stake USDC to guarantee a response from a BaseMail user. The bond is refunded if the recipient replies within the response window.
+            </p>
+
+            {depStep === 'done' ? (
+              <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-6 text-center">
+                <div className="text-4xl mb-3">✅</div>
+                <h4 className="font-bold text-lg text-green-300 mb-2">Bond Deposited!</h4>
+                <p className="text-gray-400 text-sm mb-3">
+                  Your bond of <span className="text-yellow-300 font-bold">${parseFloat(depAmount).toFixed(4)} USDC</span> to{' '}
+                  <span className="text-white font-mono">{depRecipient}@basemail.ai</span> has been recorded.
+                </p>
+                {depTxHash && (
+                  <a href={`https://basescan.org/tx/${depTxHash}`} target="_blank" className="text-xs text-gray-500 hover:text-base-blue">
+                    View transaction ↗
+                  </a>
+                )}
+                <div className="mt-4">
+                  <button onClick={() => { setDepStep('input'); setDepRecipient(''); setDepAmount('0.01'); setDepEmailId(''); setDepError(''); setDepTxHash(''); }}
+                    className="text-base-blue text-sm hover:underline">Deposit another bond</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Recipient */}
+                <div>
+                  <label className="text-gray-400 text-xs mb-1 block">Recipient Handle</label>
+                  <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg px-3">
+                    <input
+                      type="text" value={depRecipient}
+                      onChange={e => setDepRecipient(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                      placeholder="recipient"
+                      disabled={depStep !== 'input'}
+                      className="flex-1 bg-transparent py-3 text-white font-mono text-sm focus:outline-none disabled:opacity-50"
+                    />
+                    <span className="text-gray-500 text-xs font-mono">@basemail.ai</span>
+                  </div>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label className="text-gray-400 text-xs mb-1 block">Bond Amount (USDC)</label>
+                  <input
+                    type="number" step="0.001" min="0.001" value={depAmount}
+                    onChange={e => setDepAmount(e.target.value)}
+                    disabled={depStep !== 'input'}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white font-mono focus:outline-none focus:border-base-blue disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Email ID (optional) */}
+                <div>
+                  <label className="text-gray-400 text-xs mb-1 block">Email ID <span className="text-gray-600">(optional — link bond to a specific email)</span></label>
+                  <input
+                    type="text" value={depEmailId}
+                    onChange={e => setDepEmailId(e.target.value)}
+                    placeholder="Leave empty for general bond"
+                    disabled={depStep !== 'input'}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-base-blue disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Progress indicator */}
+                {depStep !== 'input' && depStep !== 'error' && (
+                  <div className="bg-gray-800/50 rounded-lg p-4 space-y-2">
+                    <div className={`flex items-center gap-2 text-sm ${depStep === 'approving' ? 'text-yellow-300' : 'text-green-400'}`}>
+                      {depStep === 'approving' ? '⏳' : '✅'} Step 1: Approve USDC
+                      {depStep === 'approving' && <span className="text-gray-500 text-xs">— confirm in wallet...</span>}
+                    </div>
+                    <div className={`flex items-center gap-2 text-sm ${depStep === 'depositing' ? 'text-yellow-300' : depStep === 'recording' || depStep === 'done' ? 'text-green-400' : 'text-gray-600'}`}>
+                      {depStep === 'depositing' ? '⏳' : depStep === 'recording' || depStep === 'done' ? '✅' : '○'} Step 2: Deposit to Escrow
+                      {depStep === 'depositing' && <span className="text-gray-500 text-xs">— confirm in wallet...</span>}
+                    </div>
+                    <div className={`flex items-center gap-2 text-sm ${depStep === 'recording' ? 'text-yellow-300' : 'text-gray-600'}`}>
+                      {depStep === 'recording' ? '⏳' : '○'} Step 3: Record bond
+                    </div>
+                  </div>
+                )}
+
+                {depError && <div className="text-red-400 text-sm">{depError}</div>}
+
+                <button
+                  onClick={async () => {
+                    if (!depRecipient || !depAmount || parseFloat(depAmount) < 0.001) {
+                      setDepError('Recipient and amount (min 0.001 USDC) required');
+                      return;
+                    }
+                    if (chain?.id !== base.id) {
+                      switchChain({ chainId: base.id });
+                      return;
+                    }
+
+                    setDepError('');
+                    const amountRaw = BigInt(Math.round(parseFloat(depAmount) * 1e6));
+                    const { keccak256, toBytes } = await import('viem');
+                    const emailIdBytes = depEmailId
+                      ? keccak256(toBytes(depEmailId))
+                      : '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
+
+                    try {
+                      // Get recipient wallet
+                      const checkRes = await fetch(`${API_BASE}/api/register/check/${depRecipient}`);
+                      const checkData = await checkRes.json() as any;
+                      if (!checkData.wallet && !checkData.registered) {
+                        setDepError(`${depRecipient}@basemail.ai is not registered`);
+                        return;
+                      }
+                      const recipientWallet = (checkData.wallet || depRecipient) as `0x${string}`;
+
+                      // Step 1: Check allowance & approve if needed
+                      setDepStep('approving');
+                      const publicClient = (await import('viem')).createPublicClient({
+                        chain: base,
+                        transport: (await import('viem')).http(),
+                      });
+                      const currentAllowance = await publicClient.readContract({
+                        address: BASE_MAINNET_USDC,
+                        abi: ERC20_ABI,
+                        functionName: 'allowance',
+                        args: [walletAddr, ESCROW_CONTRACT],
+                      });
+
+                      if (currentAllowance < amountRaw) {
+                        await writeContractAsync({
+                          address: BASE_MAINNET_USDC,
+                          abi: ERC20_ABI,
+                          functionName: 'approve',
+                          args: [ESCROW_CONTRACT, amountRaw],
+                        });
+                        // Brief wait for approval to propagate
+                        await new Promise(r => setTimeout(r, 2000));
+                      }
+
+                      // Step 2: Deposit
+                      setDepStep('depositing');
+                      const txHash = await writeContractAsync({
+                        address: ESCROW_CONTRACT,
+                        abi: ESCROW_ABI,
+                        functionName: 'deposit',
+                        args: [recipientWallet, emailIdBytes, amountRaw],
+                      });
+                      setDepTxHash(txHash);
+
+                      // Step 3: Record with API
+                      setDepStep('recording');
+                      const bondRes = await apiFetch('/api/attention/bond', auth.token, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          email_id: depEmailId || `bond-${Date.now()}`,
+                          recipient_handle: depRecipient,
+                          tx_hash: txHash,
+                        }),
+                      });
+                      const bondData = await bondRes.json() as any;
+                      if (!bondRes.ok) throw new Error(bondData.error || 'Failed to record bond');
+
+                      setDepStep('done');
+                      loadAll(); // Refresh stats
+                    } catch (e: any) {
+                      setDepError(e.message?.includes('User rejected') ? 'Transaction cancelled.' : `Error: ${e.message?.slice(0, 150)}`);
+                      setDepStep('error');
+                    }
+                  }}
+                  disabled={depStep !== 'input' && depStep !== 'error'}
+                  className="w-full bg-yellow-600 text-white py-3 rounded-lg font-medium hover:bg-yellow-500 transition disabled:opacity-50 text-sm"
+                >
+                  {depStep === 'input' || depStep === 'error' ? `💰 Deposit ${parseFloat(depAmount || '0').toFixed(4)} USDC Bond` : 'Processing...'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
