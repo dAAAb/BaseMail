@@ -438,24 +438,24 @@ authed.get('/stats', async (c) => {
 
   // Email activity stats (from emails table)
   const emailReceived = await c.env.DB.prepare(`
-    SELECT COUNT(*) as total, COUNT(DISTINCT sender) as unique_senders
+    SELECT COUNT(*) as total, COUNT(DISTINCT from_addr) as unique_senders
     FROM emails WHERE handle = ? AND folder = 'inbox'
   `).bind(auth.handle).first<{ total: number; unique_senders: number }>();
 
   const emailSent = await c.env.DB.prepare(`
-    SELECT COUNT(*) as total, COUNT(DISTINCT recipient) as unique_recipients
+    SELECT COUNT(*) as total, COUNT(DISTINCT to_addr) as unique_recipients
     FROM emails WHERE handle = ? AND folder = 'sent'
   `).bind(auth.handle).first<{ total: number; unique_recipients: number }>();
 
-  // Reply rate: % of received emails where we sent a reply to that sender
+  // Reply rate: % of received senders where we sent a reply to that sender
   const repliedSenders = await c.env.DB.prepare(`
-    SELECT COUNT(DISTINCT e1.sender) as replied
+    SELECT COUNT(DISTINCT e1.from_addr) as replied
     FROM emails e1
     WHERE e1.handle = ? AND e1.folder = 'inbox'
     AND EXISTS (
       SELECT 1 FROM emails e2
       WHERE e2.handle = ? AND e2.folder = 'sent'
-      AND e2.recipient = e1.sender
+      AND e2.to_addr = e1.from_addr
     )
   `).bind(auth.handle, auth.handle).first<{ replied: number }>();
 

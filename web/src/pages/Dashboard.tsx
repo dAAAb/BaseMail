@@ -1611,9 +1611,10 @@ function Compose({ auth }: { auth: AuthState }) {
   const [bondInfo, setBondInfo] = useState<{ enabled: boolean; price: number; handle: string } | null>(null);
   const [bondChecking, setBondChecking] = useState(false);
 
+  const isReply = subject.toLowerCase().startsWith('re:');
   useEffect(() => {
     const handle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
-    if (!handle || !to.includes('@basemail.ai') || handle === auth.handle) {
+    if (!handle || !to.includes('@basemail.ai') || handle === auth.handle || isReply) {
       setBondInfo(null);
       return;
     }
