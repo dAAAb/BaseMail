@@ -343,13 +343,6 @@ export default function Dashboard() {
     setUpgrading(true);
     setUpgradeError('');
 
-    // Guard: ensure we have a valid auth token
-    if (!auth?.token) {
-      setUpgradeError('Session expired. Please disconnect and reconnect your wallet.');
-      setUpgrading(false);
-      return;
-    }
-
     try {
       let res: Response;
 
@@ -362,19 +355,15 @@ export default function Dashboard() {
       } else {
         // First try claiming existing Basename (verify ownership)
         const tokenForUpgrade = auth!.token;
-        console.log('[BaseMail] upgrade token present:', !!tokenForUpgrade, 'len:', tokenForUpgrade?.length);
-        res = await apiFetch('/api/register/upgrade', tokenForUpgrade, {
+        res = await apiFetch('/api/register/upgrade', auth!.token, {
           method: 'PUT',
           body: JSON.stringify({ basename: fullBasename }),
         });
-
-        console.log('[BaseMail] upgrade response:', res.status);
 
         // If ownership verification fails, try auto_basename (buy + register)
         if (!res.ok) {
           const errData = await res.json().catch(() => null);
           const errMsg = errData?.error || '';
-          console.log('[BaseMail] upgrade error:', errMsg);
           if (errMsg.includes('not own') || errMsg.includes('ownership') || errMsg.includes('not the owner') || errMsg.includes('Failed to verify')) {
             res = await apiFetch('/api/register/upgrade', auth!.token, {
               method: 'PUT',
