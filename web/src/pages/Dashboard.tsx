@@ -2667,6 +2667,9 @@ function PendingActionBanner({
   const [buyData, setBuyData] = useState<any>(null);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'check' | 'ready' | 'signing' | 'confirming' | 'upgrading' | 'done'>('check');
+  const [fallbackName, setFallbackName] = useState('');
+  const [fallbackError, setFallbackError] = useState('');
+  const [fallbackUpgrading, setFallbackUpgrading] = useState(false);
   const { writeContract, isPending: isSigning, data: txHash, error: txError } = useWriteContract();
   const { switchChain } = useSwitchChain();
   const { chain } = useAccount();
@@ -2814,11 +2817,6 @@ function PendingActionBanner({
       </div>
     );
   }
-
-  // Fallback: claim failed but user may own a different basename — show input
-  const [fallbackName, setFallbackName] = useState('');
-  const [fallbackError, setFallbackError] = useState('');
-  const [fallbackUpgrading, setFallbackUpgrading] = useState(false);
 
   async function handleFallbackClaim() {
     if (!fallbackName.trim()) { setFallbackError('Please enter your Basename'); return; }
