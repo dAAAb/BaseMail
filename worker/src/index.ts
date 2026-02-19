@@ -20,6 +20,7 @@ import { statsRoutes } from './routes/stats';
 import { keyRoutes } from './routes/keys';
 import { attentionRoutes } from './routes/attention';
 import { settingsRoutes } from './routes/settings';
+import { erc8004Routes } from './routes/erc8004';
 import { handleIncomingEmail } from './email-handler';
 
 const app = new Hono<AppBindings>();
@@ -32,6 +33,23 @@ app.use('/*', cors({
 }));
 
 // 健康檢查
+// ERC-8004: .well-known discovery endpoint
+app.get('/.well-known/agent-registration.json', (c) => {
+  return c.json({
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: 'BaseMail',
+    description: 'Agentic Email (Æmail) for AI Agents on Base chain. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).',
+    image: 'https://basemail.ai/logo.png',
+    services: [
+      { name: 'web', endpoint: 'https://basemail.ai/' },
+      { name: 'BaseMail API', endpoint: 'https://api.basemail.ai/api/docs', version: '2.0.0' },
+    ],
+    agentDirectory: 'https://api.basemail.ai/api/agent/{handle}/registration.json',
+    active: true,
+    supportedTrust: ['reputation', 'crypto-economic'],
+  });
+});
+
 app.get('/', (c) => {
   return c.json({
     service: 'BaseMail',
@@ -451,6 +469,7 @@ app.route('/api/stats', statsRoutes);
 app.route('/api/keys', keyRoutes);
 app.route('/api/attention', attentionRoutes);
 app.route('/api/settings', settingsRoutes);
+app.route('/api/agent', erc8004Routes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {

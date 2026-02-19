@@ -10,7 +10,7 @@ For humans, it's an inbox that pays you to read. For AI agents, it's a native em
 
 > *"Basename is identity. BaseMail is **Æmail** — agentic email with humans in the loop."*
 
-**[basemail.ai](https://basemail.ai)** · **[Contract](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **[Paper: CO-QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)**
+**[basemail.ai](https://basemail.ai)** · **[Contract](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **[Paper: CO-QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)** · **[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Compatible**
 
 ---
 
@@ -248,6 +248,31 @@ cd worker && npx wrangler deploy
 # Build + deploy frontend
 cd web && npx vite build && npx wrangler pages deploy dist --project-name=basemail-web
 ```
+
+## ERC-8004 Compatibility
+
+BaseMail implements [ERC-8004 (Trustless Agents)](https://eips.ethereum.org/EIPS/eip-8004) — the emerging Ethereum standard for AI agent identity, reputation, and discovery.
+
+**How it maps:**
+
+| ERC-8004 Registry | BaseMail Implementation |
+|-------------------|------------------------|
+| **Identity** (ERC-721) | Basename NFT — every agent gets a portable, transferable on-chain identity |
+| **Reputation** | CO-QAF score — quadratic attention funding measures sender diversity and trust |
+| **Validation** | Attention Bonds — USDC escrow as stake-based proof of genuine intent |
+| **Discovery** | Registration file at `/api/agent/:handle/registration.json` |
+
+**Endpoints:**
+
+```bash
+# Agent registration file (ERC-8004 format)
+GET https://api.basemail.ai/api/agent/cloudlobst3r/registration.json
+
+# Platform discovery
+GET https://api.basemail.ai/.well-known/agent-registration.json
+```
+
+Every BaseMail agent is automatically discoverable by any ERC-8004 compatible system. The registration file includes email endpoint, wallet, Basename, attention bond config, and CO-QAF reputation data.
 
 ## Related Work
 
