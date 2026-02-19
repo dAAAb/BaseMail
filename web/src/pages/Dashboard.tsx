@@ -2815,6 +2815,37 @@ function PendingActionBanner({
     );
   }
 
+  // Fallback: claim failed but user may own a different basename — show input
+  const [fallbackName, setFallbackName] = useState('');
+  const [fallbackError, setFallbackError] = useState('');
+  const [fallbackUpgrading, setFallbackUpgrading] = useState(false);
+
+  async function handleFallbackClaim() {
+    if (!fallbackName.trim()) { setFallbackError('Please enter your Basename'); return; }
+    setFallbackUpgrading(true);
+    setFallbackError('');
+    try {
+      const fullName = `${fallbackName.trim().replace(/\.base\.eth$/i, '')}.base.eth`;
+      const res = await apiFetch('/api/register/upgrade', auth.token, {
+        method: 'PUT',
+        body: JSON.stringify({ basename: fullName }),
+      });
+      if (res.ok) {
+        window.location.href = '/dashboard';
+        return;
+      }
+      const errData = await res.json().catch(() => ({}));
+      if (errData.error?.includes('already has')) {
+        window.location.href = '/dashboard';
+        return;
+      }
+      setFallbackError(errData.error || 'Verification failed');
+    } catch (e: any) {
+      setFallbackError(e.message || 'Failed');
+    }
+    setFallbackUpgrading(false);
+  }
+
   // Buy flow → direct on-chain purchase
   return (
     <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-xl p-6 mb-6">
@@ -2831,6 +2862,39 @@ function PendingActionBanner({
       </div>
 
       {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+
+      {/* Fallback: if claim failed, let user try a different basename */}
+      {error && !available && (
+        <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span>✨</span>
+            <span className="text-blue-300 text-sm font-bold">Own a different Basename?</span>
+          </div>
+          <p className="text-gray-400 text-xs mb-3">
+            Enter your actual Basename to claim your email address.
+          </p>
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">
+              <input
+                type="text"
+                value={fallbackName}
+                onChange={(e) => { setFallbackName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setFallbackError(''); }}
+                placeholder="yourname"
+                className="flex-1 bg-transparent py-2 text-white font-mono text-sm focus:outline-none"
+              />
+              <span className="text-gray-500 font-mono text-xs">.base.eth</span>
+            </div>
+            <button
+              onClick={handleFallbackClaim}
+              disabled={fallbackUpgrading || !fallbackName.trim()}
+              className="bg-base-blue text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition disabled:opacity-50"
+            >
+              {fallbackUpgrading ? 'Verifying...' : '✨ Claim'}
+            </button>
+          </div>
+          {fallbackError && <p className="text-red-400 text-xs mt-2">{fallbackError}</p>}
+        </div>
+      )}
 
       {available && priceEth && buyData && (
         <>
