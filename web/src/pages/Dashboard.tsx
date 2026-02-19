@@ -2501,8 +2501,8 @@ function PendingActionBanner({
       setChecking(true);
       try {
         if (action.type === 'claim') {
-          // Verify ownership
-          const res = await apiFetch(`/api/register/check/${auth.wallet}`, auth.token);
+          // Verify ownership (public endpoint)
+          const res = await fetch(`${API_BASE}/api/register/check/${auth.wallet}`);
           const data = await res.json();
           const resolvedName = data.basename?.replace('.base.eth', '').toLowerCase();
           if (resolvedName === action.name.toLowerCase()) {
@@ -2513,8 +2513,8 @@ function PendingActionBanner({
           setError(`Your wallet does not own ${action.name}.base.eth. You can buy it below.`);
         }
 
-        // Get buy data from API (includes resolver data + price)
-        const buyRes = await apiFetch(`/api/register/buy-data/${action.name}`, auth.token);
+        // Get buy data from API (public endpoint, no auth needed)
+        const buyRes = await fetch(`${API_BASE}/api/register/buy-data/${action.name}?owner=${auth.wallet}`);
         if (buyRes.ok) {
           const data = await buyRes.json();
           setBuyData(data);

@@ -483,12 +483,18 @@ registerRoutes.get('/price/:name', async (c) => {
  * Returns everything needed for the frontend to call register() directly via wagmi.
  * User signs + pays from their own wallet — no worker private key needed.
  */
-registerRoutes.get('/buy-data/:name', authMiddleware(), async (c) => {
+/**
+ * Public — no auth required. Owner address passed as query param.
+ */
+registerRoutes.get('/buy-data/:name', async (c) => {
   const name = c.req.param('name');
-  const auth = c.get('auth');
+  const owner = c.req.query('owner');
 
   if (!isValidBasename(name)) {
     return c.json({ error: 'Invalid name format' }, 400);
+  }
+  if (!owner || !/^0x[a-fA-F0-9]{40}$/i.test(owner)) {
+    return c.json({ error: 'owner query param required (0x address)' }, 400);
   }
 
   try {
@@ -500,7 +506,6 @@ registerRoutes.get('/buy-data/:name', authMiddleware(), async (c) => {
     const priceWei = await getBasenamePrice(name);
     const valueWithBuffer = priceWei + (priceWei / 10n); // +10% buffer
 
-    // Build resolver data
     const fullName = `${name}.base.eth`;
     const node = namehash(normalize(fullName));
 
@@ -513,7 +518,7 @@ registerRoutes.get('/buy-data/:name', authMiddleware(), async (c) => {
     ] as const;
 
     const addressData = encodeFunctionData({
-      abi: L2ResolverABI, functionName: 'setAddr', args: [node, auth.wallet as Address],
+      abi: L2ResolverABI, functionName: 'setAddr', args: [node, owner as Address],
     });
     const nameData = encodeFunctionData({
       abi: L2ResolverABI, functionName: 'setName', args: [node, fullName],
@@ -528,15 +533,13 @@ registerRoutes.get('/buy-data/:name', authMiddleware(), async (c) => {
       price_wei: priceWei.toString(),
       price_eth: formatEther(priceWei),
       value_with_buffer: valueWithBuffer.toString(),
-
-      // Contract call params — frontend passes these directly to writeContract
       contract: {
         address: '0xa7d2607c6BD39Ae9521e514026CBB078405Ab322',
         chain_id: 8453,
         function_name: 'register',
         args: {
           name,
-          owner: auth.wallet,
+          owner,
           duration: ONE_YEAR.toString(),
           resolver: L2_RESOLVER,
           data: [addressData, nameData],
