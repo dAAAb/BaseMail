@@ -2704,10 +2704,9 @@ function PendingActionBanner({
             window.location.href = '/dashboard';
             return;
           }
-          // Auth expired → auto reconnect (URL params preserved)
+          // Auth expired → show reconnect button (don't auto-disconnect to avoid loops)
           if (upgradeRes.status === 401) {
-            if (onSessionExpired) { onSessionExpired(); return; }
-            setError('Session expired. Please disconnect and reconnect your wallet.');
+            setError('__SESSION_EXPIRED__');
             setChecking(false);
             return;
           }
@@ -2742,8 +2741,7 @@ function PendingActionBanner({
               return;
             }
             if (upgradeRes.status === 401) {
-              if (onSessionExpired) { onSessionExpired(); return; }
-              setError('Session expired. Please disconnect and reconnect your wallet.');
+              setError('__SESSION_EXPIRED__');
               setChecking(false);
               return;
             }
@@ -2881,10 +2879,22 @@ function PendingActionBanner({
         <button onClick={onDismiss} className="text-gray-500 hover:text-white text-sm">✕</button>
       </div>
 
-      {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+      {error === '__SESSION_EXPIRED__' && (
+        <div className="mb-4">
+          <p className="text-yellow-400 text-sm mb-3">Your session has expired. Please reconnect your wallet to claim this Basename.</p>
+          <button
+            onClick={() => { if (onSessionExpired) onSessionExpired(); }}
+            className="bg-base-blue text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-500 transition"
+          >
+            🔄 Reconnect Wallet
+          </button>
+        </div>
+      )}
+
+      {error && error !== '__SESSION_EXPIRED__' && <p className="text-red-400 text-sm mb-3">{error}</p>}
 
       {/* Fallback: if claim failed, let user try a different basename */}
-      {error && !available && (
+      {error && error !== '__SESSION_EXPIRED__' && !available && (
         <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             <span>✨</span>
