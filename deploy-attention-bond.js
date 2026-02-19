@@ -7,9 +7,13 @@ const fs = require('fs');
 const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 
 async function main() {
-  // Load wallet
-  const walletData = JSON.parse(fs.readFileSync('/home/node/.openclaw/workspace/cloudlobster-wallet.json', 'utf8'));
-  const account = privateKeyToAccount(walletData.privateKey);
+  // Load wallet from environment variable
+  const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
+  if (!privateKey) {
+    console.error('❌ DEPLOYER_PRIVATE_KEY environment variable is required');
+    process.exit(1);
+  }
+  const account = privateKeyToAccount(privateKey);
   console.log('Deployer:', account.address);
 
   const publicClient = createPublicClient({
