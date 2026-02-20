@@ -1,1 +1,3 @@
 /api/*  https://api.basemail.ai/api/:splat  308
+/agent/*  /index.html  200
+/dashboard/*  /index.html  200
