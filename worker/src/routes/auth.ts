@@ -109,7 +109,10 @@ authRoutes.post('/agent-register', async (c) => {
     // Agent 指定了 Basename → 驗證 on-chain 所有權
     const ownership = await verifyBasenameOwnership(requestedBasename, wallet);
     if (!ownership.valid) {
-      return c.json({ error: ownership.error }, 403);
+      return c.json({
+        error: ownership.error,
+        hint: 'If you just registered this Basename, the transaction may not be finalized yet. Wait ~15 seconds and retry. Or register without basename first, then PUT /api/register/upgrade with { "basename": "yourname.base.eth" }.',
+      }, 403);
     }
     handle = ownership.name;
     resolvedBasename = requestedBasename;

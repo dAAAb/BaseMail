@@ -59,7 +59,10 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
     // Agent 指定了已有的 Basename → 驗證 on-chain 所有權
     const ownership = await verifyBasenameOwnership(body.basename, auth.wallet);
     if (!ownership.valid) {
-      return c.json({ error: ownership.error }, 403);
+      return c.json({
+        error: ownership.error,
+        hint: 'If you just registered this Basename, wait ~15 seconds for on-chain finalization and retry.',
+      }, 403);
     }
     handle = ownership.name;
     resolvedBasename = body.basename;
@@ -235,20 +238,37 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
 
     const available = await isBasenameAvailable(name);
     if (!available) {
-      return c.json({ error: `Basename "${name}.base.eth" is not available` }, 409);
+      // Basename exists on-chain — check if THIS wallet already owns it
+      const fullBasename = `${name}.base.eth`;
+      const ownership = await verifyBasenameOwnership(fullBasename, auth.wallet);
+      if (ownership.valid) {
+        // Wallet already owns it! Skip purchase, just bind it.
+        basenames = fullBasename;
+        newHandle = name;
+      } else {
+        return c.json({
+          error: `Basename "${name}.base.eth" is not available`,
+          hint: ownership.valid === false && ownership.error
+            ? ownership.error
+            : 'If you already own this Basename, use { "basename": "' + fullBasename + '" } instead of auto_basename.',
+        }, 409);
+      }
     }
 
-    try {
-      const result = await registerBasename(
-        name,
-        auth.wallet as Address,
-        c.env.WALLET_PRIVATE_KEY as Hex,
-        1,
-      );
-      basenames = result.fullName;
-      newHandle = name;
-    } catch (e: any) {
-      return c.json({ error: `Basename registration failed: ${e.message}` }, 500);
+    if (!basenames) {
+      // Only purchase if we didn't already resolve ownership above
+      try {
+        const result = await registerBasename(
+          name,
+          auth.wallet as Address,
+          c.env.WALLET_PRIVATE_KEY as Hex,
+          1,
+        );
+        basenames = result.fullName;
+        newHandle = name;
+      } catch (e: any) {
+        return c.json({ error: `Basename registration failed: ${e.message}` }, 500);
+      }
     }
   } else {
     // ── Path B: User already owns a Basename (existing logic) ──
