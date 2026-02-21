@@ -121,18 +121,9 @@ export async function smartLensLookup(address: string, handle?: string | null): 
     const searched = await searchLensAccount(cleanHandle);
     if (searched?.username) return searched;
 
-    // 2b. Fuzzy search — search with deduped version, verify with isLikelyMatch
-    const dedupHandle = dedup(cleanHandle);
-    if (dedupHandle !== cleanHandle) {
-      const searched2 = await searchLensAccount(dedupHandle);
-      if (searched2?.username?.localName && isLikelyMatch(cleanHandle, searched2.username.localName)) {
-        return searched2;
-      }
-    }
-
-    // 2c. Search results from original query — check top results for likely match
+    // 2b. Search results from original query — check top results for likely match
     const d = await lensGQL(
-      `{ accounts(request: { filter: { searchBy: { localNameQuery: "${cleanHandle}" } }, orderBy: BEST_MATCH, pageSize: FIVE }) { items { address username { localName } metadata { name bio picture } } } }`
+      `{ accounts(request: { filter: { searchBy: { localNameQuery: "${cleanHandle}" } }, orderBy: BEST_MATCH, pageSize: TEN }) { items { address username { localName } metadata { name bio picture } } } }`
     );
     const items: LensAccount[] = d?.accounts?.items || [];
     for (const item of items) {
