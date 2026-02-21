@@ -473,8 +473,8 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
   const dragRef = useRef<{ node: GNode | null; panning: boolean; last: { x: number; y: number }; startTime: number }>({
     node: null, panning: false, last: { x: 0, y: 0 }, startTime: 0,
   });
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pinchRef = useRef<{ dist: number } | null>(null);
+  const lastTapRef = useRef<{ time: number; id: string | null }>({ time: 0, id: null });
 
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GNode } | null>(null);
 
@@ -546,7 +546,6 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
   /* ─── Touch handlers (mobile) ─── */
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
     if (e.touches.length === 2) {
-      // Pinch zoom start
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       pinchRef.current = { dist: Math.sqrt(dx * dx + dy * dy) };
@@ -564,27 +563,13 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
     if (hit) {
       drag.node = hit;
       hit._dragging = true;
-      // Long-press = collapse (replaces right-click)
-      if (longPressRef.current) clearTimeout(longPressRef.current);
-      longPressRef.current = setTimeout(() => {
-        if (hit.expanded && hit.type !== 'root') {
-          hit._dragging = false;
-          drag.node = null;
-          collapseNode(hit.id);
-        }
-        longPressRef.current = null;
-      }, 500);
     } else {
       drag.panning = true;
     }
-  }, [collapseNode]);
+  }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
-    // Cancel long-press if finger moves
-    if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
-
     if (e.touches.length === 2 && pinchRef.current) {
-      // Pinch zoom
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -614,20 +599,37 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
     pinchRef.current = null;
     const drag = dragRef.current;
 
-    // If long-press timer is still running = it was a tap, not a long-press
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-
     if (drag.node) {
       const wasDrag = Date.now() - drag.startTime > 200;
       drag.node._dragging = false;
-      if (!wasDrag) expandNode(drag.node.id);
+
+      if (!wasDrag) {
+        const now = Date.now();
+        const last = lastTapRef.current;
+
+        // Double-tap on same node = collapse
+        if (last.id === drag.node.id && now - last.time < 350) {
+          if (drag.node.expanded && drag.node.type !== 'root') {
+            collapseNode(drag.node.id);
+          }
+          lastTapRef.current = { time: 0, id: null };
+        } else {
+          // Single tap = expand (after brief delay to detect double-tap)
+          const nodeId = drag.node.id;
+          lastTapRef.current = { time: now, id: nodeId };
+          setTimeout(() => {
+            // Only expand if no second tap happened
+            if (lastTapRef.current.time === now) {
+              expandNode(nodeId);
+              lastTapRef.current = { time: 0, id: null };
+            }
+          }, 360);
+        }
+      }
       drag.node = null;
     }
     drag.panning = false;
-  }, [expandNode]);
+  }, [expandNode, collapseNode]);
 
   return (
     <div>
@@ -695,7 +697,7 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
               </div>
             )}
             <div className="text-[10px] mt-1.5" style={{ color: tooltip.node.expanded ? '#ff6b9d' : '#0055ff' }}>
-              {tooltip.node.expanded ? '📌 Long-press / right-click to collapse' : '🔍 Tap / click to expand graph'}
+              {tooltip.node.expanded ? '📌 Double-tap / right-click to collapse' : '🔍 Tap / click to expand graph'}
             </div>
           </div>
         )}
@@ -715,7 +717,7 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
           Click = expand · Right-click = collapse · Drag = move · Scroll = zoom
         </div>
         <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg sm:hidden">
-          Tap = expand · Long-press = collapse · Pinch = zoom
+          Tap = expand · Double-tap = collapse · Pinch = zoom
         </div>
       </div>
     </div>

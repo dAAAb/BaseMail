@@ -73,6 +73,33 @@ export async function fetchLensAccount(address: string): Promise<LensAccount | n
   return d?.account || null;
 }
 
+/* ─── Public: search Lens account by name (fallback when wallet doesn't match) ─── */
+export async function searchLensAccount(query: string): Promise<LensAccount | null> {
+  const d = await lensGQL(
+    `{ accounts(request: { filter: { searchBy: { localNameQuery: "${query}" } }, orderBy: BEST_MATCH, pageSize: TEN }) { items { address username { localName } metadata { name bio picture } } } }`
+  );
+  // Return exact or closest match
+  const items = d?.accounts?.items || [];
+  return items.find((a: LensAccount) => a.username?.localName?.toLowerCase() === query.toLowerCase()) || items[0] || null;
+}
+
+/* ─── Smart Lens lookup: try wallet first, then search by handle/basename ─── */
+export async function smartLensLookup(address: string, handle?: string | null): Promise<LensAccount | null> {
+  // 1. Try direct wallet lookup
+  const direct = await fetchLensAccount(address);
+  if (direct?.username) return direct;
+
+  // 2. Wallet found but no username → try searching by handle
+  if (handle) {
+    // Strip .base.eth or similar suffixes
+    const cleanHandle = handle.replace(/\.base\.eth$/i, '').replace(/\.eth$/i, '');
+    const searched = await searchLensAccount(cleanHandle);
+    if (searched?.username) return searched;
+  }
+
+  return null;
+}
+
 /* ─── Public: fetch social graph for an address ─── */
 export async function fetchLensSocialGraph(address: string): Promise<LensSocialGraph> {
   const [followers, following] = await Promise.all([
@@ -92,7 +119,7 @@ export async function fetchLensSocialGraph(address: string): Promise<LensSocialG
 }
 
 /* ─── Hook: lightweight Lens account check (no graph fetch) ─── */
-export function useLensAccount(walletAddress: string | null) {
+export function useLensAccount(walletAddress: string | null, handle?: string | null) {
   const [account, setAccount] = useState<LensAccount | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -101,39 +128,37 @@ export function useLensAccount(walletAddress: string | null) {
     let cancelled = false;
     setLoading(true);
 
-    fetchLensAccount(walletAddress)
+    smartLensLookup(walletAddress, handle)
       .then(a => { if (!cancelled) setAccount(a); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [walletAddress]);
+  }, [walletAddress, handle]);
 
   return { account, loading };
 }
 
 /* ─── Hook: on-demand full profile + graph ─── */
-export function useLensProfileOnDemand(walletAddress: string | null) {
+export function useLensProfileOnDemand(lensAccount: LensAccount | null) {
   const [profile, setProfile] = useState<LensProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!walletAddress || loading || profile) return;
+    if (!lensAccount || loading || profile) return;
     setLoading(true);
     setError(null);
 
     try {
-      const account = await fetchLensAccount(walletAddress);
-      if (!account) { setLoading(false); return; }
-      const graph = await fetchLensSocialGraph(walletAddress);
-      setProfile({ account, graph });
+      const graph = await fetchLensSocialGraph(lensAccount.address);
+      setProfile({ account: lensAccount, graph });
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [walletAddress, loading, profile]);
+  }, [lensAccount, loading, profile]);
 
   return { profile, loading, error, load };
 }

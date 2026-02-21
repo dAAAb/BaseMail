@@ -156,8 +156,9 @@ export default function AgentProfile() {
 
   // Lens hooks MUST be called before any early returns (React rules of hooks)
   const wallet = data ? getWalletFromServices(data.services) : null;
-  const { account: lensAccount, loading: lensLoading } = useLensAccount(wallet);
-  const { profile: lensProfile, loading: lensGraphLoading, load: loadLensGraph } = useLensProfileOnDemand(wallet);
+  const basename = data ? getBasename(data.services) : null;
+  const { account: lensAccount, loading: lensLoading } = useLensAccount(wallet, basename || handle);
+  const { profile: lensProfile, loading: lensGraphLoading, load: loadLensGraph } = useLensProfileOnDemand(lensAccount);
   const [lensExpanded, setLensExpanded] = useState(false);
 
   useEffect(() => {
@@ -203,7 +204,6 @@ export default function AgentProfile() {
     );
   }
 
-  const basename = getBasename(data.services);
   const rep = data.reputation;
   const bonds = data.attentionBonds;
 
