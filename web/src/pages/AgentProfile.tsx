@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useLensProfile } from '../hooks/useLensProfile';
 import LensBadge from '../components/LensBadge';
-import LensSocialGraph from '../components/LensSocialGraph';
+
+const LensSocialGraph = lazy(() => import('../components/LensSocialGraph'));
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -347,10 +348,12 @@ export default function AgentProfile() {
 
         {/* Lens Social Graph */}
         {lensProfile && (
-          <LensSocialGraph
-            rootAccount={lensProfile.account}
-            initialGraph={lensProfile.graph}
-          />
+          <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Loading social graph…</div>}>
+            <LensSocialGraph
+              rootAccount={lensProfile.account}
+              initialGraph={lensProfile.graph}
+            />
+          </Suspense>
         )}
 
         {/* Services */}
