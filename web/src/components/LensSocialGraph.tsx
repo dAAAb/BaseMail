@@ -473,9 +473,12 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
   const dragRef = useRef<{ node: GNode | null; panning: boolean; last: { x: number; y: number }; startTime: number }>({
     node: null, panning: false, last: { x: 0, y: 0 }, startTime: 0,
   });
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinchRef = useRef<{ dist: number } | null>(null);
 
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GNode } | null>(null);
 
+  /* ─── Mouse handlers ─── */
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
@@ -540,10 +543,96 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
     camRef.current.zoom = Math.max(0.1, Math.min(5, camRef.current.zoom * factor));
   }, []);
 
+  /* ─── Touch handlers (mobile) ─── */
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 2) {
+      // Pinch zoom start
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = { dist: Math.sqrt(dx * dx + dy * dy) };
+      return;
+    }
+
+    const touch = e.touches[0];
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const sx = touch.clientX - rect.left, sy = touch.clientY - rect.top;
+    const hit = hitTest(sx, sy);
+    const drag = dragRef.current;
+    drag.last = { x: touch.clientX, y: touch.clientY };
+    drag.startTime = Date.now();
+
+    if (hit) {
+      drag.node = hit;
+      hit._dragging = true;
+      // Long-press = collapse (replaces right-click)
+      if (longPressRef.current) clearTimeout(longPressRef.current);
+      longPressRef.current = setTimeout(() => {
+        if (hit.expanded && hit.type !== 'root') {
+          hit._dragging = false;
+          drag.node = null;
+          collapseNode(hit.id);
+        }
+        longPressRef.current = null;
+      }, 500);
+    } else {
+      drag.panning = true;
+    }
+  }, [collapseNode]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    // Cancel long-press if finger moves
+    if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
+
+    if (e.touches.length === 2 && pinchRef.current) {
+      // Pinch zoom
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const factor = dist / pinchRef.current.dist;
+      camRef.current.zoom = Math.max(0.1, Math.min(5, camRef.current.zoom * factor));
+      pinchRef.current.dist = dist;
+      return;
+    }
+
+    const touch = e.touches[0];
+    const drag = dragRef.current;
+
+    if (drag.node?._dragging) {
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const w = screenToWorld(touch.clientX - rect.left, touch.clientY - rect.top);
+      drag.node.x = w.x;
+      drag.node.y = w.y;
+    } else if (drag.panning) {
+      const cam = camRef.current;
+      cam.x -= (touch.clientX - drag.last.x) / cam.zoom;
+      cam.y -= (touch.clientY - drag.last.y) / cam.zoom;
+    }
+    drag.last = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    pinchRef.current = null;
+    const drag = dragRef.current;
+
+    // If long-press timer is still running = it was a tap, not a long-press
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+
+    if (drag.node) {
+      const wasDrag = Date.now() - drag.startTime > 200;
+      drag.node._dragging = false;
+      if (!wasDrag) expandNode(drag.node.id);
+      drag.node = null;
+    }
+    drag.panning = false;
+  }, [expandNode]);
+
   return (
-    <section className="mb-10">
+    <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2">
           🌿 Lens Social Graph
         </h2>
         <div className="flex items-center gap-4">
@@ -570,7 +659,7 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
       <div className="relative bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
         <canvas
           ref={canvasRef}
-          className="w-full cursor-grab active:cursor-grabbing"
+          className="w-full cursor-grab active:cursor-grabbing touch-none"
           style={{ height: 500 }}
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
@@ -578,6 +667,9 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
           onMouseLeave={() => { setTooltip(null); hoveredRef.current = null; dragRef.current.panning = false; }}
           onContextMenu={handleContextMenu}
           onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
 
         {/* Loading overlay */}
@@ -603,7 +695,7 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
               </div>
             )}
             <div className="text-[10px] mt-1.5" style={{ color: tooltip.node.expanded ? '#ff6b9d' : '#0055ff' }}>
-              {tooltip.node.expanded ? '📌 Right-click to collapse' : '🔍 Click to expand graph'}
+              {tooltip.node.expanded ? '📌 Long-press / right-click to collapse' : '🔍 Tap / click to expand graph'}
             </div>
           </div>
         )}
@@ -619,10 +711,13 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
         </div>
 
         {/* Instructions */}
-        <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg">
+        <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg hidden sm:block">
           Click = expand · Right-click = collapse · Drag = move · Scroll = zoom
         </div>
+        <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg sm:hidden">
+          Tap = expand · Long-press = collapse · Pinch = zoom
+        </div>
       </div>
-    </section>
+    </div>
   );
 }

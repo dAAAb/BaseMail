@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const LENS_API = 'https://api.lens.xyz/graphql';
 
@@ -91,37 +91,49 @@ export async function fetchLensSocialGraph(address: string): Promise<LensSocialG
   };
 }
 
-/* ─── Hook ─── */
-export function useLensProfile(walletAddress: string | null) {
-  const [profile, setProfile] = useState<LensProfile | null>(null);
+/* ─── Hook: lightweight Lens account check (no graph fetch) ─── */
+export function useLensAccount(walletAddress: string | null) {
+  const [account, setAccount] = useState<LensAccount | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!walletAddress) return;
     let cancelled = false;
     setLoading(true);
-    setError(null);
 
-    (async () => {
-      try {
-        const account = await fetchLensAccount(walletAddress);
-        if (cancelled) return;
-        if (!account) { setLoading(false); return; }
-
-        const graph = await fetchLensSocialGraph(walletAddress);
-        if (cancelled) return;
-
-        setProfile({ account, graph });
-      } catch (e: any) {
-        if (!cancelled) setError(e.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    fetchLensAccount(walletAddress)
+      .then(a => { if (!cancelled) setAccount(a); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [walletAddress]);
 
-  return { profile, loading, error };
+  return { account, loading };
+}
+
+/* ─── Hook: on-demand full profile + graph ─── */
+export function useLensProfileOnDemand(walletAddress: string | null) {
+  const [profile, setProfile] = useState<LensProfile | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!walletAddress || loading || profile) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const account = await fetchLensAccount(walletAddress);
+      if (!account) { setLoading(false); return; }
+      const graph = await fetchLensSocialGraph(walletAddress);
+      setProfile({ account, graph });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [walletAddress, loading, profile]);
+
+  return { profile, loading, error, load };
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useLensProfile } from '../hooks/useLensProfile';
+import { useLensAccount, useLensProfileOnDemand } from '../hooks/useLensProfile';
 import LensBadge from '../components/LensBadge';
 
 const LensSocialGraph = lazy(() => import('../components/LensSocialGraph'));
@@ -154,9 +154,11 @@ export default function AgentProfile() {
   const [priceData, setPriceData] = useState<{ current_price_usdc?: number; demand_7d?: number } | null>(null);
   const [coqafData, setCoqafData] = useState<{ qaf_value?: number; coqaf_value?: number } | null>(null);
 
-  // Lens hook MUST be called before any early returns (React rules of hooks)
+  // Lens hooks MUST be called before any early returns (React rules of hooks)
   const wallet = data ? getWalletFromServices(data.services) : null;
-  const { profile: lensProfile, loading: lensLoading } = useLensProfile(wallet);
+  const { account: lensAccount, loading: lensLoading } = useLensAccount(wallet);
+  const { profile: lensProfile, loading: lensGraphLoading, load: loadLensGraph } = useLensProfileOnDemand(wallet);
+  const [lensExpanded, setLensExpanded] = useState(false);
 
   useEffect(() => {
     if (!handle) return;
@@ -251,23 +253,17 @@ export default function AgentProfile() {
               <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-base-blue/20 text-base-blue">
                 📄 ERC-8004
               </span>
-              <LensBadge handle={lensProfile?.account?.username?.localName} loading={lensLoading} />
+              <LensBadge handle={lensAccount?.username?.localName} loading={lensLoading} />
             </div>
           </div>
         </div>
 
         {/* Stats Grid */}
-        <div className={`grid grid-cols-2 ${lensProfile ? 'sm:grid-cols-3 lg:grid-cols-6' : 'sm:grid-cols-4'} gap-4 mb-10`}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
           <Stat icon="📨" label="Emails Received" value={rep.emailsReceived} />
           <Stat icon="📤" label="Emails Sent" value={rep.emailsSent} />
           <Stat icon="👥" label="Unique Senders" value={rep.uniqueSenders} />
           <Stat icon="💎" label="Total Bonded" value={`$${rep.totalBondsUsdc.toFixed(2)}`} />
-          {lensProfile && (
-            <>
-              <Stat icon="🌿" label="Lens Followers" value={lensProfile.graph.stats.followers} />
-              <Stat icon="🌿" label="Lens Following" value={lensProfile.graph.stats.following} />
-            </>
-          )}
         </div>
 
         {/* Attention Bonds Section */}
@@ -346,14 +342,49 @@ export default function AgentProfile() {
           </section>
         )}
 
-        {/* Lens Social Graph */}
-        {lensProfile && (
-          <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Loading social graph…</div>}>
-            <LensSocialGraph
-              rootAccount={lensProfile.account}
-              initialGraph={lensProfile.graph}
-            />
-          </Suspense>
+        {/* Lens Social Graph (collapsible, loads on demand) */}
+        {lensAccount && (
+          <section className="mb-10">
+            <button
+              onClick={() => {
+                const next = !lensExpanded;
+                setLensExpanded(next);
+                if (next && !lensProfile) loadLensGraph();
+              }}
+              className="w-full flex items-center justify-between bg-base-gray rounded-xl px-5 py-4 border border-gray-800 hover:border-[#abfe2c]/30 transition group"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">🌿</span>
+                <div className="text-left">
+                  <div className="text-white font-bold">Lens Social Graph</div>
+                  <div className="text-xs text-gray-400">
+                    {lensAccount.username?.localName ? `@${lensAccount.username.localName}` : 'Connected'}
+                    {lensProfile ? ` · ${lensProfile.graph.stats.followers} followers · ${lensProfile.graph.stats.following} following` : ' · Click to explore'}
+                  </div>
+                </div>
+              </div>
+              <span className={`text-gray-400 transition-transform ${lensExpanded ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+
+            {lensExpanded && (
+              <div className="mt-3">
+                {lensGraphLoading && !lensProfile && (
+                  <div className="bg-base-gray rounded-xl border border-gray-800 p-10 text-center">
+                    <div className="animate-spin text-3xl mb-3">🌿</div>
+                    <div className="text-gray-400 text-sm">Loading social graph from Lens Protocol…</div>
+                  </div>
+                )}
+                {lensProfile && (
+                  <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Rendering graph…</div>}>
+                    <LensSocialGraph
+                      rootAccount={lensProfile.account}
+                      initialGraph={lensProfile.graph}
+                    />
+                  </Suspense>
+                )}
+              </div>
+            )}
+          </section>
         )}
 
         {/* Services */}
