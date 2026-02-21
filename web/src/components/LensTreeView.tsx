@@ -55,67 +55,70 @@ function TreeNodeRow({
     }
   };
 
-  // Tree branch characters
-  const indent = depth > 0 ? (
-    <span className="text-gray-600 select-none" style={{ width: depth * 20, display: 'inline-block' }}>
-      {'│  '.repeat(Math.max(0, depth - 1))}├─
-    </span>
-  ) : null;
-
   return (
     <>
       <div
-        className={`flex items-start gap-1 py-1 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition font-mono text-sm ${
+        className={`py-1.5 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition text-sm ${
           depth === 0 ? 'text-base' : ''
         }`}
+        style={{ paddingLeft: Math.max(8, depth * 20) }}
         onClick={toggleOrExpand}
       >
-        {indent}
-
-        {/* Expand/collapse icon */}
-        <span className="w-4 text-center flex-shrink-0 select-none">
-          {node.loading ? (
-            <span className="animate-spin inline-block">⏳</span>
-          ) : hasChildren || canExpand ? (
-            <span className={`text-gray-500 transition-transform inline-block ${open && hasChildren ? 'rotate-90' : ''}`}>
-              ▶
-            </span>
-          ) : (
-            <span className="text-gray-700">·</span>
+        {/* Main row */}
+        <div className="flex items-center gap-1.5 font-mono">
+          {/* Tree connector */}
+          {depth > 0 && (
+            <span className="text-gray-600 select-none flex-shrink-0">├─</span>
           )}
-        </span>
 
-        {/* Icon + name */}
-        <span className="flex-shrink-0">{TYPE_ICONS[node.type]}</span>
-        <span className={`font-bold ${TYPE_COLORS[node.type]}`}>
-          {displayName}
-        </span>
+          {/* Expand/collapse icon */}
+          <span className="w-4 text-center flex-shrink-0 select-none">
+            {node.loading ? (
+              <span className="animate-spin inline-block">⏳</span>
+            ) : hasChildren || canExpand ? (
+              <span className={`text-gray-500 transition-transform inline-block ${open && hasChildren ? 'rotate-90' : ''}`}>
+                ▶
+              </span>
+            ) : (
+              <span className="text-gray-700">·</span>
+            )}
+          </span>
 
-        {/* Handle */}
-        {handle && name && (
-          <a
-            href={`https://hey.xyz/u/${handle}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-500 hover:text-base-blue transition"
-            onClick={e => e.stopPropagation()}
-          >
-            @{handle}
-          </a>
-        )}
+          {/* Icon + name */}
+          <span className="flex-shrink-0">{TYPE_ICONS[node.type]}</span>
+          <span className={`font-bold ${TYPE_COLORS[node.type]} truncate`}>
+            {displayName}
+          </span>
 
-        {/* Bio snippet */}
+          {/* Handle */}
+          {handle && name && (
+            <a
+              href={`https://hey.xyz/u/${handle}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-500 hover:text-base-blue transition flex-shrink-0"
+              onClick={e => e.stopPropagation()}
+            >
+              @{handle}
+            </a>
+          )}
+
+          {/* Stats badge */}
+          {node.stats && (
+            <span className="text-gray-600 text-xs ml-auto flex-shrink-0">
+              {node.stats.followers}↓ {node.stats.following}↑
+            </span>
+          )}
+        </div>
+
+        {/* Bio on second line — full width, no truncation issues */}
         {bio && (
-          <span className="text-gray-600 truncate max-w-[200px] hidden sm:inline" title={bio}>
-            — {bio}
-          </span>
-        )}
-
-        {/* Stats badge */}
-        {node.stats && (
-          <span className="text-gray-600 text-xs ml-auto flex-shrink-0">
-            {node.stats.followers}↓ {node.stats.following}↑
-          </span>
+          <div
+            className="text-gray-500 text-xs mt-0.5 leading-relaxed"
+            style={{ paddingLeft: depth > 0 ? 52 : 28 }}
+          >
+            {bio}
+          </div>
         )}
       </div>
 
@@ -176,19 +179,14 @@ function FolderGroup({
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
-  const indent = depth > 0 ? (
-    <span className="text-gray-600 select-none" style={{ width: depth * 20, display: 'inline-block' }}>
-      {'│  '.repeat(Math.max(0, depth - 1))}├─
-    </span>
-  ) : null;
-
   return (
     <>
       <div
-        className="flex items-center gap-1 py-1 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition font-mono text-sm"
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition font-mono text-sm"
+        style={{ paddingLeft: Math.max(8, depth * 20) }}
         onClick={() => setOpen(!open)}
       >
-        {indent}
+        {depth > 0 && <span className="text-gray-600 select-none flex-shrink-0">├─</span>}
         <span className="w-4 text-center flex-shrink-0 select-none">
           <span className={`text-gray-500 transition-transform inline-block ${open ? 'rotate-90' : ''}`}>▶</span>
         </span>

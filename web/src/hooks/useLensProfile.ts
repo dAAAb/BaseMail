@@ -78,9 +78,10 @@ export async function searchLensAccount(query: string): Promise<LensAccount | nu
   const d = await lensGQL(
     `{ accounts(request: { filter: { searchBy: { localNameQuery: "${query}" } }, orderBy: BEST_MATCH, pageSize: TEN }) { items { address username { localName } metadata { name bio picture } } } }`
   );
-  // Return exact or closest match
-  const items = d?.accounts?.items || [];
-  return items.find((a: LensAccount) => a.username?.localName?.toLowerCase() === query.toLowerCase()) || items[0] || null;
+  const items: LensAccount[] = d?.accounts?.items || [];
+  // STRICT: only return exact localName match — no fuzzy/partial results
+  const exact = items.find((a) => a.username?.localName?.toLowerCase() === query.toLowerCase());
+  return exact || null;
 }
 
 /* ─── Smart Lens lookup: try wallet first, then search by handle/basename ─── */
@@ -89,12 +90,27 @@ export async function smartLensLookup(address: string, handle?: string | null): 
   const direct = await fetchLensAccount(address);
   if (direct?.username) return direct;
 
-  // 2. Wallet found but no username → try searching by handle
+  // 2. Wallet found but no username → try exact search by handle
   if (handle) {
-    // Strip .base.eth or similar suffixes
     const cleanHandle = handle.replace(/\.base\.eth$/i, '').replace(/\.eth$/i, '');
+    // Only accept exact match from search (searchLensAccount already enforces this)
     const searched = await searchLensAccount(cleanHandle);
     if (searched?.username) return searched;
+
+    // 3. Try without numbers/special chars (e.g. "daaaaab" → "daaab" style)
+    // But ONLY if the base letters match significantly
+    const alphaOnly = cleanHandle.replace(/[^a-zA-Z]/g, '');
+    if (alphaOnly !== cleanHandle && alphaOnly.length >= 3) {
+      const searched2 = await searchLensAccount(alphaOnly);
+      // Verify the match is actually related (shares >60% characters)
+      if (searched2?.username?.localName) {
+        const found = searched2.username.localName.toLowerCase();
+        const query = cleanHandle.toLowerCase();
+        const overlap = [...found].filter(c => query.includes(c)).length;
+        const similarity = overlap / Math.max(found.length, query.length);
+        if (similarity > 0.6) return searched2;
+      }
+    }
   }
 
   return null;

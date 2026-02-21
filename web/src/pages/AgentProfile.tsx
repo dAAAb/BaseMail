@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useLensAccount, useLensProfileOnDemand } from '../hooks/useLensProfile';
 import LensBadge from '../components/LensBadge';
+import AgentSEO from '../components/AgentSEO';
 
 const LensSocialGraph = lazy(() => import('../components/LensSocialGraph'));
 const LensTreeView = lazy(() => import('../components/LensTreeView'));
@@ -210,6 +211,18 @@ export default function AgentProfile() {
 
   return (
     <div className="min-h-screen bg-base-dark">
+      {/* SEO + AISEO */}
+      <AgentSEO
+        handle={handle!}
+        name={data.name}
+        description={data.description}
+        image={data.image}
+        wallet={wallet}
+        lensHandle={lensAccount?.username?.localName}
+        emailsReceived={rep.emailsReceived}
+        totalBondsUsdc={rep.totalBondsUsdc}
+      />
+
       {/* Header */}
       <header className="border-b border-gray-800 bg-base-dark/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
