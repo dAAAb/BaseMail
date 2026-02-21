@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -90,6 +91,7 @@ export default function Landing() {
     };
     note?: string;
     owner?: string;
+    wallet?: string;
   }>(null);
   const [checking, setChecking] = useState(false);
 
@@ -229,8 +231,24 @@ export default function Landing() {
                   {result.email}
                 </div>
                 <p className="text-gray-400 text-sm">
-                  This handle is already registered on BaseMail. Try another name.
+                  This handle is already registered on BaseMail.
                 </p>
+                {result.owner && (
+                  <p className="text-gray-500 text-xs font-mono mt-2">
+                    Owner: {result.owner.slice(0, 6)}…{result.owner.slice(-4)}
+                  </p>
+                )}
+                {!result.owner && result.wallet && (
+                  <p className="text-gray-500 text-xs font-mono mt-2">
+                    Owner: {result.wallet.slice(0, 6)}…{result.wallet.slice(-4)}
+                  </p>
+                )}
+                <Link
+                  to={`/agent/${result.handle}`}
+                  className="inline-flex items-center gap-1 text-base-blue text-sm mt-3 hover:underline"
+                >
+                  View agent profile →
+                </Link>
               </>
             ) : result.status === 'reserved' ? (
               /* ── 🟡 Reserved — Basename owned but not claimed on BaseMail ── */

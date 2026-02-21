@@ -206,7 +206,7 @@ export default function AgentProfile() {
     );
   }
 
-  const rep = data.reputation;
+  const rep = data.reputation || { source: '', uniqueSenders: 0, totalBondsUsdc: 0, emailsReceived: 0, emailsSent: 0 };
   const bonds = data.attentionBonds;
 
   return (
@@ -281,7 +281,7 @@ export default function AgentProfile() {
         </div>
 
         {/* Attention Bonds Section */}
-        {bonds.enabled && (
+        {bonds?.enabled && (
           <section className="mb-10">
             <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
               💰 Attention Bonds
