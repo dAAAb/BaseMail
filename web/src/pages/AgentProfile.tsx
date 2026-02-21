@@ -154,6 +154,10 @@ export default function AgentProfile() {
   const [priceData, setPriceData] = useState<{ current_price_usdc?: number; demand_7d?: number } | null>(null);
   const [coqafData, setCoqafData] = useState<{ qaf_value?: number; coqaf_value?: number } | null>(null);
 
+  // Lens hook MUST be called before any early returns (React rules of hooks)
+  const wallet = data ? getWalletFromServices(data.services) : null;
+  const { profile: lensProfile, loading: lensLoading } = useLensProfile(wallet);
+
   useEffect(() => {
     if (!handle) return;
     setLoading(true);
@@ -197,13 +201,9 @@ export default function AgentProfile() {
     );
   }
 
-  const wallet = getWalletFromServices(data.services);
   const basename = getBasename(data.services);
   const rep = data.reputation;
   const bonds = data.attentionBonds;
-
-  // Lens Protocol lookup by wallet address
-  const { profile: lensProfile, loading: lensLoading } = useLensProfile(wallet);
 
   return (
     <div className="min-h-screen bg-base-dark">
