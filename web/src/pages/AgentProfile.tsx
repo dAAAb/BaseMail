@@ -4,6 +4,7 @@ import { useLensAccount, useLensProfileOnDemand } from '../hooks/useLensProfile'
 import LensBadge from '../components/LensBadge';
 
 const LensSocialGraph = lazy(() => import('../components/LensSocialGraph'));
+const LensTreeView = lazy(() => import('../components/LensTreeView'));
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -375,12 +376,22 @@ export default function AgentProfile() {
                   </div>
                 )}
                 {lensProfile && (
-                  <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Rendering graph…</div>}>
-                    <LensSocialGraph
-                      rootAccount={lensProfile.account}
-                      initialGraph={lensProfile.graph}
-                    />
-                  </Suspense>
+                  <>
+                    <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Rendering graph…</div>}>
+                      <LensSocialGraph
+                        rootAccount={lensProfile.account}
+                        initialGraph={lensProfile.graph}
+                      />
+                    </Suspense>
+                    <div className="mt-4">
+                      <Suspense fallback={<div className="text-gray-500 text-center py-4 animate-pulse">Loading tree…</div>}>
+                        <LensTreeView
+                          rootAccount={lensProfile.account}
+                          initialGraph={lensProfile.graph}
+                        />
+                      </Suspense>
+                    </div>
+                  </>
                 )}
               </div>
             )}
