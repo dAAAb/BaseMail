@@ -84,31 +84,60 @@ export async function searchLensAccount(query: string): Promise<LensAccount | nu
   return exact || null;
 }
 
+/* ─── Deduplicate consecutive chars: "daaaaab" → "dab", "littl3lobst3r" → "litl3lobst3r" ─── */
+function dedup(s: string): string {
+  return s.replace(/(.)\1+/g, '$1');
+}
+
+/* ─── Check if two handles are likely the same person ─── */
+function isLikelyMatch(query: string, found: string): boolean {
+  const q = query.toLowerCase();
+  const f = found.toLowerCase();
+  // Exact
+  if (q === f) return true;
+  // One contains the other (lengths must be close)
+  if ((q.includes(f) || f.includes(q)) && Math.abs(q.length - f.length) <= 2) return true;
+  // Deduplicated versions match (daaaaab→dab vs daaab→dab)
+  if (dedup(q) === dedup(f)) return true;
+  // Strip numbers and compare (littl3lobst3r vs littlelobster → reject if too different)
+  const qAlpha = q.replace(/[^a-z]/g, '');
+  const fAlpha = f.replace(/[^a-z]/g, '');
+  if (qAlpha === fAlpha) return true;
+  if (dedup(qAlpha) === dedup(fAlpha)) return true;
+  return false;
+}
+
 /* ─── Smart Lens lookup: try wallet first, then search by handle/basename ─── */
 export async function smartLensLookup(address: string, handle?: string | null): Promise<LensAccount | null> {
   // 1. Try direct wallet lookup
   const direct = await fetchLensAccount(address);
   if (direct?.username) return direct;
 
-  // 2. Wallet found but no username → try exact search by handle
+  // 2. Search by handle and verify match
   if (handle) {
     const cleanHandle = handle.replace(/\.base\.eth$/i, '').replace(/\.eth$/i, '');
-    // Only accept exact match from search (searchLensAccount already enforces this)
+
+    // 2a. Exact search
     const searched = await searchLensAccount(cleanHandle);
     if (searched?.username) return searched;
 
-    // 3. Try without numbers/special chars (e.g. "daaaaab" → "daaab" style)
-    // But ONLY if the base letters match significantly
-    const alphaOnly = cleanHandle.replace(/[^a-zA-Z]/g, '');
-    if (alphaOnly !== cleanHandle && alphaOnly.length >= 3) {
-      const searched2 = await searchLensAccount(alphaOnly);
-      // Verify the match is actually related (shares >60% characters)
-      if (searched2?.username?.localName) {
-        const found = searched2.username.localName.toLowerCase();
-        const query = cleanHandle.toLowerCase();
-        const overlap = [...found].filter(c => query.includes(c)).length;
-        const similarity = overlap / Math.max(found.length, query.length);
-        if (similarity > 0.6) return searched2;
+    // 2b. Fuzzy search — search with deduped version, verify with isLikelyMatch
+    const dedupHandle = dedup(cleanHandle);
+    if (dedupHandle !== cleanHandle) {
+      const searched2 = await searchLensAccount(dedupHandle);
+      if (searched2?.username?.localName && isLikelyMatch(cleanHandle, searched2.username.localName)) {
+        return searched2;
+      }
+    }
+
+    // 2c. Search results from original query — check top results for likely match
+    const d = await lensGQL(
+      `{ accounts(request: { filter: { searchBy: { localNameQuery: "${cleanHandle}" } }, orderBy: BEST_MATCH, pageSize: FIVE }) { items { address username { localName } metadata { name bio picture } } } }`
+    );
+    const items: LensAccount[] = d?.accounts?.items || [];
+    for (const item of items) {
+      if (item.username?.localName && isLikelyMatch(cleanHandle, item.username.localName)) {
+        return item;
       }
     }
   }
