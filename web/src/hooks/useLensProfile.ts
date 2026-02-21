@@ -73,64 +73,30 @@ export async function fetchLensAccount(address: string): Promise<LensAccount | n
   return d?.account || null;
 }
 
-/* ─── Public: search Lens account by name (fallback when wallet doesn't match) ─── */
-export async function searchLensAccount(query: string): Promise<LensAccount | null> {
-  const d = await lensGQL(
-    `{ accounts(request: { filter: { searchBy: { localNameQuery: "${query}" } }, orderBy: BEST_MATCH, pageSize: TEN }) { items { address username { localName } metadata { name bio picture } } } }`
-  );
-  const items: LensAccount[] = d?.accounts?.items || [];
-  // STRICT: only return exact localName match — no fuzzy/partial results
-  const exact = items.find((a) => a.username?.localName?.toLowerCase() === query.toLowerCase());
-  return exact || null;
+export interface LensLookupResult {
+  account: LensAccount;
+  version: 'v3' | 'v2-managed';  // v3 = direct username, v2-managed = found via accountsAvailable
 }
 
-/* ─── Deduplicate consecutive chars: "daaaaab" → "dab", "littl3lobst3r" → "litl3lobst3r" ─── */
-function dedup(s: string): string {
-  return s.replace(/(.)\1+/g, '$1');
-}
-
-/* ─── Check if two handles are likely the same person ─── */
-function isLikelyMatch(query: string, found: string): boolean {
-  const q = query.toLowerCase();
-  const f = found.toLowerCase();
-  // Exact
-  if (q === f) return true;
-  // One contains the other (lengths must be close)
-  if ((q.includes(f) || f.includes(q)) && Math.abs(q.length - f.length) <= 2) return true;
-  // Deduplicated versions match (daaaaab→dab vs daaab→dab)
-  if (dedup(q) === dedup(f)) return true;
-  // Strip numbers and compare (littl3lobst3r vs littlelobster → reject if too different)
-  const qAlpha = q.replace(/[^a-z]/g, '');
-  const fAlpha = f.replace(/[^a-z]/g, '');
-  if (qAlpha === fAlpha) return true;
-  if (dedup(qAlpha) === dedup(fAlpha)) return true;
-  return false;
-}
-
-/* ─── Smart Lens lookup: try wallet first, then search by handle/basename ─── */
-export async function smartLensLookup(address: string, handle?: string | null): Promise<LensAccount | null> {
-  // 1. Try direct wallet lookup
+/* ─── Smart Lens lookup: wallet → accountsAvailable → fuzzy search ─── */
+export async function smartLensLookup(address: string, _handle?: string | null): Promise<LensLookupResult | null> {
+  // 1. Direct wallet lookup — if it has a username, it's a v3 account
   const direct = await fetchLensAccount(address);
-  if (direct?.username) return direct;
+  if (direct?.username) return { account: direct, version: 'v3' };
 
-  // 2. Search by handle and verify match
-  if (handle) {
-    const cleanHandle = handle.replace(/\.base\.eth$/i, '').replace(/\.eth$/i, '');
-
-    // 2a. Exact search
-    const searched = await searchLensAccount(cleanHandle);
-    if (searched?.username) return searched;
-
-    // 2b. Search results from original query — check top results for likely match
+  // 2. Check accountsAvailable — finds Lens accounts managed/owned by this wallet
+  //    This catches Lens v2 NFT holders whose profile lives at a different address
+  try {
     const d = await lensGQL(
-      `{ accounts(request: { filter: { searchBy: { localNameQuery: "${cleanHandle}" } }, orderBy: BEST_MATCH, pageSize: TEN }) { items { address username { localName } metadata { name bio picture } } } }`
+      `{ accountsAvailable(request: { managedBy: "${address}", includeOwned: true }) { items { ... on AccountManaged { account { address username { localName } metadata { name bio picture } } } ... on AccountOwned { account { address username { localName } metadata { name bio picture } } } } } }`
     );
-    const items: LensAccount[] = d?.accounts?.items || [];
+    const items = d?.accountsAvailable?.items || [];
     for (const item of items) {
-      if (item.username?.localName && isLikelyMatch(cleanHandle, item.username.localName)) {
-        return item;
-      }
+      const acct = item.account;
+      if (acct?.username) return { account: acct, version: 'v2-managed' };
     }
+  } catch {
+    // accountsAvailable may require auth on some endpoints — fall through
   }
 
   return null;
@@ -157,6 +123,7 @@ export async function fetchLensSocialGraph(address: string): Promise<LensSocialG
 /* ─── Hook: lightweight Lens account check (no graph fetch) ─── */
 export function useLensAccount(walletAddress: string | null, handle?: string | null) {
   const [account, setAccount] = useState<LensAccount | null>(null);
+  const [lensVersion, setLensVersion] = useState<'v3' | 'v2-managed' | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -165,14 +132,19 @@ export function useLensAccount(walletAddress: string | null, handle?: string | n
     setLoading(true);
 
     smartLensLookup(walletAddress, handle)
-      .then(a => { if (!cancelled) setAccount(a); })
+      .then(result => {
+        if (!cancelled) {
+          setAccount(result?.account || null);
+          setLensVersion(result?.version || null);
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [walletAddress, handle]);
 
-  return { account, loading };
+  return { account, lensVersion, loading };
 }
 
 /* ─── Hook: on-demand full profile + graph ─── */

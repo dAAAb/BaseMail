@@ -159,7 +159,7 @@ export default function AgentProfile() {
   // Lens hooks MUST be called before any early returns (React rules of hooks)
   const wallet = data ? getWalletFromServices(data.services) : null;
   const basename = data ? getBasename(data.services) : null;
-  const { account: lensAccount, loading: lensLoading } = useLensAccount(wallet, basename || handle);
+  const { account: lensAccount, lensVersion, loading: lensLoading } = useLensAccount(wallet, basename || handle);
   const { profile: lensProfile, loading: lensGraphLoading, load: loadLensGraph } = useLensProfileOnDemand(lensAccount);
   const [lensExpanded, setLensExpanded] = useState(false);
 
@@ -405,6 +405,37 @@ export default function AgentProfile() {
                       </Suspense>
                     </div>
                   </>
+                )}
+
+                {/* Lens version badge + upgrade hint */}
+                {lensVersion === 'v2-managed' && (
+                  <div className="mt-4 bg-yellow-900/15 border border-yellow-800/30 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-yellow-800/30 text-yellow-400 border border-yellow-700/40">
+                        Lens v2
+                      </span>
+                      <span className="text-xs text-yellow-500/80">Legacy Profile NFT on Polygon</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      If you're <span className="text-white font-mono">@{lensAccount?.username?.localName || handle}</span>,{' '}
+                      <a
+                        href="https://lens.xyz/mint"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#abfe2c] hover:underline"
+                      >
+                        click here to upgrade to Lens v3 →
+                      </a>
+                    </p>
+                  </div>
+                )}
+                {lensVersion === 'v3' && (
+                  <div className="mt-4 flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#00501e]/30 text-[#abfe2c] border border-[#abfe2c]/20">
+                      Lens v3
+                    </span>
+                    <span className="text-[10px] text-gray-600">On Lens Chain</span>
+                  </div>
                 )}
               </div>
             )}
