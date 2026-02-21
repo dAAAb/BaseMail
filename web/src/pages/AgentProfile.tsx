@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useLensProfile } from '../hooks/useLensProfile';
+import LensBadge from '../components/LensBadge';
+import LensSocialGraph from '../components/LensSocialGraph';
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -198,6 +201,9 @@ export default function AgentProfile() {
   const rep = data.reputation;
   const bonds = data.attentionBonds;
 
+  // Lens Protocol lookup by wallet address
+  const { profile: lensProfile, loading: lensLoading } = useLensProfile(wallet);
+
   return (
     <div className="min-h-screen bg-base-dark">
       {/* Header */}
@@ -244,16 +250,23 @@ export default function AgentProfile() {
               <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-base-blue/20 text-base-blue">
                 📄 ERC-8004
               </span>
+              <LensBadge handle={lensProfile?.account?.username?.localName} loading={lensLoading} />
             </div>
           </div>
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
+        <div className={`grid grid-cols-2 ${lensProfile ? 'sm:grid-cols-3 lg:grid-cols-6' : 'sm:grid-cols-4'} gap-4 mb-10`}>
           <Stat icon="📨" label="Emails Received" value={rep.emailsReceived} />
           <Stat icon="📤" label="Emails Sent" value={rep.emailsSent} />
           <Stat icon="👥" label="Unique Senders" value={rep.uniqueSenders} />
           <Stat icon="💎" label="Total Bonded" value={`$${rep.totalBondsUsdc.toFixed(2)}`} />
+          {lensProfile && (
+            <>
+              <Stat icon="🌿" label="Lens Followers" value={lensProfile.graph.stats.followers} />
+              <Stat icon="🌿" label="Lens Following" value={lensProfile.graph.stats.following} />
+            </>
+          )}
         </div>
 
         {/* Attention Bonds Section */}
@@ -330,6 +343,14 @@ export default function AgentProfile() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* Lens Social Graph */}
+        {lensProfile && (
+          <LensSocialGraph
+            rootAccount={lensProfile.account}
+            initialGraph={lensProfile.graph}
+          />
         )}
 
         {/* Services */}
