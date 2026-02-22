@@ -592,6 +592,21 @@ authed.post('/bond', async (c) => {
   // Recalculate QAF
   await recalculateQAF(c.env.DB, recipient_handle);
 
+  // Send bond receipt email to sender
+  try {
+    const deadlineDate = new Date((now + window) * 1000).toUTCString();
+    const receiptId = `bond-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+    const receiptSubject = `🔒 Attention Bond Confirmed — $${verifiedAmount.toFixed(2)} USDC`;
+    const receiptBody = `Your Attention Bond to ${recipient_handle}@basemail.ai is now active.\n\nAmount: $${verifiedAmount.toFixed(2)} USDC\nDeadline: ${deadlineDate}\nTx: ${tx_hash}\n\nIf they reply before the deadline, you get a full refund.\nIf not, the bond is forfeited.\n\n—\nBaseMail Attention Bonds · https://basemail.ai/dashboard/attention`;
+    const r2Key = `emails/${auth.handle}/inbox/${receiptId}.eml`;
+    const rawMime = `From: system@basemail.ai\r\nTo: ${auth.handle}@basemail.ai\r\nSubject: ${receiptSubject}\r\nDate: ${new Date().toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${receiptBody}`;
+    await c.env.EMAIL_STORE.put(r2Key, rawMime);
+    await c.env.DB.prepare(
+      `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at)
+       VALUES (?, ?, 'inbox', 'system@basemail.ai', ?, ?, ?, ?, ?, 0, ?)`
+    ).bind(receiptId, auth.handle, `${auth.handle}@basemail.ai`, receiptSubject, receiptBody.slice(0, 200), r2Key, rawMime.length, now).run();
+  } catch (_) { /* don't block bond recording */ }
+
   return c.json({
     success: true,
     email_id,
