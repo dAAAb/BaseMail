@@ -8,6 +8,9 @@
 
 const BOT_UA = /googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|facebookexternalhit|twitterbot|linkedinbot|telegrambot|whatsapp|discordbot|applebot|chatgpt-user|gptbot|claudebot|anthropic|perplexity|cohere-ai|bytespider|semrush|ahref|mj12bot|ia_archiver|archive\.org/i;
 
+// Static file extensions — serve directly without interception
+const STATIC_EXT = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webmanifest)$/i;
+
 const API_BASE = 'https://api.basemail.ai';
 
 interface Env {}
@@ -16,25 +19,41 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const { request } = context;
   const ua = request.headers.get('user-agent') || '';
   const url = new URL(request.url);
+  const path = url.pathname;
 
-  // Only intercept for bots
-  if (!BOT_UA.test(ua)) {
+  // Static assets: always passthrough
+  if (STATIC_EXT.test(path) || path.startsWith('/assets/')) {
     return context.next();
   }
 
-  // Route to appropriate SSR handler
-  const path = url.pathname;
-
-  if (path === '/' || path === '') {
-    return renderLanding(url);
+  // Well-known + discovery files: passthrough to static (in public/)
+  if (path === '/robots.txt' || path === '/llms.txt' ||
+      path.startsWith('/.well-known/') || path === '/favicon.svg') {
+    return context.next();
   }
 
-  const agentMatch = path.match(/^\/agent\/([a-zA-Z0-9_-]+)\/?$/);
-  if (agentMatch) {
-    return renderAgentProfile(agentMatch[1], url);
+  // Bot detection — serve SSR
+  const isBot = BOT_UA.test(ua);
+
+  if (isBot) {
+    if (path === '/' || path === '') {
+      return renderLanding(url);
+    }
+
+    const agentMatch = path.match(/^\/agent\/([a-zA-Z0-9_-]+)\/?$/);
+    if (agentMatch) {
+      return renderAgentProfile(agentMatch[1], url);
+    }
   }
 
-  // All other paths: passthrough
+  // SPA fallback for SPA routes (replaces _redirects)
+  if (path.startsWith('/agent/') || path.startsWith('/dashboard/')) {
+    // Serve index.html via ASSETS binding (standard Cloudflare Pages)
+    const indexReq = new Request(new URL('/index.html', url.origin), request);
+    return (context.env as any).ASSETS.fetch(indexReq);
+  }
+
+  // Everything else (including /): passthrough to static files
   return context.next();
 };
 
