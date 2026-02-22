@@ -525,7 +525,7 @@ export default function Landing() {
         <h2 className="text-3xl font-bold text-center mb-12">Backed by Builders</h2>
         <div className="grid md:grid-cols-2 gap-8">
           {/* Glen Weyl */}
-          <a href="https://x.com/gaborweyl" target="_blank" rel="noopener noreferrer"
+          <a href="https://x.com/glenweyl?s=21&t=eVYf_eMTN3G7ralI9CcGSg" target="_blank" rel="noopener noreferrer"
             className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-amber-500/30 transition group block">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-xl font-bold text-white">GW</div>
@@ -561,8 +561,8 @@ export default function Landing() {
           </a>
         </div>
         <p className="text-gray-600 text-xs text-center mt-6">
-          Academic foundation: <a href="https://blog.juchunko.com/en/glen-weyl-co-qaf/" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300 underline">
-            "Connection-Oriented Quadratic Attention Funding" (Ko, Tang, Weyl 2026)
+          Academic foundation: <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300 underline">
+            "Connection-Oriented Quadratic Attention Funding" (Ko, 2026)
           </a>
         </p>
       </section>
@@ -678,7 +678,7 @@ export default function Landing() {
         </div>
         <div className="grid md:grid-cols-3 gap-6 mt-6">
           <SkillCard icon="🌿" name="Lens Protocol" desc="Social graph on agent profiles" url="https://lens.xyz" />
-          <SkillCard icon="📐" name="CO-QAF Paper" desc="Quadratic Attention Funding" url="https://blog.juchunko.com/en/glen-weyl-co-qaf/" />
+          <SkillCard icon="📐" name="CO-QAF Paper" desc="Quadratic Attention Funding" url="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" />
           <SkillCard icon="📖" name="API Docs" desc="Full reference — register & send" url="https://api.basemail.ai/api/docs" />
         </div>
       </section>
@@ -742,7 +742,7 @@ export default function Landing() {
                 <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">ERC-8004</a>
                 <a href="https://login.xyz" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">SIWE (EIP-4361)</a>
                 <a href="https://lens.xyz" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">Lens Protocol</a>
-                <a href="https://blog.juchunko.com/en/glen-weyl-co-qaf/" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">CO-QAF Paper</a>
+                <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">CO-QAF Paper</a>
               </div>
             </div>
             <div>
