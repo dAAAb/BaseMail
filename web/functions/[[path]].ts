@@ -53,9 +53,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // SPA fallback for SPA routes (replaces _redirects)
   if (path.startsWith('/agent/') || path.startsWith('/dashboard/')) {
-    // Serve index.html via ASSETS binding (standard Cloudflare Pages)
-    const indexReq = new Request(new URL('/index.html', url.origin), request);
-    return (context.env as any).ASSETS.fetch(indexReq);
+    // Serve index.html for SPA routes
+    try {
+      const assets = (context.env as any).ASSETS;
+      if (assets) {
+        const indexReq = new Request(new URL('/index.html', url.origin), request);
+        return assets.fetch(indexReq);
+      }
+    } catch (_) { /* fallback below */ }
+    // Fallback: rewrite to /index.html via next()
+    const rewritten = new Request(new URL('/index.html', url.origin), request);
+    return context.next(rewritten);
   }
 
   // Everything else (including /): passthrough to static files
