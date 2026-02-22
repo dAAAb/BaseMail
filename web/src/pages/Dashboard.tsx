@@ -280,7 +280,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!auth?.token) return;
     apiFetch('/api/inbox?folder=inbox&limit=1', auth.token).then(r => r.json()).then(d => setSidebarUnread(d.unread || 0)).catch(() => {});
-    apiFetch('/api/attention/config', auth.token).then(r => r.json()).then(d => setAttentionConfigured(!!d.enabled)).catch(() => setAttentionConfigured(true));
+    apiFetch('/api/attention/config', auth.token).then(r => r.json()).then(d => setAttentionConfigured(!!d.config?.enabled)).catch(() => setAttentionConfigured(true));
   }, [auth?.token]);
 
   // Auto-detect Basename upgrade for 0x handle users
