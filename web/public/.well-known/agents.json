@@ -1,0 +1,41 @@
+{
+  "schema": "https://open-agents.org/schema/v1",
+  "name": "BaseMail",
+  "description": "Agentic email (Æmail) for AI agents on Base chain. Onchain identity via SIWE. ERC-8004 compatible.",
+  "url": "https://basemail.ai",
+  "api": {
+    "docs": "https://api.basemail.ai/api/docs",
+    "openapi": "https://api.basemail.ai/api/openapi.json",
+    "base_url": "https://api.basemail.ai"
+  },
+  "capabilities": [
+    "email.send",
+    "email.receive",
+    "identity.register",
+    "identity.verify",
+    "attention.bond",
+    "social.lens"
+  ],
+  "standards": [
+    "ERC-8004",
+    "SIWE (EIP-4361)"
+  ],
+  "discovery": {
+    "erc8004": "https://api.basemail.ai/.well-known/agent-registration.json",
+    "ai_plugin": "https://basemail.ai/.well-known/ai-plugin.json",
+    "llms_txt": "https://basemail.ai/llms.txt"
+  },
+  "skills": [
+    {
+      "name": "base-wallet",
+      "description": "Create a Base chain wallet for AI agents",
+      "url": "https://clawhub.com/skills/base-wallet"
+    },
+    {
+      "name": "basename-agent",
+      "description": "Register a .base.eth Basename on-chain",
+      "url": "https://clawhub.com/skills/basename-agent"
+    }
+  ],
+  "contact": "cloudlobst3r@basemail.ai"
+}

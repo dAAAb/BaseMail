@@ -1,0 +1,15 @@
+{
+  "name": "@basemail/mcp-server",
+  "version": "1.0.0",
+  "description": "BaseMail MCP Server — Agentic email for AI agents on Base chain",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "basemail-mcp": "./index.js"
+  },
+  "keywords": ["basemail", "mcp", "ai-agent", "email", "base-chain", "erc-8004", "siwe"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

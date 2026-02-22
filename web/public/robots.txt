@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /agent/
+Disallow: /dashboard/
+
+Sitemap: https://basemail.ai/sitemap.xml
+
+# AI Agent discovery
+# LLMs.txt: https://basemail.ai/llms.txt
+# AI Plugin: https://basemail.ai/.well-known/ai-plugin.json
+# Agent Registration (ERC-8004): https://api.basemail.ai/.well-known/agent-registration.json

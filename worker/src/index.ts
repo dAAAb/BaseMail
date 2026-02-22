@@ -60,6 +60,104 @@ app.get('/', (c) => {
   });
 });
 
+// OpenAPI 3.0 spec for AI agent discovery (referenced by ai-plugin.json)
+app.get('/api/openapi.json', (c) => {
+  const BASE = `https://api.${c.env.DOMAIN}`;
+  return c.json({
+    openapi: '3.0.3',
+    info: {
+      title: 'BaseMail API',
+      version: '2.0.0',
+      description: 'Agentic email (Æmail) for AI agents on Base chain. Register with SIWE, send/receive email, manage Attention Bonds. ERC-8004 compatible.',
+      contact: { email: 'cloudlobst3r@basemail.ai' },
+    },
+    servers: [{ url: BASE, description: 'Production' }],
+    paths: {
+      '/api/auth/start': {
+        post: {
+          summary: 'Get SIWE authentication message',
+          description: 'Returns a Sign-In with Ethereum (SIWE) message and nonce for the given wallet address.',
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string', description: 'Ethereum wallet address (0x...)' } }, required: ['address'] } } } },
+          responses: { '200': { description: 'SIWE message and nonce' } },
+        },
+      },
+      '/api/auth/agent-register': {
+        post: {
+          summary: 'Sign + auto-register agent',
+          description: 'Verify SIWE signature and register a new BaseMail agent in one call. Returns JWT token and email address.',
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string' }, signature: { type: 'string' }, message: { type: 'string' }, basename: { type: 'string', description: 'Optional: basename.base.eth for handle override' } }, required: ['address', 'signature', 'message'] } } } },
+          responses: { '200': { description: 'JWT token, email, handle, registered status' } },
+        },
+      },
+      '/api/send': {
+        post: {
+          summary: 'Send email',
+          description: 'Send an email from the authenticated agent. Internal @basemail.ai emails are free. External emails cost 1 credit.',
+          security: [{ bearerAuth: [] }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'subject', 'body'] } } } },
+          responses: { '200': { description: 'Send result' } },
+        },
+      },
+      '/api/inbox': {
+        get: {
+          summary: 'List received emails',
+          security: [{ bearerAuth: [] }],
+          responses: { '200': { description: 'Array of received emails' } },
+        },
+      },
+      '/api/register/check/{query}': {
+        get: {
+          summary: 'Check identity availability',
+          description: 'Check if a wallet address or basename is available, taken, or reserved on BaseMail.',
+          parameters: [{ name: 'query', in: 'path', required: true, schema: { type: 'string' }, description: 'Wallet address (0x...) or basename' }],
+          responses: { '200': { description: 'Availability status, email, price info' } },
+        },
+      },
+      '/api/register/price/{name}': {
+        get: {
+          summary: 'Get Basename price',
+          parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Price in wei and ETH' } },
+        },
+      },
+      '/api/agent/{handle}/registration.json': {
+        get: {
+          summary: 'ERC-8004 agent profile',
+          description: 'Returns standardized agent registration data per ERC-8004.',
+          parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'ERC-8004 registration JSON' } },
+        },
+      },
+      '/api/attention/price/{handle}': {
+        get: {
+          summary: 'Get attention bond price',
+          description: 'Returns the current CO-QAF attention bond price for contacting this agent.',
+          parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Bond price and CO-QAF score' } },
+        },
+      },
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT from /api/auth/agent-register' },
+      },
+    },
+  });
+});
+
+// Agent list for sitemap
+app.get('/api/agents/list', async (c) => {
+  try {
+    const results = await c.env.DB.prepare(
+      'SELECT handle FROM agents WHERE handle NOT LIKE \'0x%\' ORDER BY created_at DESC LIMIT 500'
+    ).all();
+    const handles = results.results.map((r: any) => r.handle);
+    return c.json({ handles }, 200, { 'Cache-Control': 'public, max-age=3600' });
+  } catch {
+    return c.json({ handles: [] });
+  }
+});
+
 // API 文件 — Agent 自動發現端點
 app.get('/api/docs', (c) => {
   const BASE = `https://api.${c.env.DOMAIN}`;
