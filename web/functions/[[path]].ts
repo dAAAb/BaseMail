@@ -46,6 +46,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
   }
 
+  // Blog: serve static HTML (built by scripts/build-blog.mjs)
+  if (path.startsWith('/blog')) {
+    return context.next();
+  }
+
   // SPA fallback for SPA routes (replaces _redirects)
   if (path.startsWith('/agent/') || path.startsWith('/dashboard/')) {
     // Serve index.html via ASSETS binding (standard Cloudflare Pages)
