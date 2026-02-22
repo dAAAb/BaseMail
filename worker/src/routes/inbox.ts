@@ -21,14 +21,44 @@ inboxRoutes.get('/', async (c) => {
   const folder = c.req.query('folder') || 'inbox';
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
+  const bonded = c.req.query('bonded') === 'true';
+  const sort = c.req.query('sort') || 'created_at'; // created_at | bond_amount | deadline
+  const order = c.req.query('order') === 'asc' ? 'ASC' : 'DESC';
 
-  const emails = await c.env.DB.prepare(
-    `SELECT id, folder, from_addr, to_addr, subject, snippet, size, read, created_at
-     FROM emails
-     WHERE handle = ? AND folder = ?
-     ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`
-  ).bind(auth.handle, folder, limit, offset).all();
+  // Lazy-forfeit expired bonds for this user
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await c.env.DB.prepare(
+      `UPDATE attention_bonds SET status = 'forfeited', resolved_time = ?
+       WHERE recipient_handle = ? AND status = 'active' AND response_deadline < ?`
+    ).bind(now, auth.handle, now).run();
+  } catch (_) { /* ignore if table doesn't exist */ }
+
+  let emails;
+  if (bonded) {
+    const sortCol = sort === 'bond_amount' ? 'ab.amount_usdc' : sort === 'deadline' ? 'ab.response_deadline' : 'e.created_at';
+    const defaultOrder = sort === 'deadline' ? 'ASC' : 'DESC';
+    const finalOrder = c.req.query('order') ? order : defaultOrder;
+    emails = await c.env.DB.prepare(
+      `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
+              ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline
+       FROM emails e
+       INNER JOIN attention_bonds ab ON ab.email_id = e.id
+       WHERE e.handle = ? AND e.folder = 'inbox' AND ab.status = 'active'
+       ORDER BY ${sortCol} ${finalOrder}
+       LIMIT ? OFFSET ?`
+    ).bind(auth.handle, limit, offset).all();
+  } else {
+    emails = await c.env.DB.prepare(
+      `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
+              ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline
+       FROM emails e
+       LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
+       WHERE e.handle = ? AND e.folder = ?
+       ORDER BY e.created_at DESC
+       LIMIT ? OFFSET ?`
+    ).bind(auth.handle, folder, limit, offset).all();
+  }
 
   const countResult = await c.env.DB.prepare(
     'SELECT COUNT(*) as total FROM emails WHERE handle = ? AND folder = ?'
@@ -38,10 +68,22 @@ inboxRoutes.get('/', async (c) => {
     'SELECT COUNT(*) as unread FROM emails WHERE handle = ? AND folder = ? AND read = 0'
   ).bind(auth.handle, folder).first<{ unread: number }>();
 
+  // Count bonded emails
+  let bondedCount = 0;
+  try {
+    const bondedResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM emails e
+       INNER JOIN attention_bonds ab ON ab.email_id = e.id
+       WHERE e.handle = ? AND e.folder = 'inbox' AND ab.status = 'active'`
+    ).bind(auth.handle).first<{ count: number }>();
+    bondedCount = bondedResult?.count || 0;
+  } catch (_) {}
+
   return c.json({
     emails: emails.results,
     total: countResult?.total || 0,
     unread: unreadResult?.unread || 0,
+    bonded_count: bondedCount,
     limit,
     offset,
   });

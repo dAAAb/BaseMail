@@ -1153,19 +1153,28 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [unread, setUnread] = useState(0);
+  const [bondedCount, setBondedCount] = useState(0);
+  const [filterBonded, setFilterBonded] = useState(false);
+  const [bondSort, setBondSort] = useState<'deadline' | 'bond_amount'>('deadline');
 
-  useEffect(() => {
+  const fetchInbox = useCallback(() => {
     setLoading(true);
-    apiFetch(`/api/inbox?folder=${folder}&limit=50`, auth.token)
+    const params = filterBonded
+      ? `folder=inbox&bonded=true&sort=${bondSort}&limit=50`
+      : `folder=${folder}&limit=50`;
+    apiFetch(`/api/inbox?${params}`, auth.token)
       .then((r) => r.json())
       .then((data) => {
         setEmails(data.emails || []);
         setTotal(data.total || 0);
         setUnread(data.unread || 0);
+        setBondedCount(data.bonded_count || 0);
       })
       .catch(() => setEmails([]))
       .finally(() => setLoading(false));
-  }, [folder, auth.token]);
+  }, [folder, auth.token, filterBonded, bondSort]);
+
+  useEffect(() => { fetchInbox(); }, [fetchInbox]);
 
   return (
     <div>
@@ -1199,6 +1208,23 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
         </div>
       </div>
 
+      {/* Bonded filter bar */}
+      {folder === 'inbox' && (
+        <div className="flex items-center gap-2 mb-4">
+          <button onClick={() => setFilterBonded(false)} className={`text-xs px-3 py-1.5 rounded-full transition ${!filterBonded ? 'bg-base-blue text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>All</button>
+          <button onClick={() => setFilterBonded(true)} className={`text-xs px-3 py-1.5 rounded-full transition ${filterBonded ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+            🔥 Bonded{bondedCount > 0 ? ` (${bondedCount})` : ''}
+          </button>
+          {filterBonded && (
+            <div className="flex items-center gap-1 ml-2">
+              <span className="text-gray-600 text-xs">Sort:</span>
+              <button onClick={() => setBondSort('deadline')} className={`text-xs px-2 py-1 rounded transition ${bondSort === 'deadline' ? 'text-white bg-gray-700' : 'text-gray-500 hover:text-gray-300'}`}>⏰ Deadline</button>
+              <button onClick={() => setBondSort('bond_amount')} className={`text-xs px-2 py-1 rounded transition ${bondSort === 'bond_amount' ? 'text-white bg-gray-700' : 'text-gray-500 hover:text-gray-300'}`}>💰 Amount</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-gray-500 text-center py-20">Loading...</div>
       ) : emails.length === 0 ? (
@@ -1228,6 +1254,19 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                     </span>
                   </div>
                   <div className={`text-sm flex items-center gap-2 ${!email.read ? 'text-white' : 'text-gray-400'}`}>
+                    {(email as any).bond_amount && (email as any).bond_status === 'active' && (() => {
+                      const remaining = ((email as any).bond_deadline - Math.floor(Date.now() / 1000)) / 3600;
+                      return (
+                        <>
+                          <span className="text-amber-400 text-xs font-bold bg-amber-900/30 px-1.5 py-0.5 rounded" title="Attention Bond">
+                            💰 ${Number((email as any).bond_amount).toFixed(2)}
+                          </span>
+                          <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${remaining < 6 ? 'text-red-400 bg-red-900/30' : 'text-gray-400 bg-gray-800'}`} title="Time to reply">
+                            ⏰ {remaining > 0 ? (remaining < 1 ? `${Math.round(remaining * 60)}m` : `${Math.round(remaining)}h`) : 'expired'}
+                          </span>
+                        </>
+                      );
+                    })()}
                     {email.usdc_amount && (
                       <span className="text-green-400 text-xs font-bold bg-green-900/30 px-1.5 py-0.5 rounded" title="Verified USDC Payment">
                         ${email.usdc_amount}
