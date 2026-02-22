@@ -647,6 +647,26 @@ authed.post('/reply/:email_id', async (c) => {
   });
 });
 
+// ── My Sent Bonds (sender's perspective) ──
+authed.get('/my-bonds', async (c) => {
+  const auth = c.get('auth');
+  if (!auth.handle) return c.json({ error: 'Not registered' }, 403);
+
+  const now = Math.floor(Date.now() / 1000);
+  const { results } = await c.env.DB.prepare(
+    `SELECT email_id, recipient_handle, amount_usdc, tx_hash, status, deposit_time, response_deadline, resolved_time, refund_tx_hash
+     FROM attention_bonds WHERE sender_handle = ?
+     ORDER BY deposit_time DESC LIMIT 100`
+  ).bind(auth.handle).all();
+
+  const bonds = (results || []).map((b: any) => ({
+    ...b,
+    time_remaining_sec: b.status === 'active' ? Math.max(0, b.response_deadline - now) : 0,
+  }));
+
+  return c.json({ bonds, total: bonds.length });
+});
+
 // Mount authenticated routes
 attentionRoutes.route('/', authed);
 

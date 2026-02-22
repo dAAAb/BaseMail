@@ -2440,7 +2440,8 @@ function Attention({ auth }: { auth: AuthState }) {
   const depositHandle = depositParams.get('deposit');
   const depositAmount = depositParams.get('amount');
 
-  const [tab, setTab] = useState<'config' | 'stats' | 'whitelist' | 'deposit'>(depositHandle ? 'deposit' : 'stats');
+  const [tab, setTab] = useState<'config' | 'stats' | 'whitelist' | 'deposit' | 'my-bonds'>(depositHandle ? 'deposit' : 'stats');
+  const [myBonds, setMyBonds] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [whitelist, setWhitelist] = useState<any[]>([]);
@@ -2477,18 +2478,21 @@ function Attention({ auth }: { auth: AuthState }) {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [cfgRes, statsRes, wlRes] = await Promise.all([
+      const [cfgRes, statsRes, wlRes, bondsRes] = await Promise.all([
         apiFetch('/api/attention/config', auth.token),
         apiFetch('/api/attention/stats', auth.token),
         apiFetch('/api/attention/whitelist', auth.token),
+        apiFetch('/api/attention/my-bonds', auth.token),
       ]);
       const cfgData = await cfgRes.json();
       const statsData = await statsRes.json();
       const wlData = await wlRes.json();
+      const bondsData = await bondsRes.json();
 
       setConfig(cfgData.config);
       setStats(statsData);
       setWhitelist(wlData.whitelist || []);
+      setMyBonds(bondsData.bonds || []);
 
       if (cfgData.config && cfgData.config.enabled !== undefined) {
         setEnabled(!!cfgData.config.enabled);
@@ -2610,7 +2614,7 @@ function Attention({ auth }: { auth: AuthState }) {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1 flex-wrap">
-        {(['stats', 'deposit', 'config', 'whitelist'] as const).map((t) => (
+        {(['stats', 'deposit', 'my-bonds', 'config', 'whitelist'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -2618,7 +2622,7 @@ function Attention({ auth }: { auth: AuthState }) {
               tab === t ? 'bg-base-blue text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            {t === 'stats' ? '📊 Dashboard' : t === 'deposit' ? '💰 Deposit' : t === 'config' ? '⚙️ Settings' : '✅ Whitelist'}
+            {t === 'stats' ? '📊 Dashboard' : t === 'deposit' ? '💰 Deposit' : t === 'my-bonds' ? '📤 My Bonds' : t === 'config' ? '⚙️ Settings' : '✅ Whitelist'}
           </button>
         ))}
       </div>
@@ -2810,6 +2814,47 @@ function Attention({ auth }: { auth: AuthState }) {
             </button>
             {msg && <span className="text-sm">{msg}</span>}
           </div>
+        </div>
+      )}
+
+      {/* My Sent Bonds Tab */}
+      {tab === 'my-bonds' && (
+        <div className="space-y-4">
+          <h3 className="font-bold text-lg">Your Sent Bonds</h3>
+          {myBonds.length === 0 ? (
+            <p className="text-gray-500 text-sm py-8 text-center">No bonds sent yet. Deposit a bond when emailing someone who has Attention Bonds enabled.</p>
+          ) : (
+            <div className="space-y-2">
+              {myBonds.map((b: any) => {
+                const remaining = b.time_remaining_sec;
+                const hours = Math.round(remaining / 3600);
+                const statusColors: Record<string, string> = {
+                  active: 'bg-amber-500/20 text-amber-400',
+                  refunded: 'bg-green-500/20 text-green-400',
+                  forfeited: 'bg-red-500/20 text-red-400',
+                  exempt: 'bg-gray-700 text-gray-400',
+                };
+                const statusEmoji: Record<string, string> = { active: '🟡', refunded: '🟢', forfeited: '🔴', exempt: '⚪' };
+                return (
+                  <div key={b.email_id} className="bg-base-gray rounded-lg p-4 border border-gray-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-mono text-sm text-white">{b.recipient_handle}@basemail.ai</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusColors[b.status] || 'bg-gray-700 text-gray-400'}`}>
+                        {statusEmoji[b.status] || ''} {b.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-gray-400">
+                      <span>💰 ${Number(b.amount_usdc).toFixed(2)} USDC</span>
+                      <span>📅 {new Date(b.deposit_time * 1000).toLocaleDateString()}</span>
+                      {b.status === 'active' && remaining > 0 && (
+                        <span className={hours < 6 ? 'text-red-400' : ''}>⏰ {hours}h left</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
