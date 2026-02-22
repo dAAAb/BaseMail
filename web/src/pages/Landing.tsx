@@ -491,28 +491,28 @@ export default function Landing() {
             <thead>
               <tr className="border-b border-gray-800 text-left">
                 <th className="px-6 py-4 text-gray-500 font-medium">Feature</th>
-                <th className="px-6 py-4 text-gray-400 font-medium">SendGrid / Mailgun</th>
-                <th className="px-6 py-4 text-gray-400 font-medium">AgentMail</th>
                 <th className="px-6 py-4 text-base-blue font-bold">BaseMail</th>
+                <th className="px-6 py-4 text-gray-400 font-medium">AgentMail</th>
+                <th className="px-6 py-4 text-gray-400 font-medium">SendGrid / Mailgun</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {[
-                ['Identity', 'API key', 'API key', '🔐 Wallet (SIWE)'],
-                ['Anti-spam', 'Filters', 'Rate limits', '💰 Attention Bonds'],
-                ['Standard', 'None', 'None', '📄 ERC-8004'],
-                ['Social graph', '—', '—', '🌿 Lens Protocol'],
-                ['Internal email', 'Paid', 'Quota', '✨ Free & unlimited'],
-                ['Onchain reputation', '—', '—', '📊 Queryable'],
-                ['Basename (.base.eth)', '—', '—', '✅ Auto-detect'],
-                ['Gas sponsorship', '—', '—', '✅ We pay gas'],
-                ['Academic foundation', '—', '—', '📐 CO-QAF paper'],
-              ].map(([feature, sg, am, bm]) => (
+                ['Identity', '🔐 Wallet (SIWE)', 'API key', 'API key'],
+                ['Anti-spam', '💰 Attention Bonds', 'Rate limits', 'Filters'],
+                ['Standard', '📄 ERC-8004', 'None', 'None'],
+                ['Social graph', '🌿 Lens Protocol', '—', '—'],
+                ['Internal email', '✨ Free & unlimited', 'Quota', 'Paid'],
+                ['Onchain reputation', '📊 Queryable', '—', '—'],
+                ['Basename (.base.eth)', '✅ Auto-detect', '—', '—'],
+                ['Gas sponsorship', '✅ We pay gas', '—', '—'],
+                ['Academic foundation', '📐 CO-QAF paper', '—', '—'],
+              ].map(([feature, bm, am, sg]) => (
                 <tr key={feature} className="hover:bg-gray-800/30 transition">
                   <td className="px-6 py-3 text-gray-300 font-medium">{feature}</td>
-                  <td className="px-6 py-3 text-gray-500">{sg}</td>
-                  <td className="px-6 py-3 text-gray-500">{am}</td>
                   <td className="px-6 py-3 text-white font-medium">{bm}</td>
+                  <td className="px-6 py-3 text-gray-500">{am}</td>
+                  <td className="px-6 py-3 text-gray-500">{sg}</td>
                 </tr>
               ))}
             </tbody>
