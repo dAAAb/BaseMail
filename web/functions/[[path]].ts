@@ -13,7 +13,9 @@ const STATIC_EXT = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|we
 
 const API_BASE = 'https://api.basemail.ai';
 
-interface Env {}
+interface Env {
+  ASSETS: { fetch: (req: Request) => Promise<Response> };
+}
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request } = context;
@@ -51,19 +53,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return context.next();
   }
 
-  // SPA fallback for SPA routes (replaces _redirects)
-  if (path.startsWith('/agent/') || path.startsWith('/dashboard/')) {
-    // Serve index.html for SPA routes
+  // SPA fallback for SPA routes
+  if (path.startsWith('/agent/') || path.startsWith('/dashboard')) {
     try {
-      const assets = (context.env as any).ASSETS;
-      if (assets) {
-        const indexReq = new Request(new URL('/index.html', url.origin), request);
-        return assets.fetch(indexReq);
-      }
-    } catch (_) { /* fallback below */ }
-    // Fallback: rewrite to /index.html via next()
-    const rewritten = new Request(new URL('/index.html', url.origin), request);
-    return context.next(rewritten);
+      const res = await context.env.ASSETS.fetch(
+        new Request(new URL('/index.html', url.origin))
+      );
+      return new Response(res.body, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    } catch (e) {
+      // Last resort: redirect to / and let SPA handle it
+      return Response.redirect(url.origin + '/#' + path, 302);
+    }
   }
 
   // Everything else (including /): passthrough to static files
