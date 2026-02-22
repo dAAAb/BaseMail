@@ -273,6 +273,16 @@ export default function Dashboard() {
   // USDC Send modal state
   const [showUsdcSend, setShowUsdcSend] = useState(false);
 
+  // Sidebar badges
+  const [sidebarUnread, setSidebarUnread] = useState(0);
+  const [attentionConfigured, setAttentionConfigured] = useState(true); // assume true until checked
+
+  useEffect(() => {
+    if (!auth?.token) return;
+    apiFetch('/api/inbox?folder=inbox&limit=1', auth.token).then(r => r.json()).then(d => setSidebarUnread(d.unread || 0)).catch(() => {});
+    apiFetch('/api/attention/config', auth.token).then(r => r.json()).then(d => setAttentionConfigured(!!d.enabled)).catch(() => setAttentionConfigured(true));
+  }, [auth?.token]);
+
   // Auto-detect Basename upgrade for 0x handle users
   useEffect(() => {
     if (!auth?.registered || !auth.handle || !/^0x/i.test(auth.handle)) return;
@@ -470,11 +480,11 @@ export default function Dashboard() {
         )}
 
         <nav className="flex-1 space-y-1">
-          <NavLink to="/dashboard" icon="inbox" label="Inbox" active={location.pathname === '/dashboard'} />
+          <NavLink to="/dashboard" icon="inbox" label="Inbox" active={location.pathname === '/dashboard'} badge={sidebarUnread > 0 ? sidebarUnread : undefined} />
           <NavLink to="/dashboard/sent" icon="send" label="Sent" active={location.pathname === '/dashboard/sent'} />
           <NavLink to="/dashboard/compose" icon="edit" label="Compose" active={location.pathname === '/dashboard/compose'} />
           <NavLink to="/dashboard/credits" icon="credits" label="Credits" active={location.pathname === '/dashboard/credits'} />
-          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} />
+          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} badge={!attentionConfigured ? '!' : undefined} />
           <NavLink to="/dashboard/settings" icon="settings" label="Settings" active={location.pathname === '/dashboard/settings'} />
         </nav>
 
@@ -844,7 +854,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   );
 }
 
-function NavLink({ to, icon, label, active }: { to: string; icon: string; label: string; active: boolean }) {
+function NavLink({ to, icon, label, active, badge }: { to: string; icon: string; label: string; active: boolean; badge?: number | string }) {
   const icons: Record<string, string> = {
     inbox: '\u{1F4E5}',
     send: '\u{1F4E4}',
@@ -861,7 +871,12 @@ function NavLink({ to, icon, label, active }: { to: string; icon: string; label:
       }`}
     >
       <span>{icons[icon]}</span>
-      {label}
+      <span className="flex-1">{label}</span>
+      {badge !== undefined && badge !== 0 && (
+        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
+          typeof badge === 'string' ? 'bg-red-500/20 text-red-400' : 'bg-base-blue/20 text-base-blue'
+        }`}>{badge}</span>
+      )}
     </Link>
   );
 }
@@ -2450,6 +2465,14 @@ function Attention({ auth }: { auth: AuthState }) {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
+  // Intro popup for first-time visitors
+  const [showIntro, setShowIntro] = useState(false);
+  useEffect(() => {
+    if (!loading && config && !config.enabled && !localStorage.getItem('attention_intro_seen')) {
+      setShowIntro(true);
+    }
+  }, [loading, config]);
+
   async function saveConfig() {
     setSaving(true);
     setMsg('');
@@ -2514,11 +2537,37 @@ function Attention({ auth }: { auth: AuthState }) {
 
   return (
     <div className="max-w-3xl mx-auto">
+      {/* Intro popup for new users */}
+      {showIntro && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { setShowIntro(false); localStorage.setItem('attention_intro_seen', '1'); }}>
+          <div className="bg-[#1a1a1a] rounded-2xl border border-gray-700 p-8 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <div className="text-3xl mb-4">🛡️</div>
+            <h3 className="text-xl font-bold text-white mb-3">Protect your inbox with Attention Bonds</h3>
+            <p className="text-gray-300 text-sm leading-relaxed mb-4">
+              Attention Bonds require senders to stake USDC before emailing you. If you reply, they get a <strong className="text-white">full refund</strong>. If you don't, the bond is forfeited. This creates an economic signal that filters noise and rewards genuine communication.
+            </p>
+            <p className="text-gray-400 text-xs mb-6">
+              Powered by CO-QAF (Quadratic Attention Funding) — the same mechanism endorsed by Glen Weyl, co-inventor of Quadratic Funding.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => { setShowIntro(false); localStorage.setItem('attention_intro_seen', '1'); setTab('config'); }} className="flex-1 bg-base-blue text-white py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm">Enable & Set Price</button>
+              <a href="/blog/attention-bonds-quadratic-funding-spam/" target="_blank" className="flex-1 text-center border border-gray-600 text-gray-300 py-2.5 rounded-lg hover:bg-gray-800 transition text-sm">Learn More</a>
+              <button onClick={() => { setShowIntro(false); localStorage.setItem('attention_intro_seen', '1'); }} className="px-4 text-gray-500 hover:text-gray-300 transition text-sm">Skip</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h2 className="text-2xl font-bold mb-1">💰 Attention Bonds</h2>
-      <p className="text-gray-400 text-sm mb-6">
-        Require senders to deposit USDC to reach your inbox. Bonds are refunded when you reply.
-        Based on <a href="https://blog.juchunko.com/en/attention-bonds-coqaf/" target="_blank" className="text-base-blue hover:underline">CO-QAF</a> (Ko, Tang, Weyl 2026).
-      </p>
+      <div className="flex items-center gap-3 mb-6">
+        <p className="text-gray-400 text-sm flex-1">
+          Require senders to deposit USDC to reach your inbox. Bonds are refunded when you reply.
+          Based on <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" className="text-base-blue hover:underline">CO-QAF</a> (Ko, 2026).
+        </p>
+        <span className={`text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'}`}>
+          {enabled ? '✅ Enabled' : '❌ Not configured'}
+        </span>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1 flex-wrap">
