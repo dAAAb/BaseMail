@@ -149,7 +149,7 @@ app.get('/api/openapi.json', (c) => {
 app.get('/api/agents/list', async (c) => {
   try {
     const results = await c.env.DB.prepare(
-      'SELECT handle FROM agents WHERE handle NOT LIKE \'0x%\' ORDER BY created_at DESC LIMIT 500'
+      'SELECT handle FROM accounts WHERE handle NOT LIKE \'0x%\' ORDER BY created_at DESC LIMIT 500'
     ).all();
     const handles = results.results.map((r: any) => r.handle);
     return c.json({ handles }, 200, { 'Cache-Control': 'public, max-age=3600' });
