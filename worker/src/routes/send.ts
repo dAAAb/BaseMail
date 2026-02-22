@@ -388,6 +388,30 @@ sendRoutes.post('/', async (c) => {
     verifiedUsdc?.tx_hash || null,
   ).run();
 
+  // Auto-resolve attention bond if replying to a bonded email
+  let bondResolved = false;
+  if (in_reply_to) {
+    try {
+      const bond = await c.env.DB.prepare(
+        `SELECT email_id, sender_handle FROM attention_bonds
+         WHERE email_id = ? AND recipient_handle = ? AND status = 'active'`
+      ).bind(in_reply_to, auth.handle).first<{ email_id: string; sender_handle: string }>();
+      if (bond) {
+        await c.env.DB.prepare(
+          `UPDATE attention_bonds SET status = 'refunded', resolved_time = ? WHERE email_id = ?`
+        ).bind(now, bond.email_id).run();
+        // Update sender reputation
+        await c.env.DB.prepare(
+          `UPDATE sender_reputation SET emails_replied = emails_replied + 1,
+           reply_rate = CAST(emails_replied + 1 AS REAL) / CAST(emails_sent AS REAL),
+           updated_at = ?
+           WHERE sender_handle = ? AND recipient_handle = ?`
+        ).bind(now, bond.sender_handle, auth.handle).run();
+        bondResolved = true;
+      }
+    } catch (_) { /* don't block email sending */ }
+  }
+
   return c.json({
     success: true,
     email_id: emailId,
@@ -395,6 +419,7 @@ sendRoutes.post('/', async (c) => {
     to,
     subject,
     internal: isInternal,
+    bond_resolved: bondResolved || undefined,
     attachments: attachments?.length || 0,
     ...(verifiedUsdc ? {
       usdc_payment: {
