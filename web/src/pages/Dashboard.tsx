@@ -1163,7 +1163,25 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
             </span>
           )}
         </h2>
-        <span className="text-gray-500 text-sm">{total} emails</span>
+        <div className="flex items-center gap-4">
+          {folder === 'inbox' && unread > 0 && (
+            <button
+              onClick={async () => {
+                await apiFetch('/api/inbox/mark-read', auth.token, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ folder: 'inbox' }),
+                });
+                setEmails((prev) => prev.map((e) => ({ ...e, read: 1 })));
+                setUnread(0);
+              }}
+              className="text-sm text-base-blue hover:text-blue-300 transition"
+            >
+              Mark all as read
+            </button>
+          )}
+          <span className="text-gray-500 text-sm">{total} emails{unread > 0 ? ` · ${unread} unread` : ''}</span>
+        </div>
       </div>
 
       {loading ? (
