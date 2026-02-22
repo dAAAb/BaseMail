@@ -2515,7 +2515,7 @@ function Attention({ auth }: { auth: AuthState }) {
               <Stat label="Received" value={stats.email_activity?.received ?? 0} color="text-blue-400" />
               <Stat label="Sent" value={stats.email_activity?.sent ?? 0} color="text-green-400" />
               <Stat label="Unique Senders" value={stats.email_activity?.unique_senders ?? 0} />
-              <Stat label="Reply Rate" value={`${Math.round((stats.email_activity?.reply_rate ?? 0) * 100)}%`} color="text-purple-400" />
+              <Stat label="Reply Rate" value={`${Math.round((stats.email_activity?.reply_rate ?? 0) * 100)}%` as any} color="text-purple-400" />
             </div>
           </div>
 
@@ -2824,8 +2824,8 @@ function Attention({ auth }: { auth: AuthState }) {
                       {depStep === 'approving' ? '⏳' : '✅'} Step 1: Approve USDC
                       {depStep === 'approving' && <span className="text-gray-500 text-xs">— confirm in wallet...</span>}
                     </div>
-                    <div className={`flex items-center gap-2 text-sm ${depStep === 'depositing' ? 'text-yellow-300' : depStep === 'recording' || depStep === 'done' ? 'text-green-400' : 'text-gray-600'}`}>
-                      {depStep === 'depositing' ? '⏳' : depStep === 'recording' || depStep === 'done' ? '✅' : '○'} Step 2: Deposit to Escrow
+                    <div className={`flex items-center gap-2 text-sm ${depStep === 'depositing' ? 'text-yellow-300' : (depStep as string) === 'recording' || (depStep as string) === 'done' ? 'text-green-400' : 'text-gray-600'}`}>
+                      {depStep === 'depositing' ? '⏳' : (depStep as string) === 'recording' || (depStep as string) === 'done' ? '✅' : '○'} Step 2: Deposit to Escrow
                       {depStep === 'depositing' && <span className="text-gray-500 text-xs">— confirm in wallet...</span>}
                     </div>
                     <div className={`flex items-center gap-2 text-sm ${depStep === 'recording' ? 'text-yellow-300' : 'text-gray-600'}`}>

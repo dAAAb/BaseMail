@@ -41,12 +41,126 @@ function SkillCard({ name, desc, url, icon }: { name: string; desc: string; url:
   );
 }
 
-/* ─── JSON-LD structured data for AI agents ─── */
+/* ─── Code Tab ─── */
+function CodeTabs() {
+  const [tab, setTab] = useState<'python' | 'typescript' | 'curl'>('python');
+
+  const code = {
+    python: `from eth_account import Account
+from eth_account.messages import encode_defunct
+import requests
+
+wallet = Account.create()
+API = "https://api.basemail.ai"
+
+# Step 1 — Get SIWE message
+r = requests.post(f"{API}/api/auth/start",
+    json={"address": wallet.address})
+msg = r.json()["message"]
+
+# Step 2 — Sign + register
+sig = wallet.sign_message(encode_defunct(text=msg))
+r = requests.post(f"{API}/api/auth/agent-register",
+    json={"address": wallet.address,
+          "signature": sig.signature.hex(),
+          "message": msg})
+token = r.json()["token"]
+email = r.json()["email"]  # → alice@basemail.ai
+
+# Step 3 — Send email
+requests.post(f"{API}/api/send",
+    headers={"Authorization": f"Bearer {token}"},
+    json={"to": "team@example.com",
+          "subject": "Hello from AI",
+          "body": "Sent from my AI agent ✨"})`,
+
+    typescript: `import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x...");
+const API = "https://api.basemail.ai";
+
+// Step 1 — Get SIWE message
+const { message } = await fetch(\`\${API}/api/auth/start\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ address: wallet.address }),
+}).then(r => r.json());
+
+// Step 2 — Sign + register
+const signature = await wallet.signMessage({ message });
+const { token, email } = await fetch(
+  \`\${API}/api/auth/agent-register\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ address: wallet.address,
+    signature, message }),
+}).then(r => r.json());
+// email → "alice@basemail.ai"
+
+// Step 3 — Send email
+await fetch(\`\${API}/api/send\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json",
+    Authorization: \`Bearer \${token}\` },
+  body: JSON.stringify({ to: "team@example.com",
+    subject: "Hello from AI",
+    body: "Sent from my AI agent ✨" }),
+});`,
+
+    curl: `# Step 1 — Get SIWE message
+curl -X POST https://api.basemail.ai/api/auth/start \\
+  -H "Content-Type: application/json" \\
+  -d '{"address":"0xYOUR_WALLET"}'
+
+# Step 2 — Sign message with wallet, then register
+curl -X POST https://api.basemail.ai/api/auth/agent-register \\
+  -H "Content-Type: application/json" \\
+  -d '{"address":"0x...","signature":"0x...","message":"..."}'
+# → {"token":"eyJ...","email":"alice@basemail.ai"}
+
+# Step 3 — Send email
+curl -X POST https://api.basemail.ai/api/send \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -d '{"to":"team@example.com","subject":"Hello","body":"From AI"}'`,
+  };
+
+  return (
+    <div className="bg-base-gray rounded-xl overflow-hidden border border-gray-800">
+      <div className="flex items-center gap-1 px-4 py-3 bg-gray-900/50 border-b border-gray-800">
+        <div className="flex gap-1.5 mr-4">
+          <div className="w-3 h-3 rounded-full bg-red-500"></div>
+          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+        </div>
+        {(['python', 'typescript', 'curl'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-3 py-1.5 rounded-md text-xs font-mono transition ${
+              tab === t
+                ? 'bg-base-blue/20 text-base-blue border border-base-blue/30'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {t === 'python' ? 'Python' : t === 'typescript' ? 'TypeScript' : 'cURL'}
+          </button>
+        ))}
+      </div>
+      <pre className="p-6 text-sm leading-6 overflow-x-auto">
+        <code className="text-gray-300 font-mono whitespace-pre">{code[tab]}</code>
+      </pre>
+    </div>
+  );
+}
+
+/* ─── JSON-LD structured data ─── */
 const JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
   "name": "BaseMail",
-  "description": "Agentic email (Æmail) for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. Attention Bonds powered by Quadratic Funding.",
+  "alternateName": "Æmail",
+  "description": "Agentic email (Æmail) for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).",
   "url": "https://basemail.ai",
   "applicationCategory": "CommunicationApplication",
   "operatingSystem": "Any",
@@ -110,11 +224,9 @@ export default function Landing() {
   async function handleCheck() {
     const parsed = parseInput(input);
     if (parsed.type === 'invalid') return;
-
     setChecking(true);
     try {
-      const query = parsed.type === 'address' ? parsed.value : parsed.value;
-      const res = await fetch(`${API_BASE}/api/register/check/${query}`);
+      const res = await fetch(`${API_BASE}/api/register/check/${parsed.value}`);
       const data = await res.json();
       setResult(data);
     } catch {
@@ -126,7 +238,6 @@ export default function Landing() {
 
   const isValid = parseInput(input).type !== 'invalid';
 
-  // Inject JSON-LD structured data for AI agents
   useEffect(() => {
     const script = document.createElement('script');
     script.type = 'application/ld+json';
@@ -135,57 +246,53 @@ export default function Landing() {
     return () => { document.head.removeChild(script); };
   }, []);
 
-  // Fetch public stats for landing page
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/api/stats`);
         const data = await res.json();
-        if (data && typeof data.agents === 'number') {
-          setStats(data);
-        }
-      } catch {
-        // ignore
-      }
+        if (data && typeof data.agents === 'number') setStats(data);
+      } catch {}
     })();
   }, []);
 
   return (
     <div className="min-h-screen bg-base-dark">
-      {/* Nav */}
+
+      {/* ═══ Nav ═══ */}
       <nav className="flex items-center justify-between px-8 py-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm">
-            BM
-          </div>
+          <div className="w-8 h-8 bg-base-blue rounded-lg flex items-center justify-center text-white font-bold text-sm">BM</div>
           <span className="text-xl font-bold">BaseMail</span>
         </div>
-        <div className="flex gap-4 items-center">
-          <a href="#paths" className="text-gray-400 hover:text-white transition text-sm">🦞</a>
-          <a href="#api" className="text-gray-400 hover:text-white transition text-sm">API</a>
-          <a href="#faq" className="text-gray-400 hover:text-white transition text-sm">FAQ</a>
-          <a href="/dashboard" className="bg-base-blue text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition text-sm">
+        <div className="flex gap-4 items-center text-sm">
+          <a href="#use-cases" className="text-gray-400 hover:text-white transition hidden sm:block">Features</a>
+          <a href="#api" className="text-gray-400 hover:text-white transition">API</a>
+          <a href="/blog" className="text-gray-400 hover:text-white transition">Blog</a>
+          <a href="#faq" className="text-gray-400 hover:text-white transition hidden sm:block">FAQ</a>
+          <a href="/dashboard" className="bg-base-blue text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
             Dashboard
           </a>
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* ═══ Hero ═══ */}
       <section className="max-w-4xl mx-auto px-8 pt-20 pb-16 text-center">
         <div className="flex items-center justify-center gap-3 mb-6 flex-wrap">
           <div className="inline-block bg-base-gray text-base-blue text-sm font-mono px-3 py-1 rounded-full">
             Built on Base Chain
           </div>
-          <a
-            href="https://eips.ethereum.org/EIPS/eip-8004"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-900/40 to-emerald-800/20 border border-emerald-500/30 text-emerald-400 text-sm font-mono px-3 py-1 rounded-full hover:border-emerald-400/60 hover:text-emerald-300 transition group"
-          >
-            <span className="text-xs">📄</span>
-            ERC-8004 Compatible
-            <svg className="w-3 h-3 opacity-50 group-hover:opacity-100 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+          <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-900/40 to-emerald-800/20 border border-emerald-500/30 text-emerald-400 text-sm font-mono px-3 py-1 rounded-full hover:border-emerald-400/60 transition">
+            📄 ERC-8004
           </a>
+          <a href="https://lens.xyz" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 bg-gradient-to-r from-lime-900/40 to-lime-800/20 border border-lime-500/30 text-lime-400 text-sm font-mono px-3 py-1 rounded-full hover:border-lime-400/60 transition">
+            🌿 Lens Protocol
+          </a>
+          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-900/40 to-amber-800/20 border border-amber-500/30 text-amber-400 text-sm font-mono px-3 py-1 rounded-full">
+            📐 CO-QAF
+          </div>
         </div>
         <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
           Æmail for<br />
@@ -202,10 +309,7 @@ export default function Landing() {
             type="text"
             placeholder="Basename or 0x wallet address"
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              setResult(null);
-            }}
+            onChange={(e) => { setInput(e.target.value); setResult(null); }}
             onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
             className="flex-1 bg-transparent px-4 py-3 text-white font-mono text-sm focus:outline-none"
           />
@@ -224,58 +328,32 @@ export default function Landing() {
         {result && (
           <div className="mt-6 bg-base-gray rounded-xl p-5 max-w-xl mx-auto text-left border border-gray-800">
             {result.status === 'taken' ? (
-              /* ── 🔴 Taken ── */
               <>
                 <div className="text-gray-500 text-xs mb-1">Unavailable</div>
-                <div className="font-mono text-xl text-red-400 font-bold mb-3 break-all">
-                  {result.email}
-                </div>
-                <p className="text-gray-400 text-sm">
-                  This handle is already registered on BaseMail.
-                </p>
-                {result.owner && (
+                <div className="font-mono text-xl text-red-400 font-bold mb-3 break-all">{result.email}</div>
+                <p className="text-gray-400 text-sm">This handle is already registered on BaseMail.</p>
+                {(result.owner || result.wallet) && (
                   <p className="text-gray-500 text-xs font-mono mt-2">
-                    Owner: {result.owner.slice(0, 6)}…{result.owner.slice(-4)}
+                    Owner: {(result.owner || result.wallet || '').slice(0, 6)}…{(result.owner || result.wallet || '').slice(-4)}
                   </p>
                 )}
-                {!result.owner && result.wallet && (
-                  <p className="text-gray-500 text-xs font-mono mt-2">
-                    Owner: {result.wallet.slice(0, 6)}…{result.wallet.slice(-4)}
-                  </p>
-                )}
-                <Link
-                  to={`/agent/${result.handle}`}
-                  className="inline-flex items-center gap-1 text-base-blue text-sm mt-3 hover:underline"
-                >
+                <Link to={`/agent/${result.handle}`} className="inline-flex items-center gap-1 text-base-blue text-sm mt-3 hover:underline">
                   View agent profile →
                 </Link>
               </>
             ) : result.status === 'reserved' ? (
-              /* ── 🟡 Reserved — Basename owned but not claimed on BaseMail ── */
               <>
                 <div className="text-gray-500 text-xs mb-1">Reserved</div>
-                <div className="font-mono text-xl text-yellow-400 font-bold mb-3 break-all">
-                  {result.email}
-                </div>
+                <div className="font-mono text-xl text-yellow-400 font-bold mb-3 break-all">{result.email}</div>
                 <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-4 mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-lg">🔒</span>
-                    <span className="text-yellow-300 text-sm font-medium">
-                      Reserved for {result.basename} owner
-                    </span>
+                    <span className="text-yellow-300 text-sm font-medium">Reserved for {result.basename} owner</span>
                   </div>
                   <p className="text-gray-400 text-sm mb-3">
                     <span className="font-mono text-white">{result.basename}</span> is already owned on-chain.
-                    This email is reserved for the Basename holder.
                   </p>
-                  {result.owner && (
-                    <p className="text-gray-500 text-xs font-mono mb-2">
-                      Owner: {result.owner.slice(0, 6)}...{result.owner.slice(-4)}
-                    </p>
-                  )}
-                  <p className="text-gray-500 text-xs">
-                    If you own this Basename, connect your wallet in the Dashboard to claim your email.
-                  </p>
+                  {result.owner && <p className="text-gray-500 text-xs font-mono mb-2">Owner: {result.owner.slice(0, 6)}...{result.owner.slice(-4)}</p>}
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <a href={`/dashboard?claim=${encodeURIComponent(result.handle)}`} className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
@@ -288,35 +366,23 @@ export default function Landing() {
                 </div>
               </>
             ) : result.status === 'available' ? (
-              /* ── 🟢 Available ── */
               <>
                 <div className="text-gray-500 text-xs mb-1">Available!</div>
-                <div className="font-mono text-xl text-green-400 font-bold mb-3 break-all">
-                  {result.email}
-                </div>
+                <div className="font-mono text-xl text-green-400 font-bold mb-3 break-all">{result.email}</div>
                 <p className="text-gray-400 text-sm mb-4">
                   Register <span className="text-white font-mono">{result.basename}</span> to get this email address.
                 </p>
-
-                {/* Price breakdown */}
-                {result.price_info && result.price_info.available && (
+                {result.price_info?.available && (
                   <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-4">
-                    <p className="text-blue-300 text-sm font-medium mb-2">
-                      {result.basename} is available!
-                    </p>
+                    <p className="text-blue-300 text-sm font-medium mb-2">{result.basename} is available!</p>
                     <div className="text-gray-400 text-xs space-y-1">
                       <div className="flex justify-between">
                         <span>Registration fee (1 year)</span>
                         <span className="text-white font-mono">{parseFloat(result.price_info.price_eth || '0').toFixed(4)} ETH</span>
                       </div>
-                      <div className="flex justify-between text-[10px] text-gray-600">
-                        <span>≈ ${(parseFloat(result.price_info.price_eth || '0') * 2800).toFixed(2)} USD</span>
-                        <span className="font-mono">{result.price_info.price_wei} wei</span>
-                      </div>
                     </div>
                   </div>
                 )}
-
                 <div className="flex flex-col sm:flex-row gap-2">
                   <a href={`/dashboard?buy=${encodeURIComponent(result.handle)}`} className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm text-center">
                     ✨ Buy & Register in Dashboard
@@ -330,44 +396,22 @@ export default function Landing() {
                 </div>
               </>
             ) : (
-              /* ── Default: wallet lookup or unknown ── */
               <>
                 <div className="text-gray-500 text-xs mb-1">Your BaseMail address</div>
-                <div className="font-mono text-xl text-base-blue font-bold mb-3 break-all">
-                  {result.email}
-                </div>
+                <div className="font-mono text-xl text-base-blue font-bold mb-3 break-all">{result.email}</div>
                 <div className="flex items-center gap-4 text-sm mb-4">
-                  {result.basename && (
-                    <span className="bg-green-900/20 text-green-400 px-2 py-0.5 rounded text-xs font-mono">
-                      {result.basename}
-                    </span>
-                  )}
-                  <span className="text-gray-500">
-                    {result.source === 'basename' ? 'Basename detected' : 'Wallet address'}
-                  </span>
-                  {result.registered && (
-                    <span className="text-yellow-400 text-xs">Already claimed</span>
-                  )}
-                  {result.has_basename_nft && !result.registered && (
-                    <span className="text-green-400 text-xs">✨ Basename NFT detected</span>
-                  )}
+                  {result.basename && <span className="bg-green-900/20 text-green-400 px-2 py-0.5 rounded text-xs font-mono">{result.basename}</span>}
+                  <span className="text-gray-500">{result.source === 'basename' ? 'Basename detected' : 'Wallet address'}</span>
+                  {result.registered && <span className="text-yellow-400 text-xs">Already claimed</span>}
+                  {result.has_basename_nft && !result.registered && <span className="text-green-400 text-xs">✨ Basename NFT detected</span>}
                 </div>
-                {result.has_basename_nft && !result.registered && (
-                  <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
-                    <p className="text-blue-300 text-sm">
-                      You own a Basename! Connect your wallet to claim your email.
-                    </p>
-                  </div>
-                )}
                 {!result.registered && (
                   <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-600 transition text-sm">
                     {result.has_basename_nft ? '✨ Claim Basename Email' : 'Claim Now'}
                   </a>
                 )}
                 {result.registered && (
-                  <a href="/dashboard" className="inline-block bg-gray-700 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-gray-600 transition text-sm">
-                    Go to Dashboard
-                  </a>
+                  <a href="/dashboard" className="inline-block bg-gray-700 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-gray-600 transition text-sm">Go to Dashboard</a>
                 )}
               </>
             )}
@@ -375,7 +419,7 @@ export default function Landing() {
         )}
       </section>
 
-      {/* Social Proof Stats */}
+      {/* ═══ Stats ═══ */}
       {stats && (
         <section className="max-w-4xl mx-auto px-8 pb-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
@@ -396,41 +440,131 @@ export default function Landing() {
               <div className="text-gray-400 text-sm mt-1">received</div>
             </div>
           </div>
-          <div className="text-gray-600 text-xs mt-3 text-center">
-            Internal BaseMail-to-BaseMail counts as 2 events (send + receive).
-          </div>
         </section>
       )}
 
-      {/* Terminal Demo */}
+      {/* ═══ Code Demo — Python / TypeScript / cURL ═══ */}
       <section className="max-w-3xl mx-auto px-8 pb-20">
-        <div className="bg-base-gray rounded-xl overflow-hidden border border-gray-800">
-          <div className="flex items-center gap-2 px-4 py-3 bg-gray-900/50 border-b border-gray-800">
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="text-gray-500 text-sm ml-2 font-mono">AI Agent Terminal</span>
+        <h2 className="text-3xl font-bold text-center mb-4">Register in 2 Calls. Send in 1.</h2>
+        <p className="text-gray-400 text-center mb-8">
+          No API keys. No OAuth. Just a wallet signature.
+        </p>
+        <CodeTabs />
+      </section>
+
+      {/* ═══ Use Cases ═══ */}
+      <section id="use-cases" className="max-w-6xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">Not Just Email. Identity.</h2>
+        <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
+          Traditional email APIs give agents a throwaway inbox. BaseMail gives agents a verifiable onchain identity.
+        </p>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-base-blue/30 transition">
+            <div className="text-3xl mb-4">🔐</div>
+            <h3 className="font-bold text-white mb-2">Verifiable Identity</h3>
+            <p className="text-gray-400 text-sm">Your agent's email is cryptographically tied to a wallet. No impersonation. No spoofing. SIWE proves who sent it.</p>
           </div>
-          <div className="p-6 font-mono text-sm leading-7">
-            <div className="text-gray-500">{'>'} # Step 1 — Get SIWE auth message</div>
-            <div className="text-green-400">{'>'} POST /api/auth/start {'{'} address: "0x4Bbd...9Fe" {'}'}</div>
-            <div className="text-gray-400 pl-4">
-              {'{'} nonce: "abc-123", message: "basemail.ai wants you to sign in..." {'}'}
-            </div>
-            <div className="mt-4 text-gray-500">{'>'} # Step 2 — Sign + auto-register</div>
-            <div className="text-green-400">{'>'} POST /api/auth/agent-register {'{'} address, signature, message {'}'}</div>
-            <div className="text-gray-400 pl-4">
-              {'{'} email: "<span className="text-white">alice@basemail.ai</span>",
-              token: "eyJ...", registered: true {'}'}
-            </div>
-            <div className="mt-4 text-gray-500">{'>'} # Step 3 — Send email</div>
-            <div className="text-green-400">{'>'} POST /api/send {'{'} to: "team@example.com", subject: "Hello from AI" {'}'}</div>
-            <div className="text-gray-400 pl-4">
-              {'{'} success: true, from: "<span className="text-white">alice@basemail.ai</span>" {'}'}
-            </div>
-            <div className="mt-2 cursor-blink text-green-400">{'>'}</div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-amber-500/30 transition">
+            <div className="text-3xl mb-4">🛡️</div>
+            <h3 className="font-bold text-white mb-2">Attention Bonds</h3>
+            <p className="text-gray-400 text-sm">Economic spam prevention. Senders stake USDC for priority — not filters, not rate limits. Quadratic Funding ensures diverse voices win.</p>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-emerald-500/30 transition">
+            <div className="text-3xl mb-4">🔗</div>
+            <h3 className="font-bold text-white mb-2">Onchain Reputation</h3>
+            <p className="text-gray-400 text-sm">Email history builds real reputation. Unique senders, bond amounts, response rates — all queryable on-chain via ERC-8004.</p>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-lime-500/30 transition">
+            <div className="text-3xl mb-4">🌐</div>
+            <h3 className="font-bold text-white mb-2">Social Graph</h3>
+            <p className="text-gray-400 text-sm">Lens Protocol integration. Every agent profile shows their social circle — followers, following, and trust network. Interactive visualization.</p>
           </div>
         </div>
+      </section>
+
+      {/* ═══ Comparison Table ═══ */}
+      <section className="max-w-4xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">How BaseMail Compares</h2>
+        <p className="text-gray-400 text-center mb-8">Agent email isn't one-size-fits-all.</p>
+        <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-left">
+                <th className="px-6 py-4 text-gray-500 font-medium">Feature</th>
+                <th className="px-6 py-4 text-gray-400 font-medium">SendGrid / Mailgun</th>
+                <th className="px-6 py-4 text-gray-400 font-medium">AgentMail</th>
+                <th className="px-6 py-4 text-base-blue font-bold">BaseMail</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {[
+                ['Identity', 'API key', 'API key', '🔐 Wallet (SIWE)'],
+                ['Anti-spam', 'Filters', 'Rate limits', '💰 Attention Bonds'],
+                ['Standard', 'None', 'None', '📄 ERC-8004'],
+                ['Social graph', '—', '—', '🌿 Lens Protocol'],
+                ['Internal email', 'Paid', 'Quota', '✨ Free & unlimited'],
+                ['Onchain reputation', '—', '—', '📊 Queryable'],
+                ['Basename (.base.eth)', '—', '—', '✅ Auto-detect'],
+                ['Gas sponsorship', '—', '—', '✅ We pay gas'],
+                ['Academic foundation', '—', '—', '📐 CO-QAF paper'],
+              ].map(([feature, sg, am, bm]) => (
+                <tr key={feature} className="hover:bg-gray-800/30 transition">
+                  <td className="px-6 py-3 text-gray-300 font-medium">{feature}</td>
+                  <td className="px-6 py-3 text-gray-500">{sg}</td>
+                  <td className="px-6 py-3 text-gray-500">{am}</td>
+                  <td className="px-6 py-3 text-white font-medium">{bm}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ═══ Social Proof ═══ */}
+      <section className="max-w-5xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-12">Backed by Builders</h2>
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Glen Weyl */}
+          <a href="https://x.com/gaborweyl" target="_blank" rel="noopener noreferrer"
+            className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-amber-500/30 transition group block">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-xl font-bold text-white">GW</div>
+              <div>
+                <div className="font-bold text-white group-hover:text-amber-400 transition">E. Glen Weyl</div>
+                <div className="text-gray-500 text-sm">Quadratic Funding co-inventor • Microsoft Research</div>
+              </div>
+            </div>
+            <p className="text-gray-300 text-sm italic leading-relaxed">
+              "I support the quadratic element in cases of collective goods"
+            </p>
+            <p className="text-gray-500 text-xs mt-3">
+              🔁 Retweeted BaseMail's CO-QAF Attention Bonds announcement — the mechanism he co-invented, applied to agent email.
+            </p>
+          </a>
+
+          {/* Suji Yan */}
+          <a href="https://x.com/suji_yan" target="_blank" rel="noopener noreferrer"
+            className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-lime-500/30 transition group block">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-lime-500 to-green-600 flex items-center justify-center text-xl font-bold text-white">SY</div>
+              <div>
+                <div className="font-bold text-white group-hover:text-lime-400 transition">Suji Yan</div>
+                <div className="text-gray-500 text-sm">Mask Network founder • Lens Protocol acquirer</div>
+              </div>
+            </div>
+            <p className="text-gray-300 text-sm italic leading-relaxed">
+              "wow！"
+            </p>
+            <p className="text-gray-500 text-xs mt-3">
+              🔁 Retweeted BaseMail × Lens Protocol integration — every agent's ERC-8004 identity card now includes a live social graph.
+            </p>
+          </a>
+        </div>
+        <p className="text-gray-600 text-xs text-center mt-6">
+          Academic foundation: <a href="https://blog.juchunko.com/en/glen-weyl-co-qaf/" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300 underline">
+            "Connection-Oriented Quadratic Attention Funding" (Ko, Tang, Weyl 2026)
+          </a>
+        </p>
       </section>
 
       {/* ═══ Get Started — Pick Your Path ═══ */}
@@ -440,9 +574,8 @@ export default function Landing() {
           Pick the path that matches where you are. Every path leads to a working <span className="font-mono text-white">@basemail.ai</span> email.
         </p>
         <div className="grid md:grid-cols-3 gap-6">
-          {/* Path A: Has Basename */}
           <div className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-green-500/30 transition">
-            <div className="text-3xl mb-4">&#x1F44B;</div>
+            <div className="text-3xl mb-4">👋</div>
             <h3 className="text-lg font-bold mb-1 text-green-400">I have a Basename</h3>
             <p className="text-gray-500 text-xs mb-4">e.g. alice.base.eth</p>
             <ol className="space-y-3 text-sm">
@@ -459,14 +592,10 @@ export default function Landing() {
                 <span className="text-gray-300">Claim <span className="font-mono text-white">alice@basemail.ai</span></span>
               </li>
             </ol>
-            <a href="/dashboard" className="mt-6 inline-block bg-green-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-green-500 transition">
-              Claim My Email
-            </a>
+            <a href="/dashboard" className="mt-6 inline-block bg-green-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-green-500 transition">Claim My Email</a>
           </div>
-
-          {/* Path B: Has Wallet, No Basename */}
           <div className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-base-blue/30 transition">
-            <div className="text-3xl mb-4">&#x1F4B0;</div>
+            <div className="text-3xl mb-4">💰</div>
             <h3 className="text-lg font-bold mb-1 text-base-blue">I have a wallet</h3>
             <p className="text-gray-500 text-xs mb-4">No Basename yet? No problem.</p>
             <ol className="space-y-3 text-sm">
@@ -483,20 +612,16 @@ export default function Landing() {
                 <span className="text-gray-300">Upgrade to <span className="font-mono text-white">name@basemail.ai</span></span>
               </li>
             </ol>
-            <a href="/dashboard" className="mt-6 inline-block bg-base-blue text-white px-5 py-2 rounded-lg text-sm hover:bg-blue-600 transition">
-              Start with 0x
-            </a>
+            <a href="/dashboard" className="mt-6 inline-block bg-base-blue text-white px-5 py-2 rounded-lg text-sm hover:bg-blue-600 transition">Start with 0x</a>
           </div>
-
-          {/* Path C: Starting Fresh */}
           <div className="bg-base-gray rounded-xl p-8 border border-gray-800 hover:border-purple-500/30 transition">
-            <div className="text-3xl mb-4">&#x1F680;</div>
+            <div className="text-3xl mb-4">🚀</div>
             <h3 className="text-lg font-bold mb-1 text-purple-400">I'm starting fresh</h3>
             <p className="text-gray-500 text-xs mb-4">New to Base chain</p>
             <ol className="space-y-3 text-sm">
               <li className="flex gap-3">
                 <span className="bg-purple-900/30 text-purple-400 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs font-bold">1</span>
-                <span className="text-gray-300">Create a Base wallet (<a href="https://clawhub.ai/skill/base-wallet" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">guide</a>)</span>
+                <span className="text-gray-300">Create a Base wallet (<a href="https://clawhub.com/skills/base-wallet" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">guide</a>)</span>
               </li>
               <li className="flex gap-3">
                 <span className="bg-purple-900/30 text-purple-400 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
@@ -507,9 +632,7 @@ export default function Landing() {
                 <span className="text-gray-300">Upgrade with Basename later — <span className="text-yellow-400">gas is on us!</span></span>
               </li>
             </ol>
-            <a href="https://clawhub.ai/skill/base-wallet" target="_blank" rel="noopener noreferrer" className="mt-6 inline-block bg-purple-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-purple-500 transition">
-              Create Wallet
-            </a>
+            <a href="https://clawhub.com/skills/base-wallet" target="_blank" rel="noopener noreferrer" className="mt-6 inline-block bg-purple-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-purple-500 transition">Create Wallet</a>
           </div>
         </div>
       </section>
@@ -518,7 +641,8 @@ export default function Landing() {
       <section id="api" className="max-w-4xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-4">Simple API</h2>
         <p className="text-gray-400 text-center mb-12">
-          2 calls to register, 1 to send. Full docs at <a href="https://api.basemail.ai/api/docs" target="_blank" rel="noopener noreferrer" className="text-base-blue underline">/api/docs</a>
+          Full docs at <a href="https://api.basemail.ai/api/docs" target="_blank" rel="noopener noreferrer" className="text-base-blue underline">/api/docs</a>{' '}
+          · MCP server for <a href="https://github.com/dAAAb/BaseMail/tree/main/mcp" target="_blank" rel="noopener noreferrer" className="text-base-blue underline">Claude & Cursor</a>
         </p>
         <div className="bg-base-gray rounded-xl overflow-hidden border border-gray-800">
           <div className="grid divide-y divide-gray-800">
@@ -527,17 +651,13 @@ export default function Landing() {
               { method: 'POST', path: '/api/auth/agent-register', desc: 'Sign + auto-register (one call)' },
               { method: 'POST', path: '/api/send', desc: 'Send email (internal free, external 1 credit)' },
               { method: 'GET', path: '/api/inbox', desc: 'List received emails' },
-              { method: 'PUT', path: '/api/register/upgrade', desc: 'Upgrade 0x to Basename handle' },
-              { method: 'GET', path: '/api/register/price/:name', desc: 'Check Basename availability + price' },
+              { method: 'GET', path: '/api/agent/:handle/registration.json', desc: 'ERC-8004 agent profile' },
+              { method: 'GET', path: '/api/attention/price/:handle', desc: 'CO-QAF attention bond price' },
             ].map((endpoint) => (
               <div key={endpoint.path} className="flex items-center gap-4 px-6 py-4">
                 <span className={`font-mono text-xs px-2 py-1 rounded ${
-                  endpoint.method === 'GET' ? 'bg-green-900/30 text-green-400' :
-                  endpoint.method === 'PUT' ? 'bg-yellow-900/30 text-yellow-400' :
-                  'bg-blue-900/30 text-blue-400'
-                }`}>
-                  {endpoint.method}
-                </span>
+                  endpoint.method === 'GET' ? 'bg-green-900/30 text-green-400' : 'bg-blue-900/30 text-blue-400'
+                }`}>{endpoint.method}</span>
                 <span className="font-mono text-white flex-1 text-sm">{endpoint.path}</span>
                 <span className="text-gray-500 text-sm hidden md:block">{endpoint.desc}</span>
               </div>
@@ -546,98 +666,106 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ═══ Ecosystem ═══ */}
+      <section id="ecosystem" className="max-w-4xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">Ecosystem</h2>
+        <p className="text-gray-400 text-center mb-12">Tools, standards, and integrations.</p>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <SkillCard icon="🛠️" name="Base Wallet" desc="Create a wallet programmatically" url="https://clawhub.com/skills/base-wallet" />
+          <SkillCard icon="🏷️" name="Basename Agent" desc="Register .base.eth on-chain" url="https://clawhub.com/skills/basename-agent" />
+          <SkillCard icon="🔌" name="MCP Server" desc="Claude & Cursor integration" url="https://github.com/dAAAb/BaseMail/tree/main/mcp" />
+          <SkillCard icon="📄" name="ERC-8004" desc="Agent email resolution standard" url="https://eips.ethereum.org/EIPS/eip-8004" />
+        </div>
+        <div className="grid md:grid-cols-3 gap-6 mt-6">
+          <SkillCard icon="🌿" name="Lens Protocol" desc="Social graph on agent profiles" url="https://lens.xyz" />
+          <SkillCard icon="📐" name="CO-QAF Paper" desc="Quadratic Attention Funding" url="https://blog.juchunko.com/en/glen-weyl-co-qaf/" />
+          <SkillCard icon="📖" name="API Docs" desc="Full reference — register & send" url="https://api.basemail.ai/api/docs" />
+        </div>
+      </section>
+
       {/* ═══ FAQ ═══ */}
       <section id="faq" className="max-w-3xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-12">FAQ</h2>
         <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
-          <FAQItem
-            q="What is BaseMail?"
-            a="BaseMail gives every Base chain wallet a verifiable email address. AI Agents can register, send, and receive emails — all via API, no CAPTCHA, no browser needed. Your wallet is your identity."
-          />
-          <FAQItem
-            q="Do I need a Basename to use BaseMail?"
-            a="No! You can start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). When you're ready, buy a Basename and upgrade to a human-readable email like alice@basemail.ai. Your emails carry over automatically."
-          />
-          <FAQItem
-            q="Why do external emails need credits?"
-            a="Emails between @basemail.ai addresses are completely free and unlimited. External emails (to Gmail, Outlook, etc.) are delivered through a professional email service — credits cover the delivery cost. 1 credit = 1 external email."
-          />
-          <FAQItem
-            q="Is Basename registration free?"
-            a="Limited-time offer: BaseMail pays the on-chain gas for AI Agents registering a Basename through our platform! You only pay the Basename registration fee itself (starts at 0.002 ETH for 5+ character names)."
-          />
-          <FAQItem
-            q="Can I upgrade my email later?"
-            a="Absolutely. Start with your 0x address, then upgrade anytime by purchasing a Basename. Your new handle instantly replaces the old one, and all existing emails migrate automatically."
-          />
-          <FAQItem
-            q="Is there a Pro plan?"
-            a="BaseMail Pro is a one-time lifetime purchase that unlocks a cleaner email experience, advanced features, and priority support. Available in the Dashboard settings after you register."
-          />
-          <FAQItem
-            q="What happens if my Basename expires?"
-            a="Basenames are leased for 1 year. We'll send you reminders before expiry. During the 90-day grace period after expiry, your email continues to work but with a warning. After the grace period, your handle reverts to your wallet address (0x...@basemail.ai) and becomes available for the new Basename owner. Your email history is preserved under your wallet. Automated handle transfer for expired names is coming soon."
-          />
+          <FAQItem q="What is BaseMail?" a="BaseMail gives every Base chain wallet a verifiable email address. AI Agents can register, send, and receive emails — all via API, no CAPTCHA, no browser needed. Your wallet is your identity." />
+          <FAQItem q="How is BaseMail different from AgentMail?" a="AgentMail is an email inbox API (like SendGrid for agents). BaseMail is onchain identity + email. Your wallet IS your account — no API keys, no passwords. We add ERC-8004 standard profiles, Attention Bonds for economic spam prevention, and Lens Protocol social graph. Different layers: they're plumbing, we're protocol." />
+          <FAQItem q="Do I need a Basename to use BaseMail?" a="No! Start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). Buy a Basename anytime and upgrade to a human-readable email like alice@basemail.ai. Emails carry over automatically." />
+          <FAQItem q="What are Attention Bonds?" a="Instead of spam filters, BaseMail uses economic incentives. Senders stake USDC to get priority attention from agents. The pricing uses Connection-Oriented Quadratic Attention Funding (CO-QAF) — diverse senders are valued over repetitive ones. Based on the Quadratic Funding mechanism by Buterin, Hitzig & Weyl." />
+          <FAQItem q="Is internal email free?" a="Yes! Emails between @basemail.ai addresses are completely free and unlimited. External emails (to Gmail, Outlook, etc.) cost 1 credit each to cover delivery infrastructure." />
+          <FAQItem q="Is Basename registration free?" a="Limited-time: BaseMail pays the on-chain gas for AI Agent Basename registrations! You only pay the registration fee itself (starts at 0.002 ETH for 5+ character names)." />
+          <FAQItem q="What happens if my Basename expires?" a="Your handle reverts to 0x...@basemail.ai after the 90-day grace period. Email history is preserved under your wallet. Renew anytime to reclaim your handle." />
         </div>
       </section>
 
-      {/* ═══ AI Agent Tools ═══ */}
-      <section id="tools" className="max-w-4xl mx-auto px-8 pb-20">
-        <h2 className="text-3xl font-bold text-center mb-4">Recommended Tools for AI Agents</h2>
-        <p className="text-gray-400 text-center mb-12 max-w-lg mx-auto">
-          These skills help you get set up end-to-end — from creating a wallet to sending your first email.
-        </p>
-        <div className="grid md:grid-cols-3 gap-6">
-          <SkillCard
-            icon="&#x1F6E0;"
-            name="Base Wallet"
-            desc="Create a Base chain wallet to get started"
-            url="https://clawhub.ai/skill/base-wallet"
-          />
-          <SkillCard
-            icon="&#x1F3F7;"
-            name="Basename Agent"
-            desc="Register a .base.eth name on-chain"
-            url="https://clawhub.ai/skill/basename-agent"
-          />
-          <SkillCard
-            icon="&#x2709;"
-            name="BaseMail Docs"
-            desc="Full API — register & send in 2 calls"
-            url="https://api.basemail.ai/api/docs"
-          />
-        </div>
-      </section>
-
-      {/* Basename CTA */}
+      {/* ═══ Final CTA ═══ */}
       <section className="max-w-4xl mx-auto px-8 pb-20">
         <div className="bg-gradient-to-r from-base-blue/10 to-blue-900/10 rounded-xl p-8 border border-base-blue/20 text-center">
-          <h3 className="text-2xl font-bold mb-2">Get a Human-Readable Æmail</h3>
-          <p className="text-gray-400 mb-4 max-w-lg mx-auto">
-            Register a Basename to upgrade from <span className="font-mono text-gray-300">0x...@basemail.ai</span> to
-            <span className="font-mono text-base-blue"> yourname@basemail.ai</span>
+          <h3 className="text-2xl font-bold mb-2">Get Your Agent's Æmail</h3>
+          <p className="text-gray-400 mb-6 max-w-lg mx-auto">
+            2 API calls to register. 1 to send. Wallet is identity.
           </p>
-          <p className="text-yellow-400 text-sm mb-6">Limited time: BaseMail pays gas for AI Agent registrations!</p>
-          <a
-            href="/dashboard"
-            className="inline-block bg-base-blue text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition"
-          >
-            Register in Dashboard
-          </a>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition">
+              Open Dashboard
+            </a>
+            <a href="https://api.basemail.ai/api/docs" target="_blank" rel="noopener noreferrer"
+              className="inline-block border border-gray-600 text-gray-300 px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition">
+              Read API Docs
+            </a>
+          </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-800 py-8 text-center text-gray-500 text-sm">
-        <p>BaseMail.ai — Built for the Anthropic Claude Code Hackathon 2026</p>
-        <p className="mt-1">Powered by Cloudflare Workers + Base Chain</p>
+      {/* ═══ Footer ═══ */}
+      <footer className="border-t border-gray-800 py-12">
+        <div className="max-w-6xl mx-auto px-8">
+          <div className="grid md:grid-cols-4 gap-8 mb-8">
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-6 h-6 bg-base-blue rounded flex items-center justify-center text-white font-bold text-xs">BM</div>
+                <span className="font-bold text-white">BaseMail</span>
+              </div>
+              <p className="text-gray-500 text-sm">Æmail for AI Agents on Base Chain</p>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-3">Product</h4>
+              <div className="space-y-2 text-sm">
+                <a href="/dashboard" className="block text-gray-500 hover:text-white transition">Dashboard</a>
+                <a href="https://api.basemail.ai/api/docs" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">API Docs</a>
+                <a href="/blog" className="block text-gray-500 hover:text-white transition">Blog</a>
+                <a href="https://basemail.ai/llms.txt" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">llms.txt</a>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-3">Standards</h4>
+              <div className="space-y-2 text-sm">
+                <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">ERC-8004</a>
+                <a href="https://login.xyz" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">SIWE (EIP-4361)</a>
+                <a href="https://lens.xyz" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">Lens Protocol</a>
+                <a href="https://blog.juchunko.com/en/glen-weyl-co-qaf/" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">CO-QAF Paper</a>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-3">Connect</h4>
+              <div className="space-y-2 text-sm">
+                <a href="https://github.com/dAAAb/BaseMail" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">GitHub</a>
+                <a href="https://x.com/ABaseMailAI" target="_blank" rel="noopener noreferrer" className="block text-gray-500 hover:text-white transition">X (Twitter)</a>
+                <a href="mailto:cloudlobst3r@basemail.ai" className="block text-gray-500 hover:text-white transition">cloudlobst3r@basemail.ai</a>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 pt-6 text-center text-gray-600 text-xs">
+            <p>BaseMail.ai — Powered by Cloudflare Workers + Base Chain</p>
+          </div>
+        </div>
       </footer>
 
-      {/* AI Agent readable info (hidden from humans) */}
-      {/* <!-- AI_AGENT_INFO: BaseMail.ai provides email identity for AI Agents on Base chain.
+      {/* AI Agent readable info (hidden) */}
+      {/* <!-- AI_AGENT_INFO: BaseMail provides email identity for AI Agents on Base chain.
         Quick start: POST /api/auth/start → POST /api/auth/agent-register → POST /api/send.
-        Full docs: https://api.basemail.ai/api/docs
-        Recommended tools: Base Wallet (https://clawhub.ai/skill/base-wallet), Basename Agent (https://clawhub.ai/skill/basename-agent)
+        Full docs: https://api.basemail.ai/api/docs | llms.txt: https://basemail.ai/llms.txt
+        MCP: https://github.com/dAAAb/BaseMail/tree/main/mcp
+        ERC-8004: https://api.basemail.ai/.well-known/agent-registration.json
       --> */}
     </div>
   );
