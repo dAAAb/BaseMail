@@ -136,8 +136,8 @@ authRoutes.post('/agent-register', async (c) => {
 
   // Create account
   await c.env.DB.prepare(
-    `INSERT INTO accounts (handle, wallet, basename, tx_hash, created_at)
-     VALUES (?, ?, ?, NULL, ?)`
+    `INSERT INTO accounts (handle, wallet, basename, tx_hash, credits, created_at)
+     VALUES (?, ?, ?, NULL, 10, ?)`
   ).bind(handle, wallet, resolvedBasename, Math.floor(Date.now() / 1000)).run();
 
   // Migrate pre-stored emails from 0x handle to basename handle

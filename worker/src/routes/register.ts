@@ -108,8 +108,8 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
 
   // Create account
   await c.env.DB.prepare(
-    `INSERT INTO accounts (handle, wallet, basename, tx_hash, created_at)
-     VALUES (?, ?, ?, NULL, ?)`
+    `INSERT INTO accounts (handle, wallet, basename, tx_hash, credits, created_at)
+     VALUES (?, ?, ?, NULL, 10, ?)`
   ).bind(
     handle,
     auth.wallet,

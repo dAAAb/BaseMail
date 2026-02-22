@@ -1809,11 +1809,26 @@ function Credits({ auth }: { auth: AuthState }) {
     <div>
       <h2 className="text-2xl font-bold mb-6">Credits</h2>
       <div className="max-w-2xl space-y-6">
+        {credits === 0 && (
+          <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-500/20 mb-2">
+            <div className="text-lg font-bold text-white mb-2">🎉 You started with 10 free emails!</div>
+            <p className="text-gray-300 text-sm mb-3">
+              Every BaseMail account gets 10 free external emails to try things out. To keep sending, add credits — it's just <strong className="text-white">$0.002 per email</strong> (1,000 emails for ~$2.70 in ETH).
+            </p>
+            <button
+              onClick={() => setShowBuyCredits(true)}
+              className="bg-base-blue text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-600 transition text-sm"
+            >
+              Add Credits →
+            </button>
+          </div>
+        )}
+
         <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
           <div className="text-gray-400 text-sm mb-1">Balance</div>
           <div className="text-4xl font-bold text-base-blue">{credits}</div>
           <div className="text-gray-500 text-sm mt-1">
-            1 credit = 1 external email
+            1 credit = 1 external email{credits !== null && credits > 0 && credits <= 3 ? ' — running low!' : ''}
           </div>
           <button
             onClick={() => setShowBuyCredits(true)}
