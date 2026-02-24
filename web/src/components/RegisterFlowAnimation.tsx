@@ -59,7 +59,7 @@ export default function RegisterFlowAnimation() {
         </g>
 
         {/* Node 2: BaseMail (Center) */}
-        <g transform="translate(200, 80)" className="pulse" style={{transformOrigin: '200px 80px'}}>
+        <g transform="translate(200, 80)" className="pulse" style={{transformOrigin: '0px 0px'}}>
           <circle cx="0" cy="0" r="28" className="node-active" />
           <path d="M -8,-6 h 16 v 12 h -16 z m 0,0 l 8,6 l 8,-6" className="icon-active" />
           <text x="0" y="42" className="lbl lbl-primary">IDENTITY</text>
