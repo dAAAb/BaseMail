@@ -4,7 +4,7 @@ export default function RegisterFlowAnimation() {
   return (
     <div className="w-full max-w-lg mx-auto my-8 md:my-16">
       {/* Mobile-first, tightly packed viewBox for large rendering on small screens */}
-      <svg viewBox="0 0 400 160" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto">
+      <svg viewBox="0 0 400 160" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto" style={{overflow: 'visible'}}>
         <style>
           {`
             .track { stroke: #222; stroke-width: 2; stroke-linecap: round; }

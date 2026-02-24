@@ -4,7 +4,7 @@ export default function IdentityAnimation() {
   return (
     <div className="w-full max-w-lg mx-auto my-8 md:my-16">
       {/* Viewbox tuned for mobile sizing & clarity */}
-      <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto">
+      <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto" style={{overflow: 'visible'}}>
         <style>
           {`
             .track { stroke: #222; stroke-width: 1.5; stroke-dasharray: 4 4; fill: none; }
