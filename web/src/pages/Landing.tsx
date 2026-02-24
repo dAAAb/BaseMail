@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import RegisterFlowAnimation from '../components/RegisterFlowAnimation';
+import IdentityAnimation from '../components/IdentityAnimation';
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -449,6 +451,7 @@ export default function Landing() {
         <p className="text-gray-400 text-center mb-8">
           No API keys. No OAuth. Just a wallet signature.
         </p>
+        <RegisterFlowAnimation />
         <CodeTabs />
       </section>
 
@@ -458,6 +461,7 @@ export default function Landing() {
         <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
           Traditional email APIs give agents a throwaway inbox. BaseMail gives agents a verifiable onchain identity.
         </p>
+        <IdentityAnimation />
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-base-blue/30 transition">
             <div className="text-3xl mb-4">🔐</div>
