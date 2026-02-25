@@ -76,7 +76,12 @@ export default function Claim() {
         body: JSON.stringify({ address: wallet }),
       });
       const { nonce, message } = await startRes.json();
-      const signature = await signMessageAsync({ message });
+      let signature: string;
+      try {
+        signature = await signMessageAsync({ message });
+      } catch {
+        throw new Error('Wallet signature failed — tap the button below to retry');
+      }
 
       const verifyRes = await fetch(`${API_BASE}/api/auth/verify`, {
         method: 'POST',
