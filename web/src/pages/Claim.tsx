@@ -30,6 +30,7 @@ export default function Claim() {
   const [token, setToken] = useState('');
   const [handle, setHandle] = useState('');
   const [needsRegister, setNeedsRegister] = useState(false);
+  const [needsSign, setNeedsSign] = useState(false);
   const [regHandle, setRegHandle] = useState('');
   const [regError, setRegError] = useState('');
 
@@ -61,10 +62,10 @@ export default function Claim() {
       .then(r => r.json())
       .then(data => {
         if (data.registered && data.handle) {
-          // Has account — need to authenticate via SIWE
+          // Has account — show sign button (can't auto-sign on mobile)
           setNeedsRegister(false);
           setHandle(data.handle);
-          authenticateWallet(address);
+          setNeedsSign(true);
         } else {
           setNeedsRegister(true);
           setHandle('');
@@ -278,10 +279,24 @@ export default function Claim() {
                         Create Account & Claim
                       </button>
                     </div>
+                  ) : needsSign ? (
+                    /* Step 2b: Sign to authenticate */
+                    <div>
+                      <p className="text-gray-400 text-sm mb-3">
+                        Welcome back, <span className="text-white font-mono">{handle}@basemail.ai</span>
+                      </p>
+                      <button
+                        onClick={() => { setNeedsSign(false); authenticateWallet(address!); }}
+                        className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition"
+                      >
+                        ✍️ Sign to Authenticate
+                      </button>
+                      {claimError && <p className="text-red-400 text-sm mt-3">{claimError}</p>}
+                    </div>
                   ) : !token ? (
-                    /* Step 2b: Authenticating */
+                    /* Step 2c: Waiting for signature */
                     <div className="text-center text-gray-400 py-4 animate-pulse">
-                      Sign the message in your wallet to authenticate...
+                      Waiting for signature...
                     </div>
                   ) : (
                     /* Step 3: Claim */
