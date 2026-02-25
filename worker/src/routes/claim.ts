@@ -5,9 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 // Multiple RPCs with fallback for reliability
 const baseTransport = fallback([
-  http('https://base-mainnet.g.alchemy.com/v2/demo'),
   http('https://mainnet.base.org'),
-  http('https://base.llamarpc.com'),
   http('https://1rpc.io/base'),
 ]);
 import { AppBindings } from '../types';
