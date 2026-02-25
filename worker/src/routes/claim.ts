@@ -48,7 +48,71 @@ claimRoutes.get('/:id', async (c) => {
     'SELECT claim_id, sender_handle, recipient_email, amount_usdc, network, status, expires_at, created_at FROM escrow_claims WHERE claim_id = ?'
   ).bind(claimId).first<any>();
 
-  if (!claim) return c.json({ error: 'Claim not found' }, 404);
+  if (!claim) {
+    // Check if request wants HTML (AI agents fetching the claim URL)
+    const accept = c.req.header('accept') || '';
+    if (accept.includes('text/html')) {
+      return c.html(`<!DOCTYPE html><html><head><title>Claim Not Found — BaseMail</title></head><body><h1>Claim not found</h1><p>This claim ID does not exist.</p><p><a href="https://basemail.ai">Visit BaseMail.ai</a></p></body></html>`, 404);
+    }
+    return c.json({ error: 'Claim not found' }, 404);
+  }
+
+  const isPending = claim.status === 'pending' && Math.floor(Date.now() / 1000) < claim.expires_at;
+
+  // If request wants HTML (e.g., AI agent fetching the URL), return rich HTML with structured data
+  const accept = c.req.header('accept') || '';
+  if (accept.includes('text/html')) {
+    const amountStr = claim.amount_usdc.toFixed(2);
+    const statusEmoji = claim.status === 'claimed' ? '✅' : isPending ? '💰' : '⏰';
+    const apiUrl = `https://api.basemail.ai/api/claim/${claim.claim_id}`;
+    const jsonLd = JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'MoneyTransfer',
+      name: `USDC Payment Claim — ${amountStr} USDC`,
+      sender: { '@type': 'Person', name: claim.sender_handle },
+      amount: { '@type': 'MonetaryAmount', value: amountStr, currency: 'USD' },
+      status: claim.status,
+      url: `https://basemail.ai/claim/${claim.claim_id}`,
+      description: `Claim ${amountStr} USDC sent by ${claim.sender_handle} via BaseMail`,
+    });
+    return c.html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${statusEmoji} Claim ${amountStr} USDC from ${claim.sender_handle} — BaseMail</title>
+  <meta name="description" content="Claim ${amountStr} USDC sent by ${claim.sender_handle} via BaseMail. Status: ${claim.status}">
+  <meta property="og:title" content="Claim ${amountStr} USDC — BaseMail">
+  <meta property="og:description" content="${claim.sender_handle} sent you ${amountStr} USDC. Claim it now.">
+  <script type="application/ld+json">${jsonLd}</script>
+</head>
+<body>
+  <h1>${statusEmoji} BaseMail USDC Claim</h1>
+  <p><strong>${amountStr} USDC</strong> from <strong>${claim.sender_handle}</strong></p>
+  <p>To: ${claim.recipient_email}</p>
+  <p>Status: ${claim.status} | Network: ${claim.network}</p>
+  <p>Expires: ${new Date(claim.expires_at * 1000).toISOString()}</p>
+  ${isPending ? `
+  <hr>
+  <h2>🤖 AI Agent — How to Claim</h2>
+  <p><strong>API Endpoint:</strong> <code>POST ${apiUrl}</code></p>
+  <h3>Option A: API Key (if you have a BaseMail account)</h3>
+  <pre>curl -X POST ${apiUrl} -H "Authorization: Bearer bm_live_YOUR_KEY"</pre>
+  <h3>Option B: SIWE Auth (any wallet)</h3>
+  <ol>
+    <li>POST https://api.basemail.ai/api/auth/start with {"address": "0xYourWallet"}</li>
+    <li>Sign the returned message (EIP-191 personal_sign)</li>
+    <li>POST https://api.basemail.ai/api/auth/verify with {"address", "signature", "message"} → get token</li>
+    <li>POST ${apiUrl} with "Authorization: Bearer &lt;token&gt;"</li>
+  </ol>
+  <p>No BaseMail account? One is auto-created when you claim.</p>
+  <p>No wallet? Create one first, then use Option B.</p>
+  <p><a href="https://api.basemail.ai/api/docs">API Docs</a> | <a href="https://basemail.ai">BaseMail.ai</a></p>
+  ` : ''}
+  <hr>
+  <p><a href="https://basemail.ai/claim/${claim.claim_id}">Open in browser</a></p>
+</body>
+</html>`);
+  }
 
   return c.json({
     claim_id: claim.claim_id,
@@ -60,6 +124,29 @@ claimRoutes.get('/:id', async (c) => {
     expires_at: claim.expires_at,
     created_at: claim.created_at,
     expired: claim.status === 'pending' && Math.floor(Date.now() / 1000) >= claim.expires_at,
+    // Agent-friendly claim instructions
+    ...(isPending ? {
+      claim_url: `https://basemail.ai/claim/${claim.claim_id}`,
+      api: {
+        endpoint: `https://api.basemail.ai/api/claim/${claim.claim_id}`,
+        method: 'POST',
+        auth: 'Bearer <token>',
+        instructions: [
+          'Option A — API Key (if you have a BaseMail account):',
+          '  POST /api/claim/:id with header "Authorization: Bearer bm_live_xxx"',
+          '',
+          'Option B — SIWE (with any wallet):',
+          '  1. POST /api/auth/start { "address": "0xYourWallet" } → get { nonce, message }',
+          '  2. Sign the message with your wallet private key (EIP-191 personal_sign)',
+          '  3. POST /api/auth/verify { "address", "signature", "message" } → get { token }',
+          '  4. POST /api/claim/:id with header "Authorization: Bearer <token>"',
+          '',
+          'No wallet? Create one first, then use Option B. Account is auto-created on claim.',
+        ],
+        register_url: 'https://basemail.ai',
+        docs_url: 'https://api.basemail.ai/api/docs',
+      },
+    } : {}),
   });
 });
 
@@ -73,8 +160,16 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
   const auth = c.get('auth');
   const claimId = c.req.param('id');
 
+  // API key auth has no wallet — look it up from DB
+  if (!auth.wallet && auth.handle) {
+    const acct = await c.env.DB.prepare(
+      'SELECT wallet FROM accounts WHERE handle = ?'
+    ).bind(auth.handle).first<{ wallet: string }>();
+    if (acct) auth.wallet = acct.wallet;
+  }
+
   if (!auth.wallet) {
-    return c.json({ error: 'Authentication required' }, 401);
+    return c.json({ error: 'Wallet required. Use SIWE auth or an API key linked to a registered account.' }, 401);
   }
 
   // Auto-register if no BaseMail account exists

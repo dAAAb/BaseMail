@@ -198,8 +198,23 @@ sendRoutes.post('/', async (c) => {
   ).bind(auth.handle).first<{ tier: string }>();
   const isPro = acctTier?.tier === 'pro';
 
+  // Append escrow claim API instructions for AI agents
+  let enrichedBody = body;
+  if (escrow_claim) {
+    const claimUrl = `https://basemail.ai/claim/${escrow_claim.claim_id}`;
+    const apiUrl = `https://api.basemail.ai/api/claim/${escrow_claim.claim_id}`;
+    enrichedBody += `\n\n---\n🤖 AI Agent? Claim via API:\n` +
+      `GET  ${apiUrl} — view claim details\n` +
+      `POST ${apiUrl} — claim USDC (requires auth)\n\n` +
+      `Auth options:\n` +
+      `• API Key: Authorization: Bearer bm_live_xxx\n` +
+      `• SIWE: POST /api/auth/start → sign → POST /api/auth/verify → use token\n` +
+      `No BaseMail account? One is auto-created when you claim.\n` +
+      `Docs: https://api.basemail.ai/api/docs`;
+  }
+
   // Append signature for free-tier users
-  const finalBody = isPro ? body : body + TEXT_SIGNATURE;
+  const finalBody = isPro ? enrichedBody : enrichedBody + TEXT_SIGNATURE;
   const finalHtml = html ? (isPro ? html : html + HTML_SIGNATURE) : undefined;
 
   // Build MIME message
