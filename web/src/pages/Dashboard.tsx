@@ -37,6 +37,7 @@ interface EmailItem {
   created_at: number;
   usdc_amount?: string | null;
   usdc_tx?: string | null;
+  usdc_network?: string | null;
 }
 
 interface AuthState {
@@ -662,11 +663,32 @@ export default function Dashboard() {
   );
 }
 
-// ─── USDC Send Modal (Base Sepolia Testnet) ────────────
+// ─── USDC Send Modal (Base Mainnet + Base Sepolia) ────────────
+type UsdcNetwork = 'base-mainnet' | 'base-sepolia';
+const USDC_NET_CONFIG: Record<UsdcNetwork, { chainId: number; usdc: `0x${string}`; label: string; badge: string; badgeColor: string; explorer: string }> = {
+  'base-mainnet': {
+    chainId: base.id,
+    usdc: BASE_MAINNET_USDC,
+    label: 'Base Mainnet',
+    badge: '💰 Real USDC',
+    badgeColor: 'text-green-400 bg-green-900/30',
+    explorer: 'https://basescan.org',
+  },
+  'base-sepolia': {
+    chainId: BASE_SEPOLIA_CHAIN_ID,
+    usdc: BASE_SEPOLIA_USDC,
+    label: 'Base Sepolia (Testnet)',
+    badge: '🧪 Testnet',
+    badgeColor: 'text-purple-400 bg-purple-900/30',
+    explorer: 'https://sepolia.basescan.org',
+  },
+};
+
 function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void }) {
   const { switchChainAsync } = useSwitchChain();
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
+  const [network, setNetwork] = useState<UsdcNetwork>('base-mainnet');
   const [recipientWallet, setRecipientWallet] = useState('');
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
@@ -705,10 +727,12 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
     if (!recipientWallet || !amount || parseFloat(amount) <= 0) return;
     setError('');
 
+    const net = USDC_NET_CONFIG[network];
+
     try {
-      // 1. Switch to Base Sepolia
+      // 1. Switch to selected network
       setStatus('switching');
-      await switchChainAsync({ chainId: BASE_SEPOLIA_CHAIN_ID });
+      await switchChainAsync({ chainId: net.chainId });
 
       // 2. Transfer USDC
       setStatus('transferring');
@@ -717,35 +741,27 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
       const memo = new TextEncoder().encode(`basemail:${handle}@basemail.ai`);
       const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
 
-      // Encode transfer + append memo as extra calldata
-      const transferData = encodeFunctionData({
-        abi: ERC20_ABI,
-        functionName: 'transfer',
-        args: [recipientWallet as `0x${string}`, amountRaw],
-      });
-      const fullData = (transferData + memoHex) as `0x${string}`;
-
       const hash = await writeContractAsync({
-        address: BASE_SEPOLIA_USDC,
+        address: net.usdc,
         abi: ERC20_ABI,
         functionName: 'transfer',
         args: [recipientWallet as `0x${string}`, amountRaw],
-        chainId: BASE_SEPOLIA_CHAIN_ID,
-        // Use raw data with memo appended
+        chainId: net.chainId,
         dataSuffix: `0x${memoHex}` as `0x${string}`,
       });
       setTxHash(hash);
 
       // 3. Wait for confirmation + send verified payment email
       setStatus('sending_email');
-      const emailTo = handle.startsWith('0x') ? `${handle}@basemail.ai` : `${handle}@basemail.ai`;
+      const emailTo = `${handle}@basemail.ai`;
+      const networkLabel = network === 'base-mainnet' ? 'Base' : 'Base Sepolia (testnet)';
       const res = await apiFetch('/api/send', auth.token, {
         method: 'POST',
         body: JSON.stringify({
           to: emailTo,
           subject: `USDC Payment: $${parseFloat(amount).toFixed(2)}`,
-          body: `You received a payment of ${parseFloat(amount).toFixed(2)} USDC on Base Sepolia (testnet).\n\nTransaction: https://sepolia.basescan.org/tx/${hash}\n\nSent via BaseMail.ai`,
-          usdc_payment: { tx_hash: hash, amount: parseFloat(amount).toFixed(2) },
+          body: `You received a payment of ${parseFloat(amount).toFixed(2)} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${hash}\n\nSent via BaseMail.ai`,
+          usdc_payment: { tx_hash: hash, amount: parseFloat(amount).toFixed(2), network },
         }),
       });
       const data = await res.json();
@@ -764,7 +780,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-bold">Send USDC</h3>
-            <span className="text-[10px] text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">Base Sepolia Testnet</span>
+            <span className={`text-[10px] ${USDC_NET_CONFIG[network].badgeColor} px-2 py-0.5 rounded`}>{USDC_NET_CONFIG[network].badge}</span>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">&times;</button>
         </div>
@@ -778,7 +794,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
             </p>
             {txHash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                href={`${USDC_NET_CONFIG[network].explorer}/tx/${txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-purple-400 hover:text-purple-300 text-xs underline"
@@ -814,6 +830,33 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
               )}
             </div>
 
+            {/* Network Selector */}
+            <div className="mb-4">
+              <label className="text-gray-400 text-xs mb-1 block">Network</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setNetwork('base-mainnet')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition border ${
+                    network === 'base-mainnet'
+                      ? 'bg-green-900/40 border-green-500 text-green-400'
+                      : 'bg-base-dark border-gray-700 text-gray-500 hover:border-gray-500'
+                  }`}
+                >
+                  💰 Base Mainnet
+                </button>
+                <button
+                  onClick={() => setNetwork('base-sepolia')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition border ${
+                    network === 'base-sepolia'
+                      ? 'bg-purple-900/40 border-purple-500 text-purple-400'
+                      : 'bg-base-dark border-gray-700 text-gray-500 hover:border-gray-500'
+                  }`}
+                >
+                  🧪 Testnet
+                </button>
+              </div>
+            </div>
+
             {/* Amount */}
             <div className="mb-4">
               <label className="text-gray-400 text-xs mb-1 block">Amount (USDC)</label>
@@ -828,7 +871,8 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
 
             {/* Info */}
             <div className="bg-base-dark rounded-lg p-3 mb-4 text-xs text-gray-500 space-y-1">
-              <p>Payment goes directly to recipient's wallet on Base Sepolia.</p>
+              <p>Payment goes directly to recipient's wallet on {USDC_NET_CONFIG[network].label}.</p>
+              {network === 'base-mainnet' && <p className="text-yellow-400">⚠️ This sends real USDC. Double-check the recipient.</p>}
               <p>A verified payment email will be sent automatically.</p>
               <p className="text-purple-400">On-chain memo: basemail:{recipient || '...'}@basemail.ai</p>
             </div>
@@ -837,9 +881,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
             <button
               onClick={handleSend}
               disabled={!recipientWallet || !amount || parseFloat(amount) <= 0 || status !== 'idle' && status !== 'error'}
-              className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition disabled:opacity-50"
+              className={`w-full text-white py-3 rounded-lg font-medium transition disabled:opacity-50 ${
+                network === 'base-mainnet' ? 'bg-green-600 hover:bg-green-500' : 'bg-purple-600 hover:bg-purple-500'
+              }`}
             >
-              {status === 'switching' ? 'Switching to Base Sepolia...'
+              {status === 'switching' ? `Switching to ${USDC_NET_CONFIG[network].label}...`
                 : status === 'transferring' ? 'Confirm in wallet...'
                 : status === 'confirming' ? 'Waiting for confirmation...'
                 : status === 'sending_email' ? 'Sending payment email...'
@@ -1355,12 +1401,12 @@ function EmailDetail({ auth }: { auth: AuthState }) {
               <span className="text-2xl">$</span>
               <div>
                 <div className="text-green-400 font-bold text-lg">{email.usdc_amount} USDC</div>
-                <div className="text-green-600 text-xs">Verified Payment (Base Sepolia Testnet)</div>
+                <div className="text-green-600 text-xs">Verified USDC Payment</div>
               </div>
             </div>
             {email.usdc_tx && (
               <a
-                href={`https://sepolia.basescan.org/tx/${email.usdc_tx}`}
+                href={`${email.usdc_network === 'base-mainnet' ? 'https://basescan.org' : 'https://sepolia.basescan.org'}/tx/${email.usdc_tx}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-green-500 hover:text-green-400 text-xs underline"

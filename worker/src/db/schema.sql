@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS emails (
     size        INTEGER DEFAULT 0,
     read        INTEGER DEFAULT 0,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    usdc_amount TEXT,
+    usdc_tx     TEXT,
+    usdc_network TEXT,
     FOREIGN KEY (handle) REFERENCES accounts(handle)
 );
 

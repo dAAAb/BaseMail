@@ -1,19 +1,45 @@
 import { Hono } from 'hono';
 import { EmailMessage } from 'cloudflare:email';
 import { createMimeMessage } from 'mimetext';
-import { createPublicClient, http, parseAbi, type Hex } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { createPublicClient, http, parseAbi, type Hex, type Chain } from 'viem';
+import { base, baseSepolia } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
-// ── USDC Hackathon (TESTNET ONLY — Base Sepolia) ──
-const BASE_SEPOLIA_RPC = 'https://sepolia.base.org';
-const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+// ── USDC Network Configs ──
+const USDC_NETWORKS: Record<string, { chain: Chain; rpc: string; usdc: string; label: string; explorer: string }> = {
+  'base-mainnet': {
+    chain: base,
+    rpc: 'https://mainnet.base.org',
+    usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    label: 'Base Mainnet',
+    explorer: 'https://basescan.org',
+  },
+  'base-sepolia': {
+    chain: baseSepolia,
+    rpc: 'https://sepolia.base.org',
+    usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    label: 'Base Sepolia (Testnet)',
+    explorer: 'https://sepolia.basescan.org',
+  },
+};
 const USDC_TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
 
 export const sendRoutes = new Hono<AppBindings>();
 
 sendRoutes.use('/*', authMiddleware());
+
+// Auto-migrate: add usdc columns if missing
+let migrated = false;
+sendRoutes.use('/*', async (c, next) => {
+  if (!migrated) {
+    migrated = true;
+    for (const col of ['usdc_amount TEXT', 'usdc_tx TEXT', 'usdc_network TEXT']) {
+      try { await c.env.DB.prepare(`ALTER TABLE emails ADD COLUMN ${col}`).run(); } catch {}
+    }
+  }
+  await next();
+});
 
 // ── Email Signature (appended for free-tier users) ──
 const TEXT_SIGNATURE = `\n\n--\nSent via BaseMail.ai — Email Identity for AI Agents on Base\nhttps://basemail.ai`;
@@ -29,6 +55,7 @@ interface Attachment {
 interface UsdcPayment {
   tx_hash: string;
   amount: string; // human-readable e.g. "10.00"
+  network?: string; // 'base-mainnet' | 'base-sepolia' (default: 'base-sepolia' for backward compat)
 }
 
 /**
@@ -86,12 +113,18 @@ sendRoutes.post('/', async (c) => {
     }
   }
 
-  // ── USDC Payment Verification (Base Sepolia TESTNET) ──
-  let verifiedUsdc: { amount: string; tx_hash: string } | null = null;
+  // ── USDC Payment Verification (supports Base Mainnet + Base Sepolia) ──
+  let verifiedUsdc: { amount: string; tx_hash: string; network: string } | null = null;
 
   if (usdc_payment?.tx_hash) {
+    const networkKey = usdc_payment.network || 'base-sepolia';
+    const netConfig = USDC_NETWORKS[networkKey];
+    if (!netConfig) {
+      return c.json({ error: `Unsupported USDC network: ${networkKey}. Use 'base-mainnet' or 'base-sepolia'` }, 400);
+    }
+
     try {
-      const client = createPublicClient({ chain: baseSepolia, transport: http(BASE_SEPOLIA_RPC) });
+      const client = createPublicClient({ chain: netConfig.chain, transport: http(netConfig.rpc) });
       const receipt = await client.waitForTransactionReceipt({
         hash: usdc_payment.tx_hash as Hex,
         timeout: 15_000,
@@ -103,7 +136,7 @@ sendRoutes.post('/', async (c) => {
 
       // Parse Transfer events from USDC contract
       const transferLog = receipt.logs.find(
-        (log) => log.address.toLowerCase() === BASE_SEPOLIA_USDC.toLowerCase() && log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+        (log) => log.address.toLowerCase() === netConfig.usdc.toLowerCase() && log.topics[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
       );
 
       if (!transferLog || !transferLog.topics[1] || !transferLog.topics[2]) {
@@ -133,7 +166,7 @@ sendRoutes.post('/', async (c) => {
         return c.json({ error: 'USDC recipient does not match email recipient wallet' }, 400);
       }
 
-      verifiedUsdc = { amount: humanAmount, tx_hash: usdc_payment.tx_hash };
+      verifiedUsdc = { amount: humanAmount, tx_hash: usdc_payment.tx_hash, network: networkKey };
     } catch (e: any) {
       return c.json({ error: `USDC verification failed: ${e.message}` }, 400);
     }
@@ -178,7 +211,7 @@ sendRoutes.post('/', async (c) => {
   if (verifiedUsdc) {
     msg.setHeader('X-BaseMail-USDC-Payment', `${verifiedUsdc.amount} USDC`);
     msg.setHeader('X-BaseMail-USDC-TxHash', verifiedUsdc.tx_hash);
-    msg.setHeader('X-BaseMail-USDC-Network', 'Base Sepolia (Testnet)');
+    msg.setHeader('X-BaseMail-USDC-Network', USDC_NETWORKS[verifiedUsdc.network]?.label || verifiedUsdc.network);
   }
 
   // Reply headers
@@ -257,8 +290,8 @@ sendRoutes.post('/', async (c) => {
     await c.env.EMAIL_STORE.put(inboxR2Key, rawMime);
 
     await c.env.DB.prepare(
-      `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx)
-       VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+      `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx, usdc_network)
+       VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
     ).bind(
       inboxEmailId,
       recipientHandle,
@@ -271,6 +304,7 @@ sendRoutes.post('/', async (c) => {
       now,
       verifiedUsdc?.amount || null,
       verifiedUsdc?.tx_hash || null,
+      verifiedUsdc?.network || null,
     ).run();
   } else {
     // ── External sending (paid, costs 1 credit) ──
@@ -372,8 +406,8 @@ sendRoutes.post('/', async (c) => {
   await c.env.EMAIL_STORE.put(sentR2Key, rawMime);
 
   await c.env.DB.prepare(
-    `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx)
-     VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx, usdc_network)
+     VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
   ).bind(
     emailId,
     auth.handle,
@@ -386,6 +420,7 @@ sendRoutes.post('/', async (c) => {
     now,
     verifiedUsdc?.amount || null,
     verifiedUsdc?.tx_hash || null,
+    verifiedUsdc?.network || null,
   ).run();
 
   // Auto-resolve attention bond if replying to a bonded email
@@ -426,7 +461,7 @@ sendRoutes.post('/', async (c) => {
         verified: true,
         amount: verifiedUsdc.amount,
         tx_hash: verifiedUsdc.tx_hash,
-        network: 'Base Sepolia (Testnet)',
+        network: USDC_NETWORKS[verifiedUsdc.network]?.label || verifiedUsdc.network,
       },
     } : {}),
   });
