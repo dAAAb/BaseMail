@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { createPublicClient, createWalletClient, http, parseAbi, keccak256, toHex, type Hex, fallback } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbi, keccak256, toHex, type Hex, type Address, fallback } from 'viem';
 import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -9,7 +9,8 @@ const baseTransport = fallback([
   http('https://1rpc.io/base'),
 ]);
 import { AppBindings } from '../types';
-import { authMiddleware } from '../auth';
+import { authMiddleware, createToken } from '../auth';
+import { resolveHandle } from '../basename-lookup';
 
 const ESCROW_ABI = parseAbi([
   'function release(bytes32 claimId, address claimer) external',
@@ -72,8 +73,47 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
   const auth = c.get('auth');
   const claimId = c.req.param('id');
 
-  if (!auth.handle || !auth.wallet) {
-    return c.json({ error: 'You need a BaseMail account to claim USDC. Please register first.' }, 403);
+  if (!auth.wallet) {
+    return c.json({ error: 'Authentication required' }, 401);
+  }
+
+  // Auto-register if no BaseMail account exists
+  let handle = auth.handle;
+  let newAccount = false;
+  if (!handle) {
+    // Check if wallet already has an account
+    const existing = await c.env.DB.prepare(
+      'SELECT handle FROM accounts WHERE wallet = ?'
+    ).bind(auth.wallet).first<{ handle: string }>();
+
+    if (existing) {
+      handle = existing.handle;
+    } else {
+      // Auto-create account: resolve basename or use 0x address
+      const resolved = await resolveHandle(auth.wallet as Address);
+      handle = resolved.handle;
+
+      // Check handle not taken
+      const taken = await c.env.DB.prepare(
+        'SELECT handle FROM accounts WHERE handle = ?'
+      ).bind(handle).first();
+
+      if (taken) {
+        // Fallback to wallet address as handle
+        handle = auth.wallet.toLowerCase();
+      }
+
+      await c.env.DB.prepare(
+        `INSERT INTO accounts (handle, wallet, basename, tx_hash, credits, created_at)
+         VALUES (?, ?, ?, NULL, 10, ?)`
+      ).bind(handle, auth.wallet, resolved.basename, Math.floor(Date.now() / 1000)).run();
+
+      newAccount = true;
+    }
+
+    // Update auth context with handle and re-issue token
+    auth.handle = handle;
+    c.set('auth', auth);
   }
 
   // Fetch claim
@@ -187,13 +227,23 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
     `UPDATE escrow_claims SET status = 'claimed', claimer_handle = ?, claimer_wallet = ?, release_tx = ?, receipt_email_id = ?, claimed_at = ? WHERE claim_id = ?`
   ).bind(auth.handle, auth.wallet, releaseTx, receiptEmailId, now, claimId).run();
 
+  // If new account was created, issue a token so frontend can redirect to dashboard
+  let token: string | undefined;
+  if (newAccount) {
+    try {
+      token = await createToken({ wallet: auth.wallet, handle: handle! }, c.env.JWT_SECRET!);
+    } catch {}
+  }
+
   return c.json({
     success: true,
     claim_id: claimId,
     amount_usdc: amountStr,
     release_tx: releaseTx,
     receipt_email_id: receiptEmailId,
-    claimer: auth.handle,
+    claimer: handle,
+    new_account: newAccount,
+    ...(token ? { token } : {}),
   });
 });
 

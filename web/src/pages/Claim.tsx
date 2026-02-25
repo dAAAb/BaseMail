@@ -47,18 +47,7 @@ export default function Claim() {
     setStatusError('');
 
     try {
-      // 1. Check registration
-      setStatus('Checking account...');
-      const checkRes = await fetch(`${API_BASE}/api/register/check/${address}`);
-      const checkData = await checkRes.json();
-
-      if (!checkData.registered) {
-        setStatus('');
-        setStatusError('No BaseMail account found. Please register at basemail.ai first, then come back to claim.');
-        return;
-      }
-
-      // 2. SIWE auth
+      // 1. SIWE auth (account auto-created during claim if needed)
       setStatus('Preparing sign-in...');
       const startRes = await fetch(`${API_BASE}/api/auth/start`, {
         method: 'POST',
@@ -79,7 +68,7 @@ export default function Claim() {
       const verifyData = await verifyRes.json();
       if (!verifyData.token) throw new Error(verifyData.error || 'Authentication failed');
 
-      // 3. Claim
+      // 2. Claim (auto-registers if no account)
       setStatus('Claiming USDC...');
       const claimRes = await fetch(`${API_BASE}/api/claim/${id}`, {
         method: 'POST',
@@ -88,7 +77,12 @@ export default function Claim() {
       const claimData = await claimRes.json();
       if (!claimRes.ok) throw new Error(claimData.error || 'Claim failed');
 
-      setClaimResult({ ...claimData, handle: verifyData.handle || checkData.handle });
+      // If a new token was issued (new account created), store it
+      if (claimData.token) {
+        localStorage.setItem('basemail_token', claimData.token);
+      }
+
+      setClaimResult({ ...claimData, handle: claimData.claimer || verifyData.handle });
       setStatus('');
     } catch (e: any) {
       setStatusError(e.message || 'Failed');
@@ -134,6 +128,14 @@ export default function Claim() {
               <p className="text-gray-500 text-sm mb-4">
                 From {claim.sender} → {claimResult.handle || claimResult.claimer}
               </p>
+              {claimResult.new_account && (
+                <div className="bg-purple-900/20 border border-purple-700/50 rounded-lg p-3 mb-4 text-sm">
+                  <p className="text-purple-300">🎉 Welcome to BaseMail!</p>
+                  <p className="text-gray-400 text-xs mt-1">
+                    A new account was created for you: <span className="text-white">{claimResult.handle}@basemail.ai</span>
+                  </p>
+                </div>
+              )}
               {claimResult.release_tx && (
                 <a href={`${explorerBase}/tx/${claimResult.release_tx}`}
                   target="_blank" rel="noopener noreferrer"
