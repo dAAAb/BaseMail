@@ -16,6 +16,12 @@ interface ClaimInfo {
   expired: boolean;
 }
 
+/** Shorten 0x addresses for display: 0x1234…abcd */
+function formatHandle(h: string): string {
+  if (/^0x[0-9a-fA-F]{40}$/i.test(h)) return `${h.slice(0, 6)}…${h.slice(-4)}`;
+  return h;
+}
+
 export default function Claim() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -125,14 +131,14 @@ export default function Claim() {
               <p className="text-gray-400 mb-1">
                 <span className="text-white font-bold text-2xl">${claim.amount_usdc.toFixed(2)}</span> USDC
               </p>
-              <p className="text-gray-500 text-sm mb-4">
-                From {claim.sender} → {claimResult.handle || claimResult.claimer}
+              <p className="text-gray-500 text-sm mb-4 break-all">
+                From {claim.sender} → {formatHandle(claimResult.handle || claimResult.claimer)}
               </p>
               {claimResult.new_account && (
-                <div className="bg-purple-900/20 border border-purple-700/50 rounded-lg p-3 mb-4 text-sm">
+                <div className="bg-purple-900/20 border border-purple-700/50 rounded-lg p-3 mb-4 text-sm overflow-hidden">
                   <p className="text-purple-300">🎉 Welcome to BaseMail!</p>
-                  <p className="text-gray-400 text-xs mt-1">
-                    A new account was created for you: <span className="text-white">{claimResult.handle}@basemail.ai</span>
+                  <p className="text-gray-400 text-xs mt-1 truncate">
+                    A new account was created for you: <span className="text-white">{formatHandle(claimResult.handle)}@basemail.ai</span>
                   </p>
                 </div>
               )}

@@ -1420,11 +1420,11 @@ function EmailDetail({ auth }: { auth: AuthState }) {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-400 mb-6 pb-4 border-b border-gray-800">
           <div>
             <span className="text-gray-500">From:</span>{' '}
-            <span className="text-white font-mono text-xs">{email.from_addr}</span>
+            <span className="text-white font-mono text-xs truncate max-w-[200px] inline-block align-bottom" title={email.from_addr}>{email.from_addr}</span>
           </div>
           <div>
             <span className="text-gray-500">To:</span>{' '}
-            <span className="text-white font-mono text-xs">{email.to_addr}</span>
+            <span className="text-white font-mono text-xs truncate max-w-[200px] inline-block align-bottom" title={email.to_addr}>{email.to_addr}</span>
           </div>
           <div className="ml-auto text-gray-600">
             {new Date(email.created_at * 1000).toLocaleString()}
