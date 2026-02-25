@@ -21,25 +21,20 @@ export default function Claim() {
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
+  const { signMessageAsync } = useSignMessage();
 
   const [claim, setClaim] = useState<ClaimInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Auth state
+  // Auth + claim state
   const [token, setToken] = useState('');
   const [handle, setHandle] = useState('');
-  const [needsRegister, setNeedsRegister] = useState(false);
-  const [needsSign, setNeedsSign] = useState(false);
+  const [step, setStep] = useState<'idle' | 'checking' | 'need-register' | 'ready' | 'claiming' | 'success'>('idle');
   const [regHandle, setRegHandle] = useState('');
   const [regError, setRegError] = useState('');
-
-  // Claim state
-  const [claiming, setClaiming] = useState(false);
   const [claimResult, setClaimResult] = useState<any>(null);
   const [claimError, setClaimError] = useState('');
-
-  const { signMessageAsync } = useSignMessage();
 
   // Fetch claim info
   useEffect(() => {
@@ -54,47 +49,52 @@ export default function Claim() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // When wallet connects, check if they have a BaseMail account
+  // When wallet connects → auto authenticate
   useEffect(() => {
-    if (!address) { setToken(''); setHandle(''); setNeedsRegister(false); return; }
-
-    fetch(`${API_BASE}/api/register/check/${address}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.registered && data.handle) {
-          // Has account — show sign button (can't auto-sign on mobile)
-          setNeedsRegister(false);
-          setHandle(data.handle);
-          setNeedsSign(true);
-        } else {
-          setNeedsRegister(true);
-          setHandle('');
-        }
-      })
-      .catch(() => setNeedsRegister(true));
+    if (!address || token) return;
+    autoAuth(address);
   }, [address]);
 
-  async function authenticateWallet(wallet: string) {
+  async function autoAuth(wallet: string) {
+    setStep('checking');
+    setClaimError('');
     try {
+      // 1. Check if registered
+      const checkRes = await fetch(`${API_BASE}/api/register/check/${wallet}`);
+      const checkData = await checkRes.json();
+
+      if (!checkData.registered || !checkData.handle) {
+        setStep('need-register');
+        return;
+      }
+
+      // 2. SIWE auth
+      setHandle(checkData.handle);
       const startRes = await fetch(`${API_BASE}/api/auth/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet }),
+        body: JSON.stringify({ address: wallet }),
       });
       const { nonce, message } = await startRes.json();
       const signature = await signMessageAsync({ message });
+
       const verifyRes = await fetch(`${API_BASE}/api/auth/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet, signature, nonce }),
+        body: JSON.stringify({ address: wallet, signature, nonce, message }),
       });
       const verifyData = await verifyRes.json();
+
       if (verifyData.token) {
         setToken(verifyData.token);
         if (verifyData.handle) setHandle(verifyData.handle);
+        setStep('ready');
+      } else {
+        throw new Error(verifyData.error || 'Auth failed');
       }
     } catch (e: any) {
-      setClaimError(`Authentication failed: ${e.message}`);
+      setClaimError(e.message || 'Authentication failed');
+      setStep('idle');
     }
   }
 
@@ -102,16 +102,15 @@ export default function Claim() {
     if (!address || !regHandle) return;
     setRegError('');
     try {
-      // SIWE auth first
+      // SIWE + register in one flow
       const startRes = await fetch(`${API_BASE}/api/auth/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: address }),
+        body: JSON.stringify({ address }),
       });
       const { nonce, message } = await startRes.json();
       const signature = await signMessageAsync({ message });
 
-      // Register
       const regRes = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +121,7 @@ export default function Claim() {
 
       setToken(regData.token);
       setHandle(regData.handle || regHandle);
-      setNeedsRegister(false);
+      setStep('ready');
     } catch (e: any) {
       setRegError(e.message);
     }
@@ -130,7 +129,7 @@ export default function Claim() {
 
   async function handleClaim() {
     if (!token || !id) return;
-    setClaiming(true);
+    setStep('claiming');
     setClaimError('');
     try {
       const res = await fetch(`${API_BASE}/api/claim/${id}`, {
@@ -140,10 +139,10 @@ export default function Claim() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Claim failed');
       setClaimResult(data);
+      setStep('success');
     } catch (e: any) {
       setClaimError(e.message);
-    } finally {
-      setClaiming(false);
+      setStep('ready');
     }
   }
 
@@ -175,7 +174,7 @@ export default function Claim() {
               <div className="text-4xl mb-3">❌</div>
               <p className="text-red-400">{error}</p>
             </div>
-          ) : claim && claimResult ? (
+          ) : claim && step === 'success' && claimResult ? (
             /* ── Success ── */
             <div className="text-center py-6">
               <div className="text-5xl mb-4">✅</div>
@@ -189,8 +188,7 @@ export default function Claim() {
               {claimResult.release_tx && (
                 <a
                   href={`${explorerBase}/tx/${claimResult.release_tx}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target="_blank" rel="noopener noreferrer"
                   className="text-purple-400 hover:text-purple-300 text-xs underline block mb-4"
                 >
                   View transaction on BaseScan ↗
@@ -222,7 +220,6 @@ export default function Claim() {
                 </p>
               </div>
 
-              {/* Status badges */}
               {isClaimed && (
                 <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-3 text-center mb-4">
                   <span className="text-green-400 font-medium">Already claimed ✅</span>
@@ -254,8 +251,12 @@ export default function Claim() {
                         </button>
                       ))}
                     </div>
-                  ) : needsRegister ? (
-                    /* Step 2a: Register new account */
+                  ) : step === 'checking' ? (
+                    <div className="text-center text-gray-400 py-4 animate-pulse">
+                      Checking account...
+                    </div>
+                  ) : step === 'need-register' ? (
+                    /* Register new account */
                     <div>
                       <p className="text-gray-400 text-sm mb-3">
                         Create a free BaseMail account to claim your USDC:
@@ -279,41 +280,36 @@ export default function Claim() {
                         Create Account & Claim
                       </button>
                     </div>
-                  ) : needsSign ? (
-                    /* Step 2b: Sign to authenticate */
-                    <div>
-                      <p className="text-gray-400 text-sm mb-3">
-                        Welcome back, <span className="text-white font-mono">{handle}@basemail.ai</span>
-                      </p>
-                      <button
-                        onClick={() => { setNeedsSign(false); authenticateWallet(address!); }}
-                        className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition"
-                      >
-                        ✍️ Sign to Authenticate
-                      </button>
-                      {claimError && <p className="text-red-400 text-sm mt-3">{claimError}</p>}
-                    </div>
-                  ) : !token ? (
-                    /* Step 2c: Waiting for signature */
-                    <div className="text-center text-gray-400 py-4 animate-pulse">
-                      Waiting for signature...
-                    </div>
-                  ) : (
-                    /* Step 3: Claim */
+                  ) : step === 'ready' ? (
+                    /* Authenticated — claim button */
                     <div>
                       <p className="text-gray-400 text-sm mb-3">
                         Claiming as <span className="text-white font-mono">{handle}@basemail.ai</span>
                       </p>
                       <button
                         onClick={handleClaim}
-                        disabled={claiming}
-                        className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-500 transition disabled:opacity-50"
+                        className="w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-500 transition"
                       >
-                        {claiming ? 'Claiming...' : `✅ Claim $${claim.amount_usdc.toFixed(2)} USDC`}
+                        ✅ Claim ${claim.amount_usdc.toFixed(2)} USDC
                       </button>
-                      {claimError && <p className="text-red-400 text-sm mt-3">{claimError}</p>}
+                    </div>
+                  ) : step === 'claiming' ? (
+                    <div className="text-center text-gray-400 py-4 animate-pulse">
+                      Claiming USDC...
+                    </div>
+                  ) : (
+                    /* idle — retry auth */
+                    <div>
+                      <button
+                        onClick={() => address && autoAuth(address)}
+                        className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-500 transition"
+                      >
+                        ✍️ Authenticate & Claim
+                      </button>
                     </div>
                   )}
+
+                  {claimError && <p className="text-red-400 text-sm mt-3">{claimError}</p>}
                 </>
               )}
             </>
