@@ -82,7 +82,7 @@ sendRoutes.post('/', async (c) => {
     return c.json({ error: 'No email registered for this wallet or API key' }, 403);
   }
 
-  const { to, subject, body, html, in_reply_to, attachments, usdc_payment } = await c.req.json<{
+  const { to, subject, body, html, in_reply_to, attachments, usdc_payment, escrow_claim } = await c.req.json<{
     to: string;
     subject: string;
     body: string;
@@ -90,6 +90,13 @@ sendRoutes.post('/', async (c) => {
     in_reply_to?: string;
     attachments?: Attachment[];
     usdc_payment?: UsdcPayment;
+    escrow_claim?: {
+      claim_id: string;
+      amount: string;      // human-readable e.g. "10.00"
+      deposit_tx: string;  // on-chain deposit tx hash
+      network?: string;    // 'base-mainnet' | 'base-sepolia'
+      expires_at: number;  // unix timestamp
+    };
   }>();
 
   if (!to || !subject || !body) {
@@ -423,6 +430,38 @@ sendRoutes.post('/', async (c) => {
     verifiedUsdc?.network || null,
   ).run();
 
+  // ── Record escrow claim (for external email with USDC) ──
+  let escrowRecorded = false;
+  if (escrow_claim && !isInternal) {
+    try {
+      await c.env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS escrow_claims (
+          claim_id TEXT PRIMARY KEY, sender_handle TEXT NOT NULL, sender_wallet TEXT NOT NULL,
+          recipient_email TEXT NOT NULL, amount_usdc REAL NOT NULL, deposit_tx TEXT NOT NULL,
+          network TEXT NOT NULL DEFAULT 'base-mainnet', status TEXT NOT NULL DEFAULT 'pending',
+          claimer_handle TEXT, claimer_wallet TEXT, release_tx TEXT, receipt_email_id TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL, claimed_at INTEGER
+        )`
+      ).run();
+
+      const senderWallet = auth.wallet || '';
+      await c.env.DB.prepare(
+        `INSERT INTO escrow_claims (claim_id, sender_handle, sender_wallet, recipient_email, amount_usdc, deposit_tx, network, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        escrow_claim.claim_id,
+        auth.handle,
+        senderWallet,
+        to,
+        parseFloat(escrow_claim.amount),
+        escrow_claim.deposit_tx,
+        escrow_claim.network || 'base-mainnet',
+        escrow_claim.expires_at,
+      ).run();
+      escrowRecorded = true;
+    } catch (_) { /* don't block email sending */ }
+  }
+
   // Auto-resolve attention bond if replying to a bonded email
   let bondResolved = false;
   if (in_reply_to) {
@@ -462,6 +501,14 @@ sendRoutes.post('/', async (c) => {
         amount: verifiedUsdc.amount,
         tx_hash: verifiedUsdc.tx_hash,
         network: USDC_NETWORKS[verifiedUsdc.network]?.label || verifiedUsdc.network,
+      },
+    } : {}),
+    ...(escrowRecorded ? {
+      escrow_claim: {
+        claim_id: escrow_claim!.claim_id,
+        amount: escrow_claim!.amount,
+        claim_url: `https://basemail.ai/claim/${escrow_claim!.claim_id}`,
+        expires_at: escrow_claim!.expires_at,
       },
     } : {}),
   });

@@ -12,6 +12,7 @@ export interface Env {
   WALLET_PRIVATE_KEY?: string;  // Worker 錢包私鑰，用於代付 Basename 註冊
   RESEND_API_KEY?: string;      // Resend.com API Key，用於外部寄信
   WALLET_ADDRESS?: string;      // Worker 錢包公開地址，用於收取 credit 購買費用
+  PAYMENT_ESCROW_ADDRESS?: string; // PaymentEscrow 合約地址 (Base Mainnet)
 }
 
 export interface Account {

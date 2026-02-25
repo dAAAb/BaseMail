@@ -161,6 +161,31 @@ CREATE TABLE IF NOT EXISTS basename_aliases (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alias_handle ON basename_aliases(handle);
 CREATE INDEX IF NOT EXISTS idx_alias_wallet ON basename_aliases(wallet);
 
+-- ═══════════════════════════════════════════════════
+-- BaseMail v2.1: Payment Escrow Claims (external email USDC)
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS escrow_claims (
+    claim_id         TEXT PRIMARY KEY,
+    sender_handle    TEXT NOT NULL,
+    sender_wallet    TEXT NOT NULL,
+    recipient_email  TEXT NOT NULL,
+    amount_usdc      REAL NOT NULL,
+    deposit_tx       TEXT NOT NULL,
+    network          TEXT NOT NULL DEFAULT 'base-mainnet',
+    status           TEXT NOT NULL DEFAULT 'pending',  -- pending | claimed | refunded | expired
+    claimer_handle   TEXT,
+    claimer_wallet   TEXT,
+    release_tx       TEXT,
+    receipt_email_id TEXT,
+    created_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+    expires_at       INTEGER NOT NULL,
+    claimed_at       INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_escrow_sender ON escrow_claims(sender_handle);
+CREATE INDEX IF NOT EXISTS idx_escrow_status ON escrow_claims(status, expires_at);
+
 -- ── QAF Scores (cached per recipient) ──
 CREATE TABLE IF NOT EXISTS qaf_scores (
     handle          TEXT PRIMARY KEY,
