@@ -6,7 +6,8 @@ const path = require('path');
 
 const USDC_BASE_MAINNET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 // Deploy with platform wallet
-const PRIVATE_KEY = process.env.PRIVATE_KEY || '0x71af4490752eb418b231b5b50819fe03c423a4e266fe9244948b9e5080d5ad32';
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
+if (!PRIVATE_KEY) { console.error('Set PRIVATE_KEY env var'); process.exit(1); }
 
 const abi = JSON.parse(fs.readFileSync(path.join(__dirname, '../build/contracts_PaymentEscrowFlat_sol_PaymentEscrow.abi'), 'utf8'));
 const bytecode = '0x' + fs.readFileSync(path.join(__dirname, '../build/contracts_PaymentEscrowFlat_sol_PaymentEscrow.bin'), 'utf8').trim();
