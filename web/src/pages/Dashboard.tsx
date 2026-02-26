@@ -3064,7 +3064,7 @@ function Attention({ auth }: { auth: AuthState }) {
                     const { keccak256, toBytes } = await import('viem');
                     const emailIdBytes = depEmailId
                       ? keccak256(toBytes(depEmailId))
-                      : '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
+                      : keccak256(toBytes(`bond-${Date.now()}-${Math.random()}`));
 
                     try {
                       // Get recipient wallet
