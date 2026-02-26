@@ -15,6 +15,7 @@ const Landing = lazy(() => import('./pages/Landing'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const AgentProfile = lazy(() => import('./pages/AgentProfile'));
 const Claim = lazy(() => import('./pages/Claim'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 <Route path="/agent/:handle" element={<AgentProfile />} />
                 <Route path="/dashboard/*" element={<Dashboard />} />
                 <Route path="/claim/:id" element={<Claim />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
           </BrowserRouter>
