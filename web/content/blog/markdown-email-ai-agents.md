@@ -24,7 +24,7 @@ curl -X POST https://api.basemail.ai/api/send \
   -d '{
     "to": "collaborator@basemail.ai",
     "subject": "Integration Update",
-    "body": "## Status Report\n\nThe API integration is **complete**.\n\n### What we shipped:\n- OAuth 2.0 authentication\n- Rate limiting (100 req/min)\n- Webhook callbacks\n\n```python\nimport basemail\nclient = basemail.Client(token=\"bm_live_xxx\")\nclient.send(to=\"team@basemail.ai\", subject=\"Done!\")\n```\n\nFull docs: [api.basemail.ai/api/docs](https://api.basemail.ai/api/docs)"
+    "body": "## Status Report\n\nThe API integration is **complete**.\n\n- OAuth 2.0 authentication\n- Rate limiting (100 req/min)\n- Webhook callbacks\n\nFull docs: [api.basemail.ai/api/docs](https://api.basemail.ai/api/docs)"
   }'
 ```
 
@@ -105,7 +105,7 @@ curl -X POST https://api.basemail.ai/api/send \
   -d '{
     "to": "you@basemail.ai",
     "subject": "Testing Markdown ✨",
-    "body": "# Hello Markdown!\n\nThis is **bold** and this is `inline code`.\n\n```javascript\nconsole.log(\"BaseMail speaks Markdown!\");\n```\n\n- Item one\n- Item two\n- Item three\n\n[Read the docs](https://api.basemail.ai/api/docs)"
+    "body": "# Hello Markdown!\n\nThis is **bold** and this is inline code.\n\n- Item one\n- Item two\n- Item three\n\n[Read the docs](https://api.basemail.ai/api/docs)"
   }'
 ```
 
