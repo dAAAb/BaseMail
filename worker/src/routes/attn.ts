@@ -115,7 +115,9 @@ attnRoutes.get('/balance', async (c) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const nextDrip = bal.last_drip_at + 86400;
+  const oneDayAgo = now - 86400;
+  const canClaim = bal.last_drip_at < oneDayAgo;
+  const nextClaimAt = bal.last_drip_at + 86400;
   const dailyEarnRemaining = Math.max(0, ATTN.DAILY_EARN_CAP - bal.daily_earned);
 
   return c.json({
@@ -124,8 +126,9 @@ attnRoutes.get('/balance', async (c) => {
     daily_earned: bal.daily_earned,
     daily_earn_cap: ATTN.DAILY_EARN_CAP,
     daily_earn_remaining: dailyEarnRemaining,
-    next_drip_at: nextDrip,
-    next_drip_in_seconds: Math.max(0, nextDrip - now),
+    can_claim: canClaim,
+    next_claim_at: canClaim ? null : nextClaimAt,
+    next_claim_in_seconds: canClaim ? 0 : Math.max(0, nextClaimAt - now),
     constants: {
       daily_drip: ATTN.DAILY_DRIP,
       cold_stake: ATTN.COLD_STAKE,
@@ -288,6 +291,69 @@ attnRoutes.put('/settings', async (c) => {
   ).bind(auth.handle, receive_price, now, receive_price, now).run();
 
   return c.json({ success: true, receive_price });
+});
+
+// ══════════════════════════════════════════════
+// POST /api/attn/claim — Claim daily drip (manual, no accumulation)
+// ══════════════════════════════════════════════
+
+attnRoutes.post('/claim', async (c) => {
+  const auth = c.get('auth');
+  if (!auth.handle) return c.json({ error: 'Not registered' }, 403);
+
+  const w = auth.wallet.toLowerCase();
+  const now = Math.floor(Date.now() / 1000);
+  const oneDayAgo = now - 86400;
+
+  // Get current balance row
+  const bal = await c.env.DB.prepare(
+    'SELECT balance, daily_earned, last_drip_at FROM attn_balances WHERE wallet = ?'
+  ).bind(w).first<{ balance: number; daily_earned: number; last_drip_at: number }>();
+
+  if (!bal) return c.json({ error: 'No ATTN account found' }, 404);
+
+  // Already claimed within 24h?
+  if (bal.last_drip_at >= oneDayAgo) {
+    const nextClaimAt = bal.last_drip_at + 86400;
+    return c.json({
+      claimed: false,
+      reason: 'already_claimed',
+      next_claim_at: nextClaimAt,
+      next_claim_in_seconds: Math.max(0, nextClaimAt - now),
+      balance: bal.balance,
+    });
+  }
+
+  // Check daily earn cap
+  if (bal.daily_earned + ATTN.DAILY_DRIP > ATTN.DAILY_EARN_CAP) {
+    return c.json({
+      claimed: false,
+      reason: 'daily_cap_reached',
+      balance: bal.balance,
+    });
+  }
+
+  // Claim! No accumulation — always exactly DAILY_DRIP regardless of days missed
+  const newBalance = bal.balance + ATTN.DAILY_DRIP;
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      'UPDATE attn_balances SET balance = ?, daily_earned = daily_earned + ?, last_drip_at = ? WHERE wallet = ?'
+    ).bind(newBalance, ATTN.DAILY_DRIP, now, w),
+    c.env.DB.prepare(
+      'INSERT INTO attn_transactions (id, wallet, amount, type, note, created_at) VALUES (?, ?, ?, \'drip_claim\', ?, ?)'
+    ).bind(
+      `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      w, ATTN.DAILY_DRIP, 'Daily drip claimed', now,
+    ),
+  ]);
+
+  return c.json({
+    claimed: true,
+    amount: ATTN.DAILY_DRIP,
+    balance: newBalance,
+    next_claim_at: now + 86400,
+    next_claim_in_seconds: 86400,
+  });
 });
 
 // ══════════════════════════════════════════════

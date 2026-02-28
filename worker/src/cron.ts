@@ -26,34 +26,9 @@ export async function handleCron(
       'UPDATE attn_balances SET daily_earned = 0, last_earn_reset = ? WHERE last_earn_reset < ?'
     ).bind(now, oneDayAgo).run();
 
-    // ── 2. Daily drip (+10 ATTN, respects daily earn cap) ──
-    // Only drip to accounts that haven't received drip in 24h
-    // and whose daily_earned + drip is within cap
-    const dripResult = await env.DB.prepare(`
-      UPDATE attn_balances
-      SET balance = balance + ?,
-          daily_earned = daily_earned + ?,
-          last_drip_at = ?
-      WHERE last_drip_at < ?
-        AND daily_earned + ? <= ?
-    `).bind(
-      ATTN.DAILY_DRIP, ATTN.DAILY_DRIP, now,
-      oneDayAgo, ATTN.DAILY_DRIP, ATTN.DAILY_EARN_CAP,
-    ).run();
-
-    // Log drip transactions (batch — one per account would be too many writes)
-    // Only log aggregate for now
-    const drippedCount = dripResult.meta?.changes || 0;
-    if (drippedCount > 0) {
-      await env.DB.prepare(
-        'INSERT INTO attn_transactions (id, wallet, amount, type, note, created_at) VALUES (?, \'system\', ?, \'drip_batch\', ?, ?)'
-      ).bind(
-        `cron-drip-${now}`,
-        ATTN.DAILY_DRIP,
-        `Daily drip: ${drippedCount} accounts received ${ATTN.DAILY_DRIP} ATTN each`,
-        now,
-      ).run();
-    }
+    // ── 2. Daily drip — REMOVED (now claim-based) ──
+    // Users must manually claim their daily ATTN via POST /api/attn/claim.
+    // Unclaimed drips do NOT accumulate — use it or lose it.
 
     // ── 3. Settle expired escrows ──
     const expired = await env.DB.prepare(

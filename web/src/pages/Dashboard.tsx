@@ -3589,6 +3589,7 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
   const [loading, setLoading] = useState(true);
   const [priceInput, setPriceInput] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     if (!auth?.token) return;
@@ -3617,12 +3618,36 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
     setSaving(false);
   }
 
+  async function claimDrip() {
+    setClaiming(true);
+    try {
+      const res = await apiFetch('/api/attn/claim', auth.token, { method: 'POST' });
+      const data = await res.json();
+      if (data.claimed) {
+        setBalance((prev: any) => prev ? {
+          ...prev,
+          balance: data.balance,
+          can_claim: false,
+          next_claim_in_seconds: data.next_claim_in_seconds,
+        } : prev);
+      } else if (data.reason === 'already_claimed') {
+        setBalance((prev: any) => prev ? {
+          ...prev,
+          can_claim: false,
+          next_claim_in_seconds: data.next_claim_in_seconds,
+        } : prev);
+      }
+    } catch {}
+    setClaiming(false);
+  }
+
   if (loading) return <div className="text-gray-500 text-center py-20">Loading...</div>;
 
   const TYPE_LABELS: Record<string, { label: string; color: string }> = {
     signup_grant: { label: '🎁 Welcome Grant', color: 'text-green-400' },
     drip: { label: '💧 Daily Drip', color: 'text-blue-400' },
     drip_batch: { label: '💧 Daily Drip (system)', color: 'text-blue-400' },
+    drip_claim: { label: '💧 Daily Claim', color: 'text-blue-400' },
     stake: { label: '📤 Staked', color: 'text-amber-400' },
     refund: { label: '✅ Refunded', color: 'text-green-400' },
     reply_bonus: { label: '🎉 Reply Bonus', color: 'text-purple-400' },
@@ -3647,12 +3672,22 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
           <div className="text-right">
             <div className="text-xs text-gray-500">Daily earned</div>
             <div className="text-sm text-gray-300">{balance?.daily_earned ?? 0} / {balance?.daily_earn_cap ?? 200}</div>
-            <div className="text-xs text-gray-500 mt-2">Next drip</div>
-            <div className="text-sm text-gray-300">
-              {balance?.next_drip_in_seconds > 0
-                ? `${Math.floor(balance.next_drip_in_seconds / 3600)}h ${Math.floor((balance.next_drip_in_seconds % 3600) / 60)}m`
-                : 'Available now'}
-            </div>
+            <div className="text-xs text-gray-500 mt-2">Daily Drip</div>
+            {balance?.can_claim ? (
+              <button
+                onClick={claimDrip}
+                disabled={claiming}
+                className="mt-1 bg-purple-600 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition font-medium animate-pulse"
+              >
+                {claiming ? 'Claiming...' : `💧 Claim +${balance?.constants?.daily_drip ?? 10} ATTN`}
+              </button>
+            ) : (
+              <div className="text-sm text-gray-500">
+                Next claim in {balance?.next_claim_in_seconds > 0
+                  ? `${Math.floor(balance.next_claim_in_seconds / 3600)}h ${Math.floor((balance.next_claim_in_seconds % 3600) / 60)}m`
+                  : '—'}
+              </div>
+            )}
           </div>
         </div>
 
