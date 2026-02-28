@@ -1765,29 +1765,29 @@ function Compose({ auth }: { auth: AuthState }) {
   const [error, setError] = useState('');
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
-  // Attention Bond detection
-  const [bondInfo, setBondInfo] = useState<{ enabled: boolean; price: number; handle: string } | null>(null);
-  const [bondChecking, setBondChecking] = useState(false);
+  // ATTN stake detection
+  const [attnInfo, setAttnInfo] = useState<{ cold_stake: number; reply_stake: number; handle: string } | null>(null);
+  const [attnChecking, setAttnChecking] = useState(false);
 
   const isReply = subject.toLowerCase().startsWith('re:');
   useEffect(() => {
     const handle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
-    if (!handle || !to.includes('@basemail.ai') || handle === auth.handle || isReply) {
-      setBondInfo(null);
+    if (!handle || !to.includes('@basemail.ai') || handle === auth.handle) {
+      setAttnInfo(null);
       return;
     }
     const timer = setTimeout(async () => {
-      setBondChecking(true);
+      setAttnChecking(true);
       try {
-        const res = await fetch(`${API_BASE}/api/attention/price/${handle}`);
+        const res = await fetch(`${API_BASE}/api/attn/price/${handle}`);
         const data = await res.json();
-        if (data.attention_bonds_enabled) {
-          setBondInfo({ enabled: true, price: data.current_price_usdc, handle });
+        if (data.attn_enabled) {
+          setAttnInfo({ cold_stake: data.cold_email_stake, reply_stake: data.reply_thread_stake, handle });
         } else {
-          setBondInfo(null);
+          setAttnInfo(null);
         }
-      } catch { setBondInfo(null); }
-      setBondChecking(false);
+      } catch { setAttnInfo(null); }
+      setAttnChecking(false);
     }, 500);
     return () => clearTimeout(timer);
   }, [to, auth.handle]);
@@ -1843,32 +1843,26 @@ function Compose({ auth }: { auth: AuthState }) {
             className="w-full bg-base-gray border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-base-blue"
           />
         </div>
-        {/* Attention Bond prompt */}
-        {bondInfo?.enabled && (
-          <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-700/50 rounded-lg p-4">
+        {/* ATTN stake info */}
+        {attnInfo && (
+          <div className="bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-700/50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span>💰</span>
-              <span className="text-yellow-300 text-sm font-bold">Attention Bond Required</span>
+              <span>⚡</span>
+              <span className="text-purple-300 text-sm font-bold">$ATTN Auto-Stake</span>
             </div>
-            <p className="text-gray-400 text-xs mb-2">
-              <span className="font-mono text-white">{bondInfo.handle}@basemail.ai</span> requires an Attention Bond of{' '}
-              <span className="text-yellow-300 font-bold">${bondInfo.price.toFixed(4)} USDC</span> to guarantee a response.
+            <p className="text-gray-400 text-xs mb-1">
+              Sending to <span className="font-mono text-white">{attnInfo.handle}@basemail.ai</span> will auto-stake{' '}
+              <span className="text-purple-300 font-bold">{isReply ? attnInfo.reply_stake : attnInfo.cold_stake} ATTN</span>
+              {isReply ? ' (reply thread)' : ' (cold email)'}.
             </p>
             <p className="text-gray-500 text-xs">
-              The bond is refunded if the recipient replies within the response window. You can still send without a bond — it will be delivered but not guaranteed a response.
+              {isReply
+                ? 'Both of you earn +2 bonus ATTN for replying. 🎉'
+                : 'If they read your email, you get a full refund. If they reply, you both earn +2 bonus. Unread after 48h → tokens go to recipient.'}
             </p>
-            <div className="mt-3 flex gap-2">
-              <a
-                href={`/dashboard/attention?deposit=${bondInfo.handle}&amount=${bondInfo.price}`}
-                className="bg-yellow-600 text-white px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-yellow-500 transition"
-              >
-                💰 Deposit Bond (${bondInfo.price.toFixed(4)})
-              </a>
-              <span className="text-gray-500 text-xs self-center">or send without bond ↓</span>
-            </div>
           </div>
         )}
-        {bondChecking && <div className="text-gray-500 text-xs">Checking attention requirements...</div>}
+        {attnChecking && <div className="text-gray-500 text-xs">Checking ATTN requirements...</div>}
 
         <div>
           <label className="text-gray-400 text-sm mb-1 block">Subject</label>
@@ -2687,10 +2681,13 @@ function Attention({ auth }: { auth: AuthState }) {
         </div>
       )}
 
-      <h2 className="text-2xl font-bold mb-1">💰 Attention Bonds</h2>
+      <h2 className="text-2xl font-bold mb-1">💰 Attention Bonds <span className="text-xs text-gray-500 font-normal ml-2">Legacy (USDC)</span></h2>
+      <div className="bg-purple-900/20 border border-purple-700/40 rounded-lg p-3 mb-4">
+        <p className="text-purple-300 text-sm">⚡ <strong>$ATTN tokens</strong> are the new default! ATTN is auto-staked when sending email — no deposit needed. <a href="/dashboard/attn" className="underline text-purple-200 hover:text-white">Go to $ATTN Dashboard →</a></p>
+      </div>
       <div className="flex items-center gap-3 mb-6">
         <p className="text-gray-400 text-sm flex-1">
-          Require senders to deposit USDC to reach your inbox. Bonds are refunded when you reply.
+          USDC Attention Bonds (v2 legacy). Require senders to deposit USDC to reach your inbox. Bonds are refunded when you reply.
           Based on <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" className="text-base-blue hover:underline">CO-QAF</a> (Ko, 2026).
         </p>
         <span className={`text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'}`}>

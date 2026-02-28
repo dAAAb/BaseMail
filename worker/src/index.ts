@@ -576,6 +576,28 @@ app.route('/api/donate-buy', donateBuyRoutes);
 app.route('/api/claim', claimRoutes);
 app.route('/api/attn', attnRoutes);
 
+// Public ATTN price check (no auth required)
+app.get('/api/attn/price/:handle', async (c) => {
+  const handle = c.req.param('handle').toLowerCase();
+  const acct = await c.env.DB.prepare('SELECT handle FROM accounts WHERE handle = ?').bind(handle).first();
+  if (!acct) return c.json({ error: 'User not found' }, 404);
+
+  const settings = await c.env.DB.prepare(
+    'SELECT receive_price FROM attn_settings WHERE handle = ?'
+  ).bind(handle).first<{ receive_price: number }>();
+
+  const receivePrice = settings?.receive_price ?? 1;
+  const coldStake = Math.max(receivePrice, 3);
+
+  return c.json({
+    handle,
+    attn_enabled: true,
+    cold_email_stake: coldStake,
+    reply_thread_stake: receivePrice,
+    note: 'ATTN is auto-staked when sending. Cold emails stake more, reply threads stake less.',
+  });
+});
+
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {
   fetch: app.fetch,
