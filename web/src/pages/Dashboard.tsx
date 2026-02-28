@@ -3648,6 +3648,7 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
     drip: { label: '💧 Daily Drip', color: 'text-blue-400' },
     drip_batch: { label: '💧 Daily Drip (system)', color: 'text-blue-400' },
     drip_claim: { label: '💧 Daily Claim', color: 'text-blue-400' },
+    airdrop: { label: '🎁 Airdrop', color: 'text-yellow-400' },
     stake: { label: '📤 Staked', color: 'text-amber-400' },
     refund: { label: '✅ Refunded', color: 'text-green-400' },
     reply_bonus: { label: '🎉 Reply Bonus', color: 'text-purple-400' },
@@ -3711,6 +3712,9 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
         </div>
       </div>
 
+      {/* Airdrop Waves */}
+      <AirdropWaves auth={auth} />
+
       {/* Receive Price Setting */}
       <div className="bg-base-gray rounded-xl p-5 border border-gray-800 mb-6">
         <h3 className="text-sm font-bold text-gray-300 mb-3">Receive Price</h3>
@@ -3741,7 +3745,7 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
           <div className="flex items-start gap-2"><span className="text-purple-400">💬</span><span>You reply → both of you get +2 ATTN bonus</span></div>
           <div className="flex items-start gap-2"><span className="text-amber-400">✋</span><span>You reject it → ATTN transferred to you (compensation)</span></div>
           <div className="flex items-start gap-2"><span className="text-cyan-400">⏰</span><span>48h unread → ATTN transferred to you automatically</span></div>
-          <div className="flex items-start gap-2"><span className="text-gray-500">💧</span><span>Every day → free +10 ATTN drip</span></div>
+          <div className="flex items-start gap-2"><span className="text-gray-500">💧</span><span>Every day → claim +10 ATTN (use it or lose it!)</span></div>
         </div>
       </div>
 
@@ -3774,6 +3778,166 @@ function AttnDashboard({ auth }: { auth: AuthState }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Airdrop Waves Component ─────────────────────────────
+function AirdropWaves({ auth }: { auth: AuthState }) {
+  const [waves, setWaves] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [claimingWave, setClaimingWave] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!auth?.token) return;
+    apiFetch('/api/airdrop/waves', auth.token)
+      .then(r => r.json())
+      .then(d => setWaves(d.waves || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [auth?.token]);
+
+  // Countdown timer
+  useEffect(() => {
+    const previewWaves = waves.filter(w => w.status === 'preview');
+    if (previewWaves.length === 0) return;
+
+    const interval = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const cd: Record<string, string> = {};
+      for (const w of previewWaves) {
+        const diff = Math.max(0, w.claim_opens_at - now);
+        const days = Math.floor(diff / 86400);
+        const hours = Math.floor((diff % 86400) / 3600);
+        const mins = Math.floor((diff % 3600) / 60);
+        const secs = diff % 60;
+        cd[w.id] = days > 0
+          ? `${days}d ${hours}h ${mins}m ${secs}s`
+          : `${hours}h ${mins}m ${secs}s`;
+      }
+      setCountdown(cd);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [waves]);
+
+  async function claimWave(waveId: string) {
+    setClaimingWave(waveId);
+    try {
+      const res = await apiFetch(`/api/airdrop/${waveId}/claim`, auth.token, { method: 'POST' });
+      const data = await res.json();
+      if (data.claimed) {
+        setWaves(prev => prev.map(w =>
+          w.id === waveId ? { ...w, status: 'claimed', claimed: { amount: data.amount, claimed_at: Math.floor(Date.now() / 1000) } } : w
+        ));
+      } else {
+        alert(data.error || 'Claim failed');
+      }
+    } catch { alert('Claim failed'); }
+    setClaimingWave(null);
+  }
+
+  if (loading || waves.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      {waves.map(wave => (
+        <div
+          key={wave.id}
+          className={`rounded-xl p-5 border mb-3 ${
+            wave.status === 'claimed'
+              ? 'bg-green-900/10 border-green-700/30'
+              : wave.status === 'claimable'
+              ? 'bg-gradient-to-r from-amber-900/20 to-yellow-900/20 border-yellow-600/50'
+              : 'bg-gradient-to-r from-indigo-900/20 to-purple-900/20 border-purple-700/40'
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{wave.badge}</span>
+              <div>
+                <h3 className="text-sm font-bold text-white">{wave.name}</h3>
+                <p className="text-xs text-gray-500">{wave.description}</p>
+              </div>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+              wave.status === 'claimed' ? 'bg-green-500/20 text-green-400' :
+              wave.status === 'claimable' ? 'bg-yellow-500/20 text-yellow-400 animate-pulse' :
+              wave.status === 'expired' ? 'bg-red-500/20 text-red-400' :
+              'bg-purple-500/20 text-purple-400'
+            }`}>
+              {wave.status === 'claimed' ? '✅ Claimed' :
+               wave.status === 'claimable' ? '🎉 Claim Now!' :
+               wave.status === 'expired' ? '⏰ Expired' :
+               '🔒 Coming Soon'}
+            </span>
+          </div>
+
+          {/* Score breakdown */}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3 text-center text-xs">
+            {[
+              { label: 'Received', value: wave.score.breakdown.emails_received, icon: '📨' },
+              { label: 'Read', value: wave.score.breakdown.emails_read, icon: '👀' },
+              { label: 'Replied', value: wave.score.breakdown.emails_replied, icon: '💬' },
+              { label: 'Sent', value: wave.score.breakdown.emails_sent, icon: '📤' },
+              { label: 'Staked', value: wave.score.breakdown.attn_staked, icon: '⚡' },
+              { label: 'Days', value: wave.score.breakdown.days_since_signup, icon: '📅' },
+            ].map(item => (
+              <div key={item.label} className="bg-black/30 rounded-lg p-2">
+                <div className="text-sm">{item.icon}</div>
+                <div className="text-white font-bold">{item.value}</div>
+                <div className="text-gray-500 text-[10px]">{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Total + Claim */}
+          <div className="flex items-center justify-between bg-black/20 rounded-lg px-4 py-3">
+            <div>
+              <div className="text-xs text-gray-500">
+                Base: {wave.score.base_score} × {wave.multiplier}x multiplier
+              </div>
+              <div className="text-2xl font-bold text-white">
+                {wave.score.total} <span className="text-sm text-purple-400">ATTN</span>
+              </div>
+            </div>
+
+            {wave.status === 'preview' && (
+              <div className="text-right">
+                <div className="text-[10px] text-gray-500 mb-1">Claim opens in</div>
+                <div className="text-sm font-mono text-purple-300">{countdown[wave.id] || '...'}</div>
+                <button disabled className="mt-2 bg-gray-700 text-gray-500 text-xs px-4 py-1.5 rounded-lg cursor-not-allowed">
+                  🔒 Locked
+                </button>
+              </div>
+            )}
+
+            {wave.status === 'claimable' && (
+              <button
+                onClick={() => claimWave(wave.id)}
+                disabled={claimingWave === wave.id || wave.score.total <= 0}
+                className="bg-gradient-to-r from-yellow-500 to-amber-500 text-black text-sm px-6 py-2 rounded-lg font-bold hover:from-yellow-400 hover:to-amber-400 disabled:opacity-50 transition shadow-lg shadow-yellow-500/20"
+              >
+                {claimingWave === wave.id ? 'Claiming...' : `🎁 Claim ${wave.score.total} ATTN`}
+              </button>
+            )}
+
+            {wave.status === 'claimed' && (
+              <div className="text-right">
+                <div className="text-green-400 text-sm font-bold">✅ +{wave.claimed.amount} ATTN</div>
+                <div className="text-[10px] text-gray-500">
+                  {new Date(wave.claimed.claimed_at * 1000).toLocaleDateString()}
+                </div>
+              </div>
+            )}
+
+            {wave.status === 'expired' && (
+              <span className="text-gray-500 text-xs">Window closed</span>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

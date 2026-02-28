@@ -24,6 +24,7 @@ import { erc8004Routes } from './routes/erc8004';
 import { donateBuyRoutes } from './routes/donate-buy';
 import { claimRoutes } from './routes/claim';
 import { attnRoutes } from './routes/attn';
+import { airdropRoutes } from './routes/airdrop';
 import { handleIncomingEmail } from './email-handler';
 import { handleCron } from './cron';
 
@@ -575,6 +576,7 @@ app.route('/api/agent', erc8004Routes);
 app.route('/api/donate-buy', donateBuyRoutes);
 app.route('/api/claim', claimRoutes);
 app.route('/api/attn', attnRoutes);
+app.route('/api/airdrop', airdropRoutes);
 
 // Public ATTN price check (no auth required)
 app.get('/api/attn/price/:handle', async (c) => {
