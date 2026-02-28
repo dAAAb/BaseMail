@@ -94,7 +94,7 @@ function parseFrontmatter(md) {
 }
 
 // Blog page template
-function blogTemplate(meta, bodyHtml, slug) {
+function blogTemplate(meta, bodyHtml, slug, heroImage) {
   const title = meta.title || 'Blog Post';
   const description = meta.description || title;
   const published = meta.published || new Date().toISOString().slice(0, 10);
@@ -119,9 +119,11 @@ function blogTemplate(meta, bodyHtml, slug) {
   <meta property="og:site_name" content="BaseMail Blog" />
   <meta property="article:published_time" content="${published}" />
   
+  ${heroImage ? `<meta property="og:image" content="https://basemail.ai${heroImage}" />` : ''}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${esc(title)}" />
   <meta name="twitter:description" content="${esc(description)}" />
+  ${heroImage ? `<meta name="twitter:image" content="https://basemail.ai${heroImage}" />` : ''}
   
   <script type="application/ld+json">
   ${JSON.stringify({
@@ -187,6 +189,7 @@ function blogTemplate(meta, bodyHtml, slug) {
   </nav>
   
   <article>
+    ${heroImage ? `<img src="${heroImage}" alt="${esc(title)}" style="width:100%;aspect-ratio:3/2;object-fit:cover;border-radius:12px;margin-bottom:24px" />` : ''}
     <h1>${esc(title)}</h1>
     <div class="meta">${published} · ${meta.author || 'BaseMail Team'}${tags ? ` · ${tags}` : ''}</div>
     ${bodyHtml}
@@ -230,8 +233,10 @@ function indexTemplate(posts) {
     h1 { font-size: 2.5em; margin-bottom: 8px; }
     .subtitle { color: var(--muted); margin-bottom: 40px; font-size: 16px; }
     
-    .post { display: block; padding: 24px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 16px; text-decoration: none; transition: border-color 0.2s; }
+    .post { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 24px; text-decoration: none; transition: border-color 0.2s; overflow: hidden; }
     .post:hover { border-color: rgba(0,82,255,0.4); }
+    .post .hero { width: 100%; aspect-ratio: 3/2; object-fit: cover; display: block; }
+    .post .content { padding: 24px; }
     .post h2 { color: white; font-size: 1.3em; margin-bottom: 8px; }
     .post p { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
     .post .date { color: #555; font-size: 12px; }
@@ -255,9 +260,12 @@ function indexTemplate(posts) {
     
     ${posts.map(p => `
     <a href="/blog/${p.slug}" class="post">
-      <h2>${esc(p.title)}</h2>
-      <p>${esc(p.description)}</p>
-      <div class="date">${p.published}${p.tags ? ` · ${p.tags}` : ''}</div>
+      ${p.heroImage ? `<img class="hero" src="${p.heroImage}" alt="${esc(p.title)}" loading="lazy" />` : ''}
+      <div class="content">
+        <h2>${esc(p.title)}</h2>
+        <p>${esc(p.description)}</p>
+        <div class="date">${p.published}${p.tags ? ` · ${p.tags}` : ''}</div>
+      </div>
     </a>`).join('\n')}
   </main>
   
@@ -285,8 +293,12 @@ function build() {
     const { meta, content } = parseFrontmatter(md);
     const slug = basename(file, '.md');
     const bodyHtml = md2html(content);
+
+    // Check if hero image exists
+    const heroPath = join(import.meta.dirname, '..', 'public', 'blog', `${slug}.webp`);
+    const heroImage = existsSync(heroPath) ? `/blog/${slug}.webp` : null;
     
-    const html = blogTemplate(meta, bodyHtml, slug);
+    const html = blogTemplate(meta, bodyHtml, slug, heroImage);
     const outDir = join(DIST_DIR, slug);
     mkdirSync(outDir, { recursive: true });
     writeFileSync(join(outDir, 'index.html'), html);
@@ -297,6 +309,7 @@ function build() {
       description: meta.description || '',
       published: meta.published || '',
       tags: meta.tags || '',
+      heroImage,
     });
     
     console.log(`✅ ${slug}/index.html`);
