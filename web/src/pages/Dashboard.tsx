@@ -1779,7 +1779,7 @@ function Compose({ auth }: { auth: AuthState }) {
     const timer = setTimeout(async () => {
       setAttnChecking(true);
       try {
-        const res = await fetch(`${API_BASE}/api/attn/price/${handle}`);
+        const res = await fetch(`${API_BASE}/api/attn-price/${handle}`);
         const data = await res.json();
         if (data.attn_enabled) {
           setAttnInfo({ cold_stake: data.cold_email_stake, reply_stake: data.reply_thread_stake, handle });

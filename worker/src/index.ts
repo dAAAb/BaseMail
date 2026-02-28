@@ -578,8 +578,8 @@ app.route('/api/claim', claimRoutes);
 app.route('/api/attn', attnRoutes);
 app.route('/api/airdrop', airdropRoutes);
 
-// Public ATTN price check (no auth required)
-app.get('/api/attn/price/:handle', async (c) => {
+// Public ATTN price check (no auth required) — outside /api/attn/* to avoid auth middleware
+app.get('/api/attn-price/:handle', async (c) => {
   const handle = c.req.param('handle').toLowerCase();
   const acct = await c.env.DB.prepare('SELECT handle FROM accounts WHERE handle = ?').bind(handle).first();
   if (!acct) return c.json({ error: 'User not found' }, 404);
