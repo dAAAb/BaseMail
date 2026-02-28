@@ -115,7 +115,7 @@ function CopyButton({ text, html, label }: { text: string; html?: string; label?
       onClick={async (e) => {
         e.stopPropagation();
         try {
-          if (html) {
+          if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
             // Rich text copy: text/html + text/plain fallback
             await navigator.clipboard.write([
               new ClipboardItem({
@@ -123,12 +123,14 @@ function CopyButton({ text, html, label }: { text: string; html?: string; label?
                 'text/plain': new Blob([text], { type: 'text/plain' }),
               }),
             ]);
-          } else {
+          } else if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(text);
+          } else {
+            throw new Error('no clipboard');
           }
         } catch {
-          // Fallback
-          try { navigator.clipboard.writeText(text); } catch { prompt('Copy:', text); }
+          // Ultimate fallback for restricted WebViews
+          try { navigator.clipboard?.writeText(text); } catch { prompt('Copy:', text); }
         }
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
