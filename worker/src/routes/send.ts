@@ -25,6 +25,53 @@ const USDC_NETWORKS: Record<string, { chain: Chain; rpc: string; usdc: string; l
 };
 const USDC_TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)']);
 
+// ── Lightweight Markdown → HTML (zero deps) ──
+function hasMarkdown(text: string): boolean {
+  return /```[\s\S]*?```|^#{1,3} |\*\*.*?\*\*|\[.*?\]\(.*?\)|^- |^\d+\. /m.test(text);
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function md2html(md: string): string {
+  let html = md
+    // Code blocks (fenced)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:16px;overflow-x:auto;font-size:13px;line-height:1.5"><code style="color:#e0e0e0;font-family:monospace">${esc(code.trim())}</code></pre>`)
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code style="background:#1a1a2e;padding:2px 6px;border-radius:4px;font-size:0.9em;color:#e0e0e0;font-family:monospace">$1</code>')
+    // Headers
+    .replace(/^### (.+)$/gm, '<h3 style="color:#fff;margin:24px 0 8px">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 style="color:#fff;margin:32px 0 12px">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 style="color:#fff;margin:32px 0 16px">$1</h1>')
+    // Bold + italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#fff">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#0052FF" target="_blank">$1</a>')
+    // Horizontal rules
+    .replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid #333;margin:24px 0" />')
+    // Unordered lists
+    .replace(/^- (.+)$/gm, '<li style="margin-bottom:4px">$1</li>')
+    .replace(/(<li[^>]*>.*<\/li>\n?)+/g, m => `<ul style="margin:12px 0;padding-left:24px;color:#ccc">${m}</ul>`)
+    // Ordered lists
+    .replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom:4px">$1</li>');
+
+  // Paragraphs
+  html = html
+    .split('\n\n')
+    .map(block => {
+      block = block.trim();
+      if (!block) return '';
+      if (/^<(h[1-6]|ul|ol|pre|hr|div|table)/.test(block)) return block;
+      return `<p style="margin:12px 0;color:#ccc;line-height:1.6">${block.replace(/\n/g, '<br/>')}</p>`;
+    })
+    .join('\n');
+
+  return `<div style="background:#0a0a0a;color:#e5e5e5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:24px;max-width:640px">${html}</div>`;
+}
+
 export const sendRoutes = new Hono<AppBindings>();
 
 sendRoutes.use('/*', authMiddleware());
@@ -252,7 +299,10 @@ sendRoutes.post('/', async (c) => {
 
   // Append signature for free-tier users
   const finalBody = isPro ? enrichedBody : enrichedBody + TEXT_SIGNATURE;
-  const finalHtml = html ? (isPro ? html : html + HTML_SIGNATURE) : undefined;
+  // Auto-generate HTML from markdown if no HTML provided and body contains markdown syntax
+  const autoHtml = (!html && hasMarkdown(enrichedBody)) ? md2html(enrichedBody) : undefined;
+  const rawHtml = html || autoHtml;
+  const finalHtml = rawHtml ? (isPro ? rawHtml : rawHtml + HTML_SIGNATURE) : undefined;
 
   // Build MIME message
   const msg = createMimeMessage();

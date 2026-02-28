@@ -205,6 +205,29 @@ function extractTextFromMime(raw: string): string {
   return isQP ? decodeQuotedPrintable(body) : body;
 }
 
+function extractHtmlFromMime(raw: string): string | null {
+  if (!raw) return null;
+
+  const boundaryMatch = raw.match(/boundary="?([^"\r\n;]+)"?/);
+  if (!boundaryMatch) return null;
+
+  const boundary = boundaryMatch[1];
+  const parts = raw.split('--' + boundary);
+  for (const part of parts) {
+    if (part.toLowerCase().includes('content-type: text/html')) {
+      const isQP = part.toLowerCase().includes('quoted-printable');
+      const sep = part.includes('\r\n\r\n') ? '\r\n\r\n' : '\n\n';
+      const bodyStart = part.indexOf(sep);
+      if (bodyStart !== -1) {
+        let body = part.slice(bodyStart + sep.length).trim();
+        body = body.replace(/--$/, '').trim();
+        return isQP ? decodeQuotedPrintable(body) : body;
+      }
+    }
+  }
+  return null;
+}
+
 // Clean snippet for inbox list (strip MIME artifacts + decode QP)
 function cleanSnippet(snippet: string | null): string {
   if (!snippet) return '';
@@ -1391,6 +1414,7 @@ function EmailDetail({ auth }: { auth: AuthState }) {
   }
 
   const bodyText = extractTextFromMime(email.body || '');
+  const bodyHtml = extractHtmlFromMime(email.body || '');
 
   return (
     <div>
@@ -1470,8 +1494,51 @@ function EmailDetail({ auth }: { auth: AuthState }) {
             {new Date(email.created_at * 1000).toLocaleString()}
           </div>
         </div>
-        <div className="whitespace-pre-wrap text-gray-300 font-mono text-sm leading-relaxed">
-          {bodyText}
+        {/* Render HTML if available, otherwise plain text */}
+        {bodyHtml ? (
+          <div
+            className="text-gray-300 text-sm leading-relaxed max-w-none
+              [&_pre]:bg-[#1a1a2e] [&_pre]:border [&_pre]:border-gray-700 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:text-[13px] [&_pre]:leading-relaxed
+              [&_code]:bg-[#1a1a2e] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.9em] [&_code]:font-mono [&_code]:text-gray-200
+              [&_a]:text-base-blue [&_a]:underline
+              [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white
+              [&_strong]:text-white
+              [&_hr]:border-gray-700
+              [&_ul]:ml-6 [&_ul]:list-disc [&_li]:mb-1
+              [&_p]:mb-3 [&_p]:leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          />
+        ) : (
+          <div className="whitespace-pre-wrap text-gray-300 font-mono text-sm leading-relaxed">
+            {bodyText}
+          </div>
+        )}
+
+        {/* Download .md */}
+        <div className="mt-4 pt-4 border-t border-gray-800 flex gap-2">
+          <button
+            onClick={() => {
+              const blob = new Blob([`# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`], { type: 'text/markdown' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${(email.subject || 'email').replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50)}.md`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
+          >
+            📄 Download .md
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(bodyText);
+              alert('Copied to clipboard');
+            }}
+            className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
+          >
+            📋 Copy text
+          </button>
         </div>
       </div>
     </div>
