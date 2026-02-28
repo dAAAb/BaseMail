@@ -49,19 +49,32 @@ inboxRoutes.get('/', async (c) => {
        LIMIT ? OFFSET ?`
     ).bind(auth.handle, limit, offset).all();
   } else {
-    emails = await c.env.DB.prepare(
-      `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
-              ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline,
-              ae.amount as attn_stake, ae.status as attn_status, ae.expires_at as attn_expires
-       FROM emails e
-       LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
-       LEFT JOIN attn_escrow ae ON ae.email_id = e.id
-       WHERE e.handle = ? AND e.folder = ?
-       ORDER BY
-         CASE WHEN ae.amount IS NOT NULL AND ae.status = 'pending' THEN ae.amount ELSE 0 END DESC,
-         e.created_at DESC
-       LIMIT ? OFFSET ?`
-    ).bind(auth.handle, folder, limit, offset).all();
+    try {
+      emails = await c.env.DB.prepare(
+        `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
+                ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline,
+                ae.amount as attn_stake, ae.status as attn_status, ae.expires_at as attn_expires
+         FROM emails e
+         LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
+         LEFT JOIN attn_escrow ae ON ae.email_id = e.id
+         WHERE e.handle = ? AND e.folder = ?
+         ORDER BY
+           CASE WHEN ae.amount IS NOT NULL AND ae.status = 'pending' THEN ae.amount ELSE 0 END DESC,
+           e.created_at DESC
+         LIMIT ? OFFSET ?`
+      ).bind(auth.handle, folder, limit, offset).all();
+    } catch (_) {
+      // attn_escrow table may not exist yet — fallback without ATTN join
+      emails = await c.env.DB.prepare(
+        `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
+                ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline
+         FROM emails e
+         LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
+         WHERE e.handle = ? AND e.folder = ?
+         ORDER BY e.created_at DESC
+         LIMIT ? OFFSET ?`
+      ).bind(auth.handle, folder, limit, offset).all();
+    }
   }
 
   const countResult = await c.env.DB.prepare(
