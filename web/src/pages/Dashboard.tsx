@@ -3886,7 +3886,17 @@ function AirdropWaves({ auth }: { auth: AuthState }) {
 
           {/* Header */}
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-2xl">{wave.badge}</span>
+            <span className="text-2xl inline-block" style={{ animation: 'chickenWiggle 1.5s ease-in-out infinite' }}>{wave.badge}</span>
+            <style>{`
+              @keyframes chickenWiggle {
+                0%, 100% { transform: rotate(0deg); }
+                15% { transform: rotate(12deg) scale(1.1); }
+                30% { transform: rotate(-10deg); }
+                45% { transform: rotate(8deg) scale(1.05); }
+                60% { transform: rotate(-6deg); }
+                75% { transform: rotate(4deg); }
+              }
+            `}</style>
             <div>
               <h3 className="text-sm font-bold text-white">{wave.name}</h3>
               <p className="text-xs text-gray-500">{wave.description}</p>
