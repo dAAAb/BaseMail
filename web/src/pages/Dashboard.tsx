@@ -443,7 +443,18 @@ export default function Dashboard() {
           <div className="text-gray-400 text-xs mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1">
               {showAltEmail ? '0x Address' : 'Your Email'}
-              {auth.tier === 'pro' && <span title="BaseMail Pro" style={{ color: '#FFD700' }}>&#10003;</span>}
+              {auth.tier === 'pro' && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" title="BaseMail Pro" className="inline-block ml-1 -mt-0.5">
+                  <circle cx="12" cy="12" r="11" fill="url(#proGold)" stroke="#B8860B" strokeWidth="1"/>
+                  <path d="M9 12.5l2 2 4-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <defs>
+                    <linearGradient id="proGold" x1="0" y1="0" x2="24" y2="24">
+                      <stop stopColor="#FFD700"/>
+                      <stop offset="1" stopColor="#FFA500"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+              )}
             </span>
             {altEmail && (
               <button

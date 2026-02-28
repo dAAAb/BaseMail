@@ -4,13 +4,75 @@
 
 Every day, 3.4 billion email accounts receive **100+ billion messages** they didn't ask for. Spam filters guess. Unsubscribe links lie. The real problem? **Sending a message costs nothing, but reading it costs you.**
 
-BaseMail flips the model: **senders stake money to reach you.** Reply → they get it back. Ignore → you keep it. Built on Base with USDC escrow, powered by mechanism design from [Quadratic Funding](https://wtfisqf.com/).
+BaseMail flips the model: **your attention is a commodity.** Senders spend tokens to reach you. Read their email → they get a refund. Ignore it → you keep the tokens. Reply → *both of you earn a bonus*. All positive feedback, no punishment.
 
-For humans, it's an inbox that pays you to read. For AI agents, it's a native email identity (`agent@basemail.ai`) with a 3-call API. For the attention economy, it's a new primitive: **Attention Bonds**.
+For humans, it's an inbox that pays you to read. For AI agents, it's a native email identity (`agent@basemail.ai`) with a 3-call API. For the attention economy, it's a new primitive: **$ATTN tokens**.
 
-> *"Basename is identity. BaseMail is **Æmail** — agentic email with humans in the loop."*
+> *"Good conversations are free. Spam pays you. Your inbox is a savings account."*
 
-**[basemail.ai](https://basemail.ai)** · **[Contract](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** · **[Paper: CO-QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)** · **[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Compatible**
+**[basemail.ai](https://basemail.ai)** · **[API Docs](https://api.basemail.ai/api/docs)** · **[Paper: CO-QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/)** · **[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Compatible**
+
+---
+
+## What's New in v3 — $ATTN Token Economy
+
+> Design philosophy: *"All positive feedback, no punishment."* — Tom Lam
+
+v3 replaces USDC Attention Bonds with **$ATTN tokens** — a free, frictionless attention economy:
+
+| | v2 (Attention Bonds) | v3 ($ATTN) |
+|--|----------------------|------------|
+| **Send cost** | USDC (real money) | ATTN (free daily tokens) |
+| **Entry barrier** | High — need USDC | Zero — free drip |
+| **Unread email** | Sender loses bond | Tokens → receiver |
+| **Read email** | Bond returned | Tokens → sender |
+| **Reply** | Bond returned | Both earn +2 bonus 🎉 |
+| **Premium** | Only option | Optional USDC lane |
+| **Psychology** | "Pay to play" | "Free to use, earn from attention" |
+
+### How $ATTN Works
+
+```
+SENDER                          ESCROW                         RECEIVER
+  │                                │                               │
+  │── stake ATTN ─────────────────>│                               │
+  │   (cold=3, reply thread=1)     │                               │
+  │                                │                               │
+  │                                │     Read? ──────────────────>│
+  │<── refund ATTN ────────────────│     "Your email was good!"   │
+  │                                │                               │
+  │                                │     Reply? ─────────────────>│
+  │<── refund + 2 bonus ──────────>│<── +2 bonus ─────────────────│
+  │    "Great conversation!" 🎉    │                               │
+  │                                │                               │
+  │                                │     Reject / 48h timeout? ──>│
+  │    "You spammed them"          │── transfer ATTN ────────────>│
+  │                                │   "Pain compensation" 💰     │
+```
+
+### Key Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Signup grant | 50 ATTN |
+| Daily drip | +10 ATTN/day |
+| Cold email stake | 3 ATTN |
+| Reply thread stake | 1 ATTN |
+| Reply bonus | +2 each (sender + receiver) |
+| Daily earn cap | 200 ATTN/day |
+| Escrow window | 48 hours |
+| USDC purchase rate | 1 USDC = 100 ATTN |
+
+### ATTN Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/attn/balance` | Your balance, daily earned, next drip |
+| GET | `/api/attn/history` | Transaction log |
+| POST | `/api/attn/buy` | Purchase ATTN with USDC (on-chain verified) |
+| GET | `/api/attn/settings` | Your receive price |
+| PUT | `/api/attn/settings` | Set receive price (1–10 ATTN) |
+| POST | `/api/inbox/:id/reject` | Reject email → earn ATTN compensation |
 
 ---
 
@@ -18,54 +80,17 @@ For humans, it's an inbox that pays you to read. For AI agents, it's a native em
 
 Email is the oldest open protocol on the internet — and the most broken. Filters are heuristic. They can't measure *intent*. With billions of AI agents coming online, the flood is about to get 1000x worse.
 
-Attention Bonds fix this at the protocol level:
+$ATTN fixes this at the economic layer:
 
 | The Problem | The Fix |
 |-------------|---------|
-| Sending is free → spam is rational | Senders **stake USDC** to reach you |
-| No cost to waste someone's time | Bonds are **forfeited** if you're ignored |
-| Legit senders treated like spammers | Bonds are **refunded** (minus 10% fee) on reply |
+| Sending is free → spam is rational | Senders **stake ATTN** to reach you |
+| No cost to waste someone's time | Unread emails → **tokens go to receiver** |
+| Legit senders treated like spammers | Read emails → **tokens refunded** to sender |
+| No reward for engaging | Reply → **both parties earn bonus** |
 | Sybil attacks on attention | **CO-QAF** discounts correlated senders |
 
-**Spam becomes economically irrational. Genuine outreach becomes provably valuable.**
-
-## How It Works
-
-```
-Sender                    BaseMail                     Recipient
-  │                          │                            │
-  ├── Approve USDC ─────────>│                            │
-  ├── Deposit Bond ─────────>│  (on-chain escrow)         │
-  ├── Send Email ───────────>│───── Email arrives ───────>│
-  │                          │                            │
-  │                          │     Recipient replies? ────┤
-  │                          │         │                  │
-  │                    ┌─────┴─────┐   │                  │
-  │                    │  YES      │   │  NO (7 days)     │
-  │                    │           │   │                  │
-  │<── Bond Refunded ──┤  -10% fee │   ├── Bond Forfeited │
-  │    (90% back)      └───────────┘   │  (recipient keeps)
-  │                                    └──────────────────┘
-```
-
-### On-Chain Mechanism
-
-- **AttentionBondEscrow** contract on Base Mainnet ([verified source](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code))
-- USDC escrow with 7-day response window (configurable 1–30 days)
-- Dynamic pricing: `p(t,s) = p₀ · (1 + α·D(t))^β · (1 - γ·R̄ₛ(t))`
-- Whitelist support — trusted senders skip bonding
-- 10% protocol fee on refunds (configurable up to 20%)
-
-### Connection-Oriented QAF (CO-QAF)
-
-BaseMail implements **CO-QAF** — a Sybil-resistant extension of Quadratic Funding for attention allocation:
-
-- **α_ij estimation**: Jaccard similarity of recipient overlap between senders
-- **Sybil resistance**: CO-QAF bounds the Sybil premium at `1/α` (constant), vs. unbounded growth in standard QAF
-- **Bridging capital amplified**: Senders who connect otherwise-separate communities get full quadratic weight
-- **Bonding capital discounted**: Correlated senders (same social circles) receive diminished matching
-
-> Reference: *"Connection-Oriented Quadratic Attention Funding"* — Ko, Tang, Weyl (2026)
+**Spam becomes economically irrational. Good conversations are literally free.**
 
 ## Architecture
 
@@ -76,9 +101,9 @@ BaseMail implements **CO-QAF** — a Sybil-resistant extension of Quadratic Fund
 │  React+Vite  │     │  api.basemail.ai │     │  KV (nonce)│
 └─────────────┘     └──────────────────┘     └────────────┘
        │                     │                      │
-  wagmi/SIWE          Hono REST API          AttentionBondEscrow
-  Wallet Connect      11 attention           (Base Mainnet)
-  Basename buy        endpoints              USDC escrow
+  wagmi/SIWE          Hono REST API           $ATTN Economy
+  Wallet Connect      ATTN endpoints          (off-chain points,
+  Basename buy        Cron: drip+settle        on-chain later)
 ```
 
 | Component | Stack |
@@ -87,11 +112,10 @@ BaseMail implements **CO-QAF** — a Sybil-resistant extension of Quadratic Fund
 | Frontend | React, Vite, Tailwind, wagmi |
 | Database | Cloudflare D1 (SQLite) |
 | Email Storage | Cloudflare R2 |
-| Auth Nonces | Cloudflare KV |
+| Auth | SIWE (Sign-In with Ethereum) |
 | Inbound Email | Cloudflare Email Routing |
 | Outbound Email | Resend.com API |
-| Smart Contract | Solidity 0.8.34, OpenZeppelin, Base Mainnet |
-| Token | USDC (Base) |
+| Attention | $ATTN off-chain points (v3), USDC on-chain bonds (v2 legacy) |
 
 ## Features
 
@@ -101,47 +125,23 @@ BaseMail implements **CO-QAF** — a Sybil-resistant extension of Quadratic Fund
 - **Basename Integration** — Auto-detect, claim, or purchase Basenames on-chain
 - **Internal Email** — Free, unlimited @basemail.ai ↔ @basemail.ai
 - **External Email** — Via Resend.com, credit-based pricing
-- **Pre-storage** — Emails to unregistered 0x addresses are held for 30 days
 
-### Attention Economy (v2)
-- **Attention Bonds** — USDC escrow for inbound emails, on-chain via `AttentionBondEscrow.sol`
-- **Dynamic Pricing** — Attention price adjusts based on demand and response rate
+### Attention Economy (v3)
+- **$ATTN Tokens** — Free daily drip, no USDC required to start
+- **Smart Staking** — Cold emails cost more (3), reply threads cost less (1)
+- **Reply Bonus** — Both parties earn +2 ATTN for genuine conversations
+- **Reject Button** — Don't read spam, earn compensation instantly
+- **48h Auto-Settlement** — Unread emails auto-forfeit tokens to receiver
+- **USDC Purchase** — Optional: buy ATTN for priority access
+- **Daily Earn Cap** — 200 ATTN/day prevents farming
 - **CO-QAF Scoring** — Quadratic attention funding with Sybil resistance
-- **Compose Detection** — Auto-detects if recipient has bonds enabled, shows deposit prompt
-- **3-Step Deposit Flow** — Approve USDC → Deposit to Escrow → Record bond via API
-- **Email Activity Stats** — Dashboard shows received/sent/unique senders/reply rate
-- **Whitelist Management** — Exempt trusted senders from bonding
 
-## Smart Contract
+### Standards & Integrations
+- **ERC-8004** — Agent identity resolution standard
+- **Lens Protocol** — Social graph on agent profiles
+- **Pro Tier** — Gold badge, no signatures, bonus credits
 
-**[AttentionBondEscrow.sol](https://basescan.org/address/0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220#code)** — Verified on BaseScan
-
-```solidity
-// Core functions
-function deposit(address recipient, bytes32 emailId, uint256 amount) external;
-function reply(bytes32 emailId) external;      // Recipient replies → refund sender
-function forfeit(bytes32 emailId) external;    // No reply after window → recipient keeps bond
-
-// Configuration (per-user)
-function setAttentionPrice(uint256 price) external;
-function setWhitelist(address sender, bool status) external;
-function setResponseWindow(uint256 window) external;  // 1-30 days
-
-// View
-function getAttentionPrice(address recipient) public view returns (uint256);
-function getBond(bytes32 emailId) external view returns (...);
-```
-
-**Parameters:**
-- USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (Base)
-- Protocol fee: 10% (on refunds only)
-- Min bond: 0.001 USDC
-- Default price: 0.01 USDC
-- Response window: 7 days (default)
-
-## API
-
-### Quick Start (AI Agents)
+## Quick Start (AI Agents)
 
 ```bash
 # 1. Get SIWE message
@@ -149,33 +149,21 @@ curl -X POST https://api.basemail.ai/api/auth/start \
   -H "Content-Type: application/json" \
   -d '{"address":"YOUR_WALLET_ADDRESS"}'
 
-# 2. Sign message + register (returns JWT token)
+# 2. Sign message + register (returns JWT + 50 ATTN grant!)
 curl -X POST https://api.basemail.ai/api/auth/agent-register \
   -H "Content-Type: application/json" \
   -d '{"address":"...","signature":"0x...","message":"..."}'
 
-# 3. Send email
+# 3. Send email (auto-stakes ATTN)
 curl -X POST https://api.basemail.ai/api/send \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to":"someone@basemail.ai","subject":"Hello","body":"Hi!"}'
+
+# 4. Check your ATTN balance
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.basemail.ai/api/attn/balance
 ```
-
-### Attention Bond Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/attention/config` | Get your attention bond config |
-| PUT | `/api/attention/config` | Enable/configure attention bonds |
-| GET | `/api/attention/price/:handle` | Get recipient's current attention price |
-| POST | `/api/attention/bond` | Record a bond (after on-chain deposit) |
-| GET | `/api/attention/bonds` | List your bonds (sent/received) |
-| GET | `/api/attention/stats` | QAF score, demand, response rate |
-| GET | `/api/attention/qaf` | CO-QAF scoring with α_ij matrix |
-| POST | `/api/attention/whitelist` | Add sender to whitelist |
-| DELETE | `/api/attention/whitelist/:address` | Remove from whitelist |
-| GET | `/api/attention/whitelist` | List whitelisted addresses |
-| GET | `/api/attention/leaderboard` | Top accounts by QAF score |
 
 Full API docs: `GET https://api.basemail.ai/api/docs`
 
@@ -186,100 +174,47 @@ BaseMail/
 ├── worker/              # Cloudflare Worker (API)
 │   ├── src/
 │   │   ├── index.ts          # Routes + API docs
+│   │   ├── cron.ts           # Daily drip + escrow settlement
 │   │   ├── auth.ts           # JWT + SIWE verification
 │   │   ├── email-handler.ts  # Inbound email processing
 │   │   └── routes/
-│   │       ├── attention.ts  # Attention bond endpoints (11 routes)
+│   │       ├── attn.ts       # $ATTN token endpoints (v3)
+│   │       ├── attention.ts  # USDC attention bonds (v2 legacy)
 │   │       ├── auth.ts       # /api/auth/*
-│   │       ├── register.ts   # /api/register/* + Basename check
-│   │       ├── send.ts       # /api/send
-│   │       ├── inbox.ts      # /api/inbox/*
-│   │       ├── identity.ts   # /api/identity/*
-│   │       └── credits.ts    # /api/credits/*
+│   │       ├── send.ts       # /api/send (with ATTN auto-stake)
+│   │       ├── inbox.ts      # /api/inbox/* (with ATTN refund/reject)
+│   │       └── ...
 │   └── wrangler.toml
 ├── web/                 # Frontend (Cloudflare Pages)
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── Landing.tsx   # Landing + Basename availability check
-│   │   │   └── Dashboard.tsx # Email client + Attention Bonds UI
-│   │   └── wagmi.ts          # Wallet config (Base Mainnet)
-│   └── vite.config.ts
-├── contracts/           # Smart contracts
-│   ├── contracts/
-│   │   └── AttentionBondEscrow.sol  # USDC escrow contract
-│   └── hardhat.config.ts
-└── skill/               # OpenClaw AI agent skill
-    └── handlers/
-        └── index.ts     # Agent email integration
+│   └── src/pages/
+│       ├── Landing.tsx       # Landing page
+│       └── Dashboard.tsx     # Email client + $ATTN dashboard
+├── contracts/           # Smart contracts (v2 legacy)
+│   └── AttentionBondEscrow.sol
+└── ATTN-V3-IMPLEMENTATION.md  # Full implementation details
 ```
 
 ## Development
 
-### Prerequisites
-
-- Node.js 20+
-- Cloudflare account (Workers, D1, R2, KV, Email Routing)
-- Wrangler CLI
-
-### Setup
-
 ```bash
-# Install dependencies (npm workspace — must run from root)
+# Install (npm workspace — must run from root)
 npm install
-
-# Configure secrets (create worker/.dev.vars)
-# JWT_SECRET=your-secret-here
-# WALLET_PRIVATE_KEY=0x...
-# RESEND_API_KEY=re_...
 
 # Run worker locally
 cd worker && npx wrangler dev
 
 # Run frontend locally
 cd web && npx vite dev
+
+# Deploy (via CI/CD: push to main → auto deploy)
+git push origin main
 ```
-
-### Deploy
-
-```bash
-# Deploy worker
-cd worker && npx wrangler deploy
-
-# Build + deploy frontend
-cd web && npx vite build && npx wrangler pages deploy dist --project-name=basemail-web
-```
-
-## ERC-8004 Compatibility
-
-BaseMail implements [ERC-8004 (Trustless Agents)](https://eips.ethereum.org/EIPS/eip-8004) — the emerging Ethereum standard for AI agent identity, reputation, and discovery.
-
-**How it maps:**
-
-| ERC-8004 Registry | BaseMail Implementation |
-|-------------------|------------------------|
-| **Identity** (ERC-721) | Basename NFT — every agent gets a portable, transferable on-chain identity |
-| **Reputation** | CO-QAF score — quadratic attention funding measures sender diversity and trust |
-| **Validation** | Attention Bonds — USDC escrow as stake-based proof of genuine intent |
-| **Discovery** | Registration file at `/api/agent/:handle/registration.json` |
-
-**Endpoints:**
-
-```bash
-# Agent registration file (ERC-8004 format)
-GET https://api.basemail.ai/api/agent/cloudlobst3r/registration.json
-
-# Platform discovery
-GET https://api.basemail.ai/.well-known/agent-registration.json
-```
-
-Every BaseMail agent is automatically discoverable by any ERC-8004 compatible system. The registration file includes email endpoint, wallet, Basename, attention bond config, and CO-QAF reputation data.
 
 ## Related Work
 
 - [Quadratic Funding](https://wtfisqf.com/) — Buterin, Hitzig, Weyl (2019)
-- [Plural Funding](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4712606) — Connection-Oriented Quadratic Funding
-- [Attention Markets](https://doi.org/10.1257/aer.96.4.1191) — Loder & Van Alstyne (2006)
-- [Sender-Pays Email](https://doi.org/10.1257/aer.102.3.416) — Rao & Reiley (2012)
+- [Connection-Oriented QAF](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/) — Ko, Tang, Weyl (2026)
+- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) — Agent Identity Standard
 
 ## License
 

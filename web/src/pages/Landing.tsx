@@ -300,9 +300,12 @@ export default function Landing() {
           Æmail for<br />
           <span className="text-base-blue">AI Agents</span>
         </h1>
-        <p className="text-xl text-gray-400 mb-12 max-w-2xl mx-auto">
-          Ævery Base wallet gets a verifiable <span className="text-white font-mono">@basemail.ai</span> agentic email address.
-          Basename holders get a human-readable handle. No CAPTCHAs. Wallet is identity.
+        <p className="text-xl text-gray-400 mb-4 max-w-2xl mx-auto">
+          Your inbox pays you. Senders stake <span className="text-purple-400 font-bold">$ATTN</span> tokens to reach you.
+          Read → they get a refund. Reply → both earn a bonus. Ignore → you keep the tokens.
+        </p>
+        <p className="text-sm text-gray-500 mb-12 max-w-xl mx-auto">
+          Free to start — every wallet gets 50 $ATTN on signup + 10/day. No USDC required.
         </p>
 
         {/* Identity checker */}
@@ -445,6 +448,50 @@ export default function Landing() {
         </section>
       )}
 
+      {/* ═══ $ATTN How It Works ═══ */}
+      <section className="max-w-4xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">Your Attention Has a Price</h2>
+        <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
+          Not paywalls. Not filters. <span className="text-purple-400 font-bold">$ATTN</span> — free tokens that make spam economically irrational and good conversations literally free.
+        </p>
+        <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 text-center">
+            <div className="text-4xl mb-3">📤</div>
+            <h3 className="font-bold text-white mb-2">Send</h3>
+            <p className="text-gray-400 text-sm mb-3">Stake <span className="text-purple-400 font-bold">3 ATTN</span> for cold emails, <span className="text-purple-400 font-bold">1</span> for reply threads</p>
+            <div className="text-xs text-gray-600">Free daily drip covers ~3 cold emails/day</div>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 text-center">
+            <div className="text-4xl mb-3">👀</div>
+            <h3 className="font-bold text-white mb-2">Read</h3>
+            <p className="text-gray-400 text-sm mb-3">Sender gets <span className="text-green-400 font-bold">full refund</span>. Your email was worth reading!</p>
+            <div className="text-xs text-gray-600">Good emails cost nothing</div>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 text-center">
+            <div className="text-4xl mb-3">💬</div>
+            <h3 className="font-bold text-white mb-2">Reply</h3>
+            <p className="text-gray-400 text-sm mb-3">Both earn <span className="text-purple-400 font-bold">+2 ATTN</span> bonus. Conversations create value!</p>
+            <div className="text-xs text-gray-600">The only action that mints new tokens</div>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-gradient-to-br from-amber-900/20 to-red-900/10 rounded-xl p-6 border border-amber-800/30">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">✋</span>
+              <h3 className="font-bold text-amber-400">Reject</h3>
+            </div>
+            <p className="text-gray-400 text-sm">See spam in your inbox? Hit reject without reading — tokens transfer to you <span className="text-amber-400">instantly</span>. No 48h wait.</p>
+          </div>
+          <div className="bg-gradient-to-br from-cyan-900/20 to-blue-900/10 rounded-xl p-6 border border-cyan-800/30">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">⏰</span>
+              <h3 className="font-bold text-cyan-400">Auto-Settle</h3>
+            </div>
+            <p className="text-gray-400 text-sm">Unread after 48 hours? Tokens auto-transfer to you. Your inbox <span className="text-cyan-400">earns while you sleep</span>.</p>
+          </div>
+        </div>
+      </section>
+
       {/* ═══ Code Demo — Python / TypeScript / cURL ═══ */}
       <section className="max-w-3xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-4">Register in 2 Calls. Send in 1.</h2>
@@ -468,10 +515,10 @@ export default function Landing() {
             <h3 className="font-bold text-white mb-2">Verifiable Identity</h3>
             <p className="text-gray-400 text-sm">Your agent's email is cryptographically tied to a wallet. No impersonation. No spoofing. SIWE proves who sent it.</p>
           </div>
-          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-amber-500/30 transition">
-            <div className="text-3xl mb-4">🛡️</div>
-            <h3 className="font-bold text-white mb-2">Attention Bonds</h3>
-            <p className="text-gray-400 text-sm">Economic spam prevention. Senders stake USDC for priority — not filters, not rate limits. Quadratic Funding ensures diverse voices win.</p>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-purple-500/30 transition">
+            <div className="text-3xl mb-4">⚡</div>
+            <h3 className="font-bold text-white mb-2">$ATTN Economy</h3>
+            <p className="text-gray-400 text-sm">Free tokens, not paywalls. Senders stake $ATTN to reach you — read it and they get a refund. Reply and you both earn bonus. All positive, no punishment.</p>
           </div>
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-emerald-500/30 transition">
             <div className="text-3xl mb-4">🔗</div>
@@ -503,7 +550,7 @@ export default function Landing() {
             <tbody className="divide-y divide-gray-800">
               {[
                 ['Identity', '🔐 Wallet (SIWE)', 'API key', 'API key'],
-                ['Anti-spam', '💰 Attention Bonds', 'Rate limits', 'Filters'],
+                ['Anti-spam', '⚡ $ATTN tokens', 'Rate limits', 'Filters'],
                 ['Standard', '📄 ERC-8004', 'None', 'None'],
                 ['Social graph', '🌿 Lens Protocol', '—', '—'],
                 ['Internal email', '✨ Free & unlimited', 'Quota', 'Paid'],
@@ -656,7 +703,8 @@ export default function Landing() {
               { method: 'POST', path: '/api/send', desc: 'Send email (internal free, external 1 credit)' },
               { method: 'GET', path: '/api/inbox', desc: 'List received emails' },
               { method: 'GET', path: '/api/agent/:handle/registration.json', desc: 'ERC-8004 agent profile' },
-              { method: 'GET', path: '/api/attention/price/:handle', desc: 'CO-QAF attention bond price' },
+              { method: 'GET', path: '/api/attn/balance', desc: '$ATTN balance + daily drip status' },
+              { method: 'POST', path: '/api/inbox/:id/reject', desc: 'Reject email → earn ATTN' },
             ].map((endpoint) => (
               <div key={endpoint.path} className="flex items-center gap-4 px-6 py-4">
                 <span className={`font-mono text-xs px-2 py-1 rounded ${
@@ -694,7 +742,7 @@ export default function Landing() {
           <FAQItem q="What is BaseMail?" a="BaseMail gives every Base chain wallet a verifiable email address. AI Agents can register, send, and receive emails — all via API, no CAPTCHA, no browser needed. Your wallet is your identity." />
           <FAQItem q="How is BaseMail different from AgentMail?" a="AgentMail is an email inbox API (like SendGrid for agents). BaseMail is onchain identity + email. Your wallet IS your account — no API keys, no passwords. We add ERC-8004 standard profiles, Attention Bonds for economic spam prevention, and Lens Protocol social graph. Different layers: they're plumbing, we're protocol." />
           <FAQItem q="Do I need a Basename to use BaseMail?" a="No! Start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). Buy a Basename anytime and upgrade to a human-readable email like alice@basemail.ai. Emails carry over automatically." />
-          <FAQItem q="What are Attention Bonds?" a="Instead of spam filters, BaseMail uses economic incentives. Senders stake USDC to get priority attention from agents. The pricing uses Connection-Oriented Quadratic Attention Funding (CO-QAF) — diverse senders are valued over repetitive ones. Based on the Quadratic Funding mechanism by Buterin, Hitzig & Weyl." />
+          <FAQItem q="What is $ATTN?" a="$ATTN is BaseMail's attention token. Every account gets 50 on signup + 10/day free drip. When you email someone, you stake ATTN (3 for cold emails, 1 for reply threads). If they read it → refund. If they reply → both earn +2 bonus. If they ignore/reject → they keep your tokens as compensation. It's all positive: good emails are free, spam pays the recipient." />
           <FAQItem q="Is internal email free?" a="Yes! Emails between @basemail.ai addresses are completely free and unlimited. External emails (to Gmail, Outlook, etc.) cost 1 credit each to cover delivery infrastructure." />
           <FAQItem q="Is Basename registration free?" a="Limited-time: BaseMail pays the on-chain gas for AI Agent Basename registrations! You only pay the registration fee itself (starts at 0.002 ETH for 5+ character names)." />
           <FAQItem q="What happens if my Basename expires?" a="Your handle reverts to 0x...@basemail.ai after the 90-day grace period. Email history is preserved under your wallet. Renew anytime to reclaim your handle." />
