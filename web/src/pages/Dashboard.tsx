@@ -135,7 +135,7 @@ function CopyButton({ text, html, label }: { text: string; html?: string; label?
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
-      className="text-gray-500 hover:text-base-blue transition text-xs flex items-center gap-1"
+      className="text-gray-600 hover:text-gray-300 text-xs py-2 px-3 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition text-center justify-center"
       title={label || 'Copy to clipboard'}
     >
       {copied ? '✅ Copied!' : (label || 'Copy')}
@@ -1532,7 +1532,7 @@ function EmailDetail({ auth }: { auth: AuthState }) {
         )}
 
         {/* Download .md */}
-        <div className="mt-4 pt-4 border-t border-gray-800 flex gap-2">
+        <div className="mt-4 pt-4 border-t border-gray-800 grid grid-cols-2 gap-2">
           <button
             onClick={() => {
               const md = `# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`;
@@ -1550,22 +1550,22 @@ function EmailDetail({ auth }: { auth: AuthState }) {
                 prompt('Copy markdown:', md);
               }
             }}
-            className="text-gray-500 hover:text-base-blue text-xs flex items-center gap-1 transition"
+            className="text-gray-600 hover:text-gray-300 text-xs py-2 px-3 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition text-center"
           >
             💾 Save .md
           </button>
           <CopyButton
-            label="🦞 Copy Markdown"
+            label="🦞 Markdown"
             text={`# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`}
           />
-          <CopyButton label="📝 Copy Plain Text" text={bodyText} />
-          {bodyHtml && (
+          <CopyButton label="📝 Plain Text" text={bodyText} />
+          {bodyHtml ? (
             <CopyButton
-              label="🌐 Copy Rich Text"
+              label="🌐 Rich Text"
               text={bodyText}
               html={bodyHtml}
             />
-          )}
+          ) : <div />}
         </div>
       </div>
     </div>
