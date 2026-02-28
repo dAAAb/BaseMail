@@ -34,3 +34,7 @@ id = "6424876ef5e449fea7ba9e800514d528"
 # Email 寄信 binding（不限制目的地，由程式碼控制）
 [[send_email]]
 name = "SEND_EMAIL"
+
+# Cron — ATTN drip + escrow settlement (每小時)
+[triggers]
+crons = ["0 * * * *"]

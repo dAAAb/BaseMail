@@ -157,6 +157,12 @@ authRoutes.post('/agent-register', async (c) => {
     refresh_token = null;
   }
 
+  // ── ATTN v3: Grant signup ATTN (non-blocking) ──
+  try {
+    const { ensureBalance } = await import('./attn');
+    await ensureBalance(c.env.DB, wallet, handle);
+  } catch (_) { /* ATTN tables may not exist yet — skip gracefully */ }
+
   // Count pending emails
   const pendingResult = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM emails WHERE handle = ?'

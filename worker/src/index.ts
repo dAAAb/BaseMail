@@ -23,7 +23,9 @@ import { settingsRoutes } from './routes/settings';
 import { erc8004Routes } from './routes/erc8004';
 import { donateBuyRoutes } from './routes/donate-buy';
 import { claimRoutes } from './routes/claim';
+import { attnRoutes } from './routes/attn';
 import { handleIncomingEmail } from './email-handler';
+import { handleCron } from './cron';
 
 const app = new Hono<AppBindings>();
 
@@ -572,9 +574,11 @@ app.route('/api/settings', settingsRoutes);
 app.route('/api/agent', erc8004Routes);
 app.route('/api/donate-buy', donateBuyRoutes);
 app.route('/api/claim', claimRoutes);
+app.route('/api/attn', attnRoutes);
 
 // 匯出 fetch handler (HTTP) 與 email handler (incoming mail)
 export default {
   fetch: app.fetch,
   email: handleIncomingEmail,
+  scheduled: handleCron,
 };

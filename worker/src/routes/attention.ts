@@ -481,6 +481,19 @@ authed.get('/stats', async (c) => {
 // ── Record bond deposit (called after on-chain tx) ──
 
 authed.post('/bond', async (c) => {
+  // ── ATTN v3: USDC bonds sunset — use $ATTN system instead ──
+  return c.json({
+    error: 'USDC Attention Bonds have been upgraded to the $ATTN system.',
+    migration: {
+      message: 'BaseMail now uses $ATTN tokens for attention pricing. Free daily drip, no USDC required.',
+      balance: 'GET /api/attn/balance',
+      settings: 'GET /api/attn/settings',
+      buy_attn: 'POST /api/attn/buy (optional: purchase ATTN with USDC)',
+      docs: 'https://api.basemail.ai/api/docs',
+    },
+  }, 410); // 410 Gone
+
+  // eslint-disable-next-line no-unreachable -- kept for rollback reference
   const auth = c.get('auth');
   if (!auth.handle) return c.json({ error: 'Not registered' }, 403);
 

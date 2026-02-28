@@ -277,11 +277,13 @@ export default function Dashboard() {
   // Sidebar badges
   const [sidebarUnread, setSidebarUnread] = useState(0);
   const [attentionConfigured, setAttentionConfigured] = useState(true); // assume true until checked
+  const [attnBalance, setAttnBalance] = useState<{ balance: number; daily_earned: number; daily_earn_cap: number } | null>(null);
 
   useEffect(() => {
     if (!auth?.token) return;
     apiFetch('/api/inbox?folder=inbox&limit=1', auth.token).then(r => r.json()).then(d => setSidebarUnread(d.unread || 0)).catch(() => {});
     apiFetch('/api/attention/config', auth.token).then(r => r.json()).then(d => setAttentionConfigured(!!d.config?.enabled)).catch(() => setAttentionConfigured(true));
+    apiFetch('/api/attn/balance', auth.token).then(r => r.json()).then(d => { if (d.balance !== undefined) setAttnBalance(d); }).catch(() => {});
   }, [auth?.token]);
 
   // Auto-detect Basename upgrade for 0x handle users
@@ -485,7 +487,7 @@ export default function Dashboard() {
           <NavLink to="/dashboard/sent" icon="send" label="Sent" active={location.pathname === '/dashboard/sent'} />
           <NavLink to="/dashboard/compose" icon="edit" label="Compose" active={location.pathname === '/dashboard/compose'} />
           <NavLink to="/dashboard/credits" icon="credits" label="Credits" active={location.pathname === '/dashboard/credits'} />
-          <NavLink to="/dashboard/attention" icon="attention" label="Attention" active={location.pathname.startsWith('/dashboard/attention')} badge={!attentionConfigured ? '!' : undefined} />
+          <NavLink to="/dashboard/attn" icon="attention" label="$ATTN" active={location.pathname.startsWith('/dashboard/attn')} badge={attnBalance ? attnBalance.balance : undefined} />
           <NavLink to="/dashboard/settings" icon="settings" label="Settings" active={location.pathname === '/dashboard/settings'} />
         </nav>
 
@@ -650,6 +652,7 @@ export default function Dashboard() {
           <Route path="compose" element={<Compose auth={auth} />} />
           <Route path="credits" element={<Credits auth={auth} />} />
           <Route path="attention" element={<Attention auth={auth} />} />
+          <Route path="attn" element={<AttnDashboard auth={auth} />} />
           <Route path="settings" element={<Settings auth={auth} setAuth={setAuth} onUpgrade={(canUpgrade || hasNFTOnly) ? handleUpgrade : undefined} upgrading={upgrading} />} />
           <Route path="email/:id" element={<EmailDetail auth={auth} />} />
         </Routes>
@@ -1318,6 +1321,15 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                         ${email.usdc_amount}
                       </span>
                     )}
+                    {(email as any).attn_stake > 0 && (
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                        (email as any).attn_status === 'pending' ? 'text-purple-400 bg-purple-900/30' :
+                        (email as any).attn_status === 'refunded' ? 'text-green-400 bg-green-900/30' :
+                        'text-gray-400 bg-gray-800'
+                      }`} title={`$ATTN: ${(email as any).attn_status}`}>
+                        ⚡ {(email as any).attn_stake} ATTN
+                      </span>
+                    )}
                     {email.subject || '(no subject)'}
                   </div>
                   <div className="text-gray-600 text-xs truncate mt-1">{cleanSnippet(email.snippet)}</div>
@@ -1382,6 +1394,23 @@ function EmailDetail({ auth }: { auth: AuthState }) {
         >
           Reply
         </Link>
+        {email.folder === 'inbox' && !email.read && (
+          <button
+            onClick={async () => {
+              if (!confirm('Reject this email? You\'ll receive ATTN compensation.')) return;
+              const res = await apiFetch(`/api/inbox/${id}/reject`, auth.token, { method: 'POST' });
+              const data = await res.json();
+              if (data.success) {
+                setEmail((prev: any) => prev ? { ...prev, read: 1 } : prev);
+                alert(data.attn_received > 0 ? `Rejected! You received ${data.attn_received} ATTN.` : 'Rejected.');
+              }
+            }}
+            className="text-amber-400 hover:text-amber-300 text-sm"
+            title="Reject — don't read, earn ATTN compensation"
+          >
+            ✋ Reject
+          </button>
+        )}
         <button
           onClick={handleDelete}
           disabled={deleting}
@@ -3540,6 +3569,168 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
     <div className="text-center">
       <div className={`text-2xl font-bold ${color || 'text-white'}`}>{value}</div>
       <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+// ─── ATTN Dashboard (v3) ─────────────────────────────────
+function AttnDashboard({ auth }: { auth: AuthState }) {
+  const [balance, setBalance] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [settings, setSettings] = useState<{ receive_price: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [priceInput, setPriceInput] = useState(1);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!auth?.token) return;
+    Promise.all([
+      apiFetch('/api/attn/balance', auth.token).then(r => r.json()),
+      apiFetch('/api/attn/history?limit=20', auth.token).then(r => r.json()),
+      apiFetch('/api/attn/settings', auth.token).then(r => r.json()),
+    ]).then(([bal, hist, sett]) => {
+      setBalance(bal);
+      setHistory(hist.transactions || []);
+      setSettings(sett);
+      setPriceInput(sett?.receive_price ?? 1);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [auth?.token]);
+
+  async function savePrice() {
+    setSaving(true);
+    try {
+      await apiFetch('/api/attn/settings', auth.token, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receive_price: priceInput }),
+      });
+      setSettings(prev => prev ? { ...prev, receive_price: priceInput } : prev);
+    } catch {}
+    setSaving(false);
+  }
+
+  if (loading) return <div className="text-gray-500 text-center py-20">Loading...</div>;
+
+  const TYPE_LABELS: Record<string, { label: string; color: string }> = {
+    signup_grant: { label: '🎁 Welcome Grant', color: 'text-green-400' },
+    drip: { label: '💧 Daily Drip', color: 'text-blue-400' },
+    drip_batch: { label: '💧 Daily Drip (system)', color: 'text-blue-400' },
+    stake: { label: '📤 Staked', color: 'text-amber-400' },
+    refund: { label: '✅ Refunded', color: 'text-green-400' },
+    reply_bonus: { label: '🎉 Reply Bonus', color: 'text-purple-400' },
+    compensation: { label: '🛡️ Compensation', color: 'text-cyan-400' },
+    forfeit: { label: '❌ Forfeited', color: 'text-red-400' },
+    cap_refund: { label: '↩️ Cap Refund', color: 'text-gray-400' },
+    purchase: { label: '💰 Purchased', color: 'text-green-400' },
+    transfer: { label: '📥 Received', color: 'text-cyan-400' },
+  };
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-6">$ATTN — Attention Tokens</h2>
+
+      {/* Balance Card */}
+      <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-700/40 rounded-xl p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-sm text-gray-400 mb-1">Your Balance</div>
+            <div className="text-4xl font-bold text-white">{balance?.balance ?? 0} <span className="text-lg text-purple-400">ATTN</span></div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-gray-500">Daily earned</div>
+            <div className="text-sm text-gray-300">{balance?.daily_earned ?? 0} / {balance?.daily_earn_cap ?? 200}</div>
+            <div className="text-xs text-gray-500 mt-2">Next drip</div>
+            <div className="text-sm text-gray-300">
+              {balance?.next_drip_in_seconds > 0
+                ? `${Math.floor(balance.next_drip_in_seconds / 3600)}h ${Math.floor((balance.next_drip_in_seconds % 3600) / 60)}m`
+                : 'Available now'}
+            </div>
+          </div>
+        </div>
+
+        {/* How it works */}
+        <div className="grid grid-cols-3 gap-3 text-center text-xs">
+          <div className="bg-black/30 rounded-lg p-3">
+            <div className="text-lg mb-1">📤</div>
+            <div className="text-gray-400">Cold email</div>
+            <div className="text-white font-bold">3 ATTN</div>
+          </div>
+          <div className="bg-black/30 rounded-lg p-3">
+            <div className="text-lg mb-1">↩️</div>
+            <div className="text-gray-400">Reply thread</div>
+            <div className="text-white font-bold">1 ATTN</div>
+          </div>
+          <div className="bg-black/30 rounded-lg p-3">
+            <div className="text-lg mb-1">🎉</div>
+            <div className="text-gray-400">Reply bonus</div>
+            <div className="text-white font-bold">+2 each</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Receive Price Setting */}
+      <div className="bg-base-gray rounded-xl p-5 border border-gray-800 mb-6">
+        <h3 className="text-sm font-bold text-gray-300 mb-3">Receive Price</h3>
+        <p className="text-xs text-gray-500 mb-3">How much ATTN should senders stake to email you? (Cold emails always cost at least 3)</p>
+        <div className="flex items-center gap-3">
+          <input
+            type="range" min={1} max={10} value={priceInput}
+            onChange={e => setPriceInput(parseInt(e.target.value))}
+            className="flex-1 accent-purple-500"
+          />
+          <span className="text-white font-bold w-16 text-center">{priceInput} ATTN</span>
+          <button
+            onClick={savePrice}
+            disabled={saving || priceInput === (settings?.receive_price ?? 1)}
+            className="bg-purple-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition"
+          >
+            {saving ? '...' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      {/* How $ATTN Works */}
+      <div className="bg-base-gray rounded-xl p-5 border border-gray-800 mb-6">
+        <h3 className="text-sm font-bold text-gray-300 mb-3">How $ATTN Works</h3>
+        <div className="space-y-2 text-xs text-gray-400">
+          <div className="flex items-start gap-2"><span className="text-green-400">✅</span><span>Someone emails you → they stake ATTN</span></div>
+          <div className="flex items-start gap-2"><span className="text-blue-400">👀</span><span>You read it → ATTN refunded to sender (good email!)</span></div>
+          <div className="flex items-start gap-2"><span className="text-purple-400">💬</span><span>You reply → both of you get +2 ATTN bonus</span></div>
+          <div className="flex items-start gap-2"><span className="text-amber-400">✋</span><span>You reject it → ATTN transferred to you (compensation)</span></div>
+          <div className="flex items-start gap-2"><span className="text-cyan-400">⏰</span><span>48h unread → ATTN transferred to you automatically</span></div>
+          <div className="flex items-start gap-2"><span className="text-gray-500">💧</span><span>Every day → free +10 ATTN drip</span></div>
+        </div>
+      </div>
+
+      {/* Transaction History */}
+      <div className="bg-base-gray rounded-xl p-5 border border-gray-800">
+        <h3 className="text-sm font-bold text-gray-300 mb-3">Transaction History</h3>
+        {history.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-6">No transactions yet</p>
+        ) : (
+          <div className="space-y-1">
+            {history.map((tx: any) => {
+              const info = TYPE_LABELS[tx.type] || { label: tx.type, color: 'text-gray-400' };
+              return (
+                <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-800/50 last:border-0">
+                  <div>
+                    <span className={`text-sm ${info.color}`}>{info.label}</span>
+                    {tx.note && <span className="text-xs text-gray-600 ml-2 hidden sm:inline">{tx.note}</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-mono text-sm font-bold ${tx.amount > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {tx.amount > 0 ? '+' : ''}{tx.amount}
+                    </span>
+                    <span className="text-[10px] text-gray-600 w-20 text-right">
+                      {new Date(tx.created_at * 1000).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

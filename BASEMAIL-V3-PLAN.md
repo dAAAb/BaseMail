@@ -46,7 +46,7 @@ BaseMail v2 (Attention Bonds) requires senders to stake **USDC** to send email. 
 |-----------|-------|-----------|
 | Initial grant | 50 ATTN | Enough to send 50 emails on signup |
 | Daily drip | 10 ATTN | Casual user can send ~10 emails/day free |
-| Balance cap | 200 ATTN | Discourage hoarding, encourage circulation |
+| Daily earn cap | 200 ATTN/day | Prevent spam farming; no account balance cap |
 | Default stake per email | 1 ATTN | Receiver can customize (1–10) |
 | Escrow window | 48 hours | Time for receiver to read before settlement |
 

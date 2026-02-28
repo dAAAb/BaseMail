@@ -51,11 +51,15 @@ inboxRoutes.get('/', async (c) => {
   } else {
     emails = await c.env.DB.prepare(
       `SELECT e.id, e.folder, e.from_addr, e.to_addr, e.subject, e.snippet, e.size, e.read, e.created_at,
-              ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline
+              ab.amount_usdc as bond_amount, ab.status as bond_status, ab.response_deadline as bond_deadline,
+              ae.amount as attn_stake, ae.status as attn_status, ae.expires_at as attn_expires
        FROM emails e
        LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
+       LEFT JOIN attn_escrow ae ON ae.email_id = e.id
        WHERE e.handle = ? AND e.folder = ?
-       ORDER BY e.created_at DESC
+       ORDER BY
+         CASE WHEN ae.amount IS NOT NULL AND ae.status = 'pending' THEN ae.amount ELSE 0 END DESC,
+         e.created_at DESC
        LIMIT ? OFFSET ?`
     ).bind(auth.handle, folder, limit, offset).all();
   }
@@ -150,6 +154,12 @@ inboxRoutes.get('/:id', async (c) => {
     await c.env.DB.prepare(
       'UPDATE emails SET read = 1 WHERE id = ?'
     ).bind(emailId).run();
+
+    // ── ATTN v3: Refund sender on read ──
+    try {
+      const { refundOnRead } = await import('./attn');
+      await refundOnRead(c.env.DB, emailId);
+    } catch (_) { /* ATTN system not ready — skip */ }
   }
 
   // Fetch raw content from R2
@@ -231,6 +241,47 @@ inboxRoutes.get('/:id/raw', async (c) => {
 
   return new Response(r2Object.body, {
     headers: { 'Content-Type': 'message/rfc822' },
+  });
+});
+
+/**
+ * POST /api/inbox/:id/reject
+ * Reject an email without reading it — immediately forfeit ATTN to receiver
+ */
+inboxRoutes.post('/:id/reject', async (c) => {
+  const auth = c.get('auth');
+  const emailId = c.req.param('id');
+
+  if (!auth.handle) return c.json({ error: 'Not registered' }, 403);
+
+  const email = await c.env.DB.prepare(
+    'SELECT id, read, from_addr FROM emails WHERE id = ? AND handle = ? AND folder = ?'
+  ).bind(emailId, auth.handle, 'inbox').first<{ id: string; read: number; from_addr: string }>();
+
+  if (!email) return c.json({ error: 'Email not found' }, 404);
+
+  if (email.read) {
+    return c.json({ error: 'Cannot reject — email was already read (ATTN already refunded)' }, 400);
+  }
+
+  let attnTransferred = 0;
+  try {
+    const { rejectEmail } = await import('./attn');
+    const result = await rejectEmail(c.env.DB, emailId, auth.wallet);
+    if (result) attnTransferred = result.transferred;
+  } catch (_) { /* ATTN system not ready */ }
+
+  // Mark as read to prevent double-settlement
+  await c.env.DB.prepare('UPDATE emails SET read = 1 WHERE id = ?').bind(emailId).run();
+
+  return c.json({
+    success: true,
+    email_id: emailId,
+    rejected: true,
+    attn_received: attnTransferred,
+    note: attnTransferred > 0
+      ? `You received ${attnTransferred} ATTN as attention compensation`
+      : 'No ATTN escrow was active for this email',
   });
 });
 

@@ -183,6 +183,43 @@ sendRoutes.post('/', async (c) => {
   const emailId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
+  // ── ATTN v3: Auto-stake ATTN (never blocks sending) ──
+  let attnResult: { staked: boolean; amount: number; reason: string; balance_after?: number } = { staked: false, amount: 0, reason: 'skip' };
+  if (isValidEmail(to) && to.toLowerCase().endsWith(`@${c.env.DOMAIN}`)) {
+    try {
+      const { getStakeAmount, stakeAttn, ensureBalance } = await import('./attn');
+      const recipientHandle = to.split('@')[0].toLowerCase();
+
+      // Ensure sender has ATTN balance
+      if (auth.wallet) {
+        await ensureBalance(c.env.DB, auth.wallet, auth.handle);
+
+        const recipientAcct = await c.env.DB.prepare(
+          'SELECT wallet FROM accounts WHERE handle = ?'
+        ).bind(recipientHandle).first<{ wallet: string }>();
+
+        if (recipientAcct) {
+          const stakeInfo = await getStakeAmount(c.env.DB, auth.handle, auth.wallet, recipientHandle);
+
+          if (stakeInfo.amount > 0) {
+            const result = await stakeAttn(
+              c.env.DB, auth.wallet, auth.handle,
+              recipientAcct.wallet, recipientHandle,
+              emailId, stakeInfo.amount,
+            );
+            if (result) {
+              attnResult = { staked: true, amount: stakeInfo.amount, reason: stakeInfo.reason, balance_after: result.balance_after };
+            } else {
+              attnResult = { staked: false, amount: stakeInfo.amount, reason: 'insufficient_balance' };
+            }
+          } else {
+            attnResult = { staked: false, amount: 0, reason: stakeInfo.reason };
+          }
+        }
+      }
+    } catch (_) { /* ATTN system not ready — skip */ }
+  }
+
   // If API key auth, resolve wallet for headers when possible
   let walletForHeaders = auth.wallet;
   if (!walletForHeaders) {
@@ -501,6 +538,15 @@ sendRoutes.post('/', async (c) => {
     } catch (_) { /* don't block email sending */ }
   }
 
+  // ── ATTN v3: Reply bonus (refund + bonus for both parties) ──
+  let attnReplyBonus: { refunded: number; bonus: number } | null = null;
+  if (in_reply_to && auth.wallet) {
+    try {
+      const { processReplyBonus } = await import('./attn');
+      attnReplyBonus = await processReplyBonus(c.env.DB, in_reply_to, auth.wallet, auth.handle);
+    } catch (_) { /* ATTN system not ready — skip */ }
+  }
+
   return c.json({
     success: true,
     email_id: emailId,
@@ -524,6 +570,21 @@ sendRoutes.post('/', async (c) => {
         amount: escrow_claim!.amount,
         claim_url: `https://basemail.ai/claim/${escrow_claim!.claim_id}`,
         expires_at: escrow_claim!.expires_at,
+      },
+    } : {}),
+    ...(attnResult.amount > 0 || attnResult.reason !== 'skip' ? {
+      attn: {
+        staked: attnResult.staked,
+        amount: attnResult.amount,
+        reason: attnResult.reason,
+        balance_after: attnResult.balance_after,
+      },
+    } : {}),
+    ...(attnReplyBonus ? {
+      attn_reply_bonus: {
+        refunded: attnReplyBonus.refunded,
+        bonus_each: attnReplyBonus.bonus,
+        note: 'Both sender and replier received reply bonus!',
       },
     } : {}),
   });
