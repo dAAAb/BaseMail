@@ -1518,13 +1518,23 @@ function EmailDetail({ auth }: { auth: AuthState }) {
         <div className="mt-4 pt-4 border-t border-gray-800 flex gap-2">
           <button
             onClick={() => {
-              const blob = new Blob([`# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`], { type: 'text/markdown' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${(email.subject || 'email').replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50)}.md`;
-              a.click();
-              URL.revokeObjectURL(url);
+              const md = `# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`;
+              try {
+                // Try standard download first
+                const blob = new Blob([md], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(email.subject || 'email').replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50)}.md`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch {
+                // Fallback for in-app browsers (MetaMask, etc.)
+                const dataUri = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(md);
+                window.open(dataUri, '_blank');
+              }
             }}
             className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
           >
@@ -1532,8 +1542,20 @@ function EmailDetail({ auth }: { auth: AuthState }) {
           </button>
           <button
             onClick={() => {
-              navigator.clipboard.writeText(bodyText);
-              alert('Copied to clipboard');
+              try {
+                navigator.clipboard.writeText(bodyText);
+              } catch {
+                // Fallback for in-app browsers
+                const ta = document.createElement('textarea');
+                ta.value = bodyText;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+              }
+              alert('Copied!');
             }}
             className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
           >
