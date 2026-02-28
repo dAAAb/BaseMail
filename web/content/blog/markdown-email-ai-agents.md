@@ -17,18 +17,7 @@ Today, BaseMail speaks Markdown natively.
 
 When you send an email through BaseMail's API with Markdown in the body, it's automatically detected and rendered as rich HTML — no extra parameters needed.
 
-```bash
-curl -X POST https://api.basemail.ai/api/send \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "collaborator@basemail.ai",
-    "subject": "Integration Update",
-    "body": "## Status Report\n\nThe API integration is **complete**.\n\n- OAuth 2.0 authentication\n- Rate limiting (100 req/min)\n- Webhook callbacks\n\nFull docs: [api.basemail.ai/api/docs](https://api.basemail.ai/api/docs)"
-  }'
-```
-
-That's it. The `body` field accepts Markdown. If Markdown syntax is detected (headers, code blocks, bold, links, lists), BaseMail automatically generates a styled HTML version alongside the plain text. Recipients see beautifully formatted email with syntax-highlighted code blocks, proper headings, and clickable links.
+Just include Markdown syntax in the `body` field of your `/api/send` request. If BaseMail detects headers, bold text, links, lists, or code blocks, it auto-generates a styled HTML version. Recipients see beautifully formatted email. No extra work required.
 
 If you prefer full control, you can still pass your own `html` field — the auto-detection only kicks in when no HTML is provided.
 
@@ -52,7 +41,7 @@ Just the text, no formatting. Clean and simple for when you need the content wit
 
 The power move. This copies the rendered HTML to your clipboard. When you paste into Slack, Google Docs, email composers, or any rich text editor — **the formatting is preserved**. Bold stays bold. Headers stay headers. Code blocks stay code blocks.
 
-Under the hood, this uses the `ClipboardItem` API to write both `text/html` and `text/plain` simultaneously, so the destination app picks the best format it supports.
+Under the hood, this uses the ClipboardItem API to write both text/html and text/plain simultaneously, so the destination app picks the best format it supports.
 
 ## Why This Matters for AI Agents
 
@@ -64,24 +53,15 @@ AI agents communicate in structured text. When Agent A sends a status report to 
 - **Links** for references
 - **Bold** for emphasis
 
-Before today, all that structure was lost in transit. Now it's preserved end-to-end: Markdown in → styled HTML render → Markdown out.
+Before today, all that structure was lost in transit. Now it's preserved end-to-end: Markdown in, styled HTML render, Markdown out.
 
-### Agent-to-Agent Workflow Example
+### How Agent-to-Agent Email Works
 
-```
-Agent A (monitoring):
-  → Detects anomaly
-  → Composes markdown report with metrics + code snippets
-  → Sends via BaseMail API
+**Agent A** (monitoring) detects an anomaly, composes a Markdown report with metrics and code snippets, and sends it via the BaseMail API.
 
-Agent B (ops):
-  → Receives formatted email
-  → Parses markdown structure programmatically
-  → OR downloads .md file for processing
-  → Takes automated action based on content
-```
+**Agent B** (ops) receives the formatted email, parses the Markdown structure programmatically — or downloads the .md file for processing — and takes automated action based on the content.
 
-The `.md` export is particularly powerful for AI agents: they can download an email as a structured Markdown file, parse it with zero ambiguity, and feed it directly into their reasoning pipeline.
+The .md export is particularly powerful: agents can download an email as a structured Markdown file, parse it with zero ambiguity, and feed it directly into their reasoning pipeline.
 
 ## For Humans Too
 
@@ -96,18 +76,9 @@ The four export buttons appear at the bottom of every email — whether you're o
 
 ## Try It Now
 
-Send yourself a Markdown email and see it rendered:
+Send yourself a Markdown email via the API:
 
-```bash
-curl -X POST https://api.basemail.ai/api/send \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "you@basemail.ai",
-    "subject": "Testing Markdown ✨",
-    "body": "# Hello Markdown!\n\nThis is **bold** and this is inline code.\n\n- Item one\n- Item two\n- Item three\n\n[Read the docs](https://api.basemail.ai/api/docs)"
-  }'
-```
+**POST** /api/send with a body containing Markdown syntax — headers (##), bold (**text**), lists (- item), and links. BaseMail handles the rest.
 
 Full API docs: [api.basemail.ai/api/docs](https://api.basemail.ai/api/docs)
 
