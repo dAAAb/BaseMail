@@ -3821,12 +3821,16 @@ function AirdropWaves({ auth }: { auth: AuthState }) {
     return () => clearInterval(interval);
   }, [waves]);
 
+  const [confettiWave, setConfettiWave] = useState<string | null>(null);
+
   async function claimWave(waveId: string) {
     setClaimingWave(waveId);
     try {
       const res = await apiFetch(`/api/airdrop/${waveId}/claim`, auth.token, { method: 'POST' });
       const data = await res.json();
       if (data.claimed) {
+        setConfettiWave(waveId);
+        setTimeout(() => setConfettiWave(null), 4000);
         setWaves(prev => prev.map(w =>
           w.id === waveId ? { ...w, status: 'claimed', claimed: { amount: data.amount, claimed_at: Math.floor(Date.now() / 1000) } } : w
         ));
@@ -3844,7 +3848,7 @@ function AirdropWaves({ auth }: { auth: AuthState }) {
       {waves.map(wave => (
         <div
           key={wave.id}
-          className={`rounded-xl p-5 border mb-3 ${
+          className={`rounded-xl p-5 border mb-3 relative overflow-hidden ${
             wave.status === 'claimed'
               ? 'bg-green-900/10 border-green-700/30'
               : wave.status === 'claimable'
@@ -3852,26 +3856,41 @@ function AirdropWaves({ auth }: { auth: AuthState }) {
               : 'bg-gradient-to-r from-indigo-900/20 to-purple-900/20 border-purple-700/40'
           }`}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl">{wave.badge}</span>
-              <div>
-                <h3 className="text-sm font-bold text-white">{wave.name}</h3>
-                <p className="text-xs text-gray-500">{wave.description}</p>
-              </div>
+          {/* Confetti overlay */}
+          {confettiWave === wave.id && (
+            <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+              {Array.from({ length: 40 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute animate-bounce"
+                  style={{
+                    left: `${Math.random() * 100}%`,
+                    top: `-${Math.random() * 20}%`,
+                    fontSize: `${12 + Math.random() * 16}px`,
+                    animationDuration: `${1 + Math.random() * 2}s`,
+                    animationDelay: `${Math.random() * 0.5}s`,
+                    animation: `confettiFall ${2 + Math.random() * 2}s ease-in forwards`,
+                  }}
+                >
+                  {['🎉', '🎊', '✨', '⚡', '🥳', '💰', '🐣', '🦞'][Math.floor(Math.random() * 8)]}
+                </div>
+              ))}
+              <style>{`
+                @keyframes confettiFall {
+                  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+                  100% { transform: translateY(400px) rotate(720deg); opacity: 0; }
+                }
+              `}</style>
             </div>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-              wave.status === 'claimed' ? 'bg-green-500/20 text-green-400' :
-              wave.status === 'claimable' ? 'bg-yellow-500/20 text-yellow-400 animate-pulse' :
-              wave.status === 'expired' ? 'bg-red-500/20 text-red-400' :
-              'bg-purple-500/20 text-purple-400'
-            }`}>
-              {wave.status === 'claimed' ? '✅ Claimed' :
-               wave.status === 'claimable' ? '🎉 Claim Now!' :
-               wave.status === 'expired' ? '⏰ Expired' :
-               '🔒 Coming Soon'}
-            </span>
+          )}
+
+          {/* Header */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-2xl">{wave.badge}</span>
+            <div>
+              <h3 className="text-sm font-bold text-white">{wave.name}</h3>
+              <p className="text-xs text-gray-500">{wave.description}</p>
+            </div>
           </div>
 
           {/* Score breakdown */}
@@ -3892,50 +3911,49 @@ function AirdropWaves({ auth }: { auth: AuthState }) {
             ))}
           </div>
 
-          {/* Total + Claim */}
-          <div className="flex items-center justify-between bg-black/20 rounded-lg px-4 py-3">
-            <div>
+          {/* Total */}
+          <div className="bg-black/20 rounded-lg px-4 py-3 mb-3 text-center">
+            <div className="text-xs text-gray-500 mb-1">
+              Base: {wave.score.base_score} × {wave.multiplier}x multiplier
+            </div>
+            <div className="text-3xl font-bold text-white">
+              {wave.score.total} <span className="text-lg text-purple-400">ATTN</span>
+            </div>
+          </div>
+
+          {/* Claim area */}
+          {wave.status === 'preview' && (
+            <div className="text-center">
+              <div className="text-xs text-gray-500 mb-2">Claim opens in</div>
+              <div className="text-lg font-mono text-purple-300 mb-3">{countdown[wave.id] || '...'}</div>
+              <button disabled className="w-full bg-gray-700 text-gray-500 text-lg py-3 rounded-xl cursor-not-allowed font-bold">
+                🔒 Locked
+              </button>
+            </div>
+          )}
+
+          {wave.status === 'claimable' && (
+            <button
+              onClick={() => claimWave(wave.id)}
+              disabled={claimingWave === wave.id || wave.score.total <= 0}
+              className="w-full bg-gradient-to-r from-yellow-500 to-amber-500 text-black text-lg py-3 rounded-xl font-bold hover:from-yellow-400 hover:to-amber-400 disabled:opacity-50 transition shadow-lg shadow-yellow-500/30 active:scale-[0.98]"
+            >
+              {claimingWave === wave.id ? '✨ Claiming...' : '🎁 Claim Airdrop'}
+            </button>
+          )}
+
+          {wave.status === 'claimed' && (
+            <div className="text-center bg-green-900/20 rounded-xl py-3">
+              <div className="text-green-400 text-lg font-bold">✅ Claimed +{wave.claimed.amount} ATTN</div>
               <div className="text-xs text-gray-500">
-                Base: {wave.score.base_score} × {wave.multiplier}x multiplier
-              </div>
-              <div className="text-2xl font-bold text-white">
-                {wave.score.total} <span className="text-sm text-purple-400">ATTN</span>
+                {new Date(wave.claimed.claimed_at * 1000).toLocaleDateString()}
               </div>
             </div>
+          )}
 
-            {wave.status === 'preview' && (
-              <div className="text-right">
-                <div className="text-[10px] text-gray-500 mb-1">Claim opens in</div>
-                <div className="text-sm font-mono text-purple-300">{countdown[wave.id] || '...'}</div>
-                <button disabled className="mt-2 bg-gray-700 text-gray-500 text-xs px-4 py-1.5 rounded-lg cursor-not-allowed">
-                  🔒 Locked
-                </button>
-              </div>
-            )}
-
-            {wave.status === 'claimable' && (
-              <button
-                onClick={() => claimWave(wave.id)}
-                disabled={claimingWave === wave.id || wave.score.total <= 0}
-                className="bg-gradient-to-r from-yellow-500 to-amber-500 text-black text-sm px-6 py-2 rounded-lg font-bold hover:from-yellow-400 hover:to-amber-400 disabled:opacity-50 transition shadow-lg shadow-yellow-500/20"
-              >
-                {claimingWave === wave.id ? 'Claiming...' : `🎁 Claim ${wave.score.total} ATTN`}
-              </button>
-            )}
-
-            {wave.status === 'claimed' && (
-              <div className="text-right">
-                <div className="text-green-400 text-sm font-bold">✅ +{wave.claimed.amount} ATTN</div>
-                <div className="text-[10px] text-gray-500">
-                  {new Date(wave.claimed.claimed_at * 1000).toLocaleDateString()}
-                </div>
-              </div>
-            )}
-
-            {wave.status === 'expired' && (
-              <span className="text-gray-500 text-xs">Window closed</span>
-            )}
-          </div>
+          {wave.status === 'expired' && (
+            <div className="text-center text-gray-500 text-sm py-2">⏰ Claim window has closed</div>
+          )}
         </div>
       ))}
     </div>
