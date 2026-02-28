@@ -142,22 +142,22 @@ function blogTemplate(meta, bodyHtml, slug, heroImage) {
   <style>
     :root { --bg: #0a0a0a; --fg: #e5e5e5; --muted: #888; --blue: #0052FF; --card: #141414; --border: #222; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.7; }
-    .nav { max-width: 720px; margin: 0 auto; padding: 24px 20px; display: flex; justify-content: space-between; align-items: center; }
+    body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; font-size: 15px; }
+    .nav { max-width: 680px; margin: 0 auto; padding: 24px 20px; display: flex; justify-content: space-between; align-items: center; }
     .nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
     .nav a:hover { color: white; }
     .logo { display: flex; align-items: center; gap: 8px; font-weight: bold; color: white; text-decoration: none; font-size: 18px; }
     .logo span { background: var(--blue); color: white; width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
     
-    article { max-width: 720px; margin: 0 auto; padding: 20px 20px 80px; }
-    article h1 { font-size: 2.2em; line-height: 1.2; margin-bottom: 12px; }
-    .meta { color: var(--muted); font-size: 14px; margin-bottom: 40px; }
-    article h2 { font-size: 1.5em; margin: 40px 0 16px; color: white; }
-    article h3 { font-size: 1.2em; margin: 32px 0 12px; color: white; }
-    article p { margin-bottom: 16px; color: #ccc; }
+    article { max-width: 680px; margin: 0 auto; padding: 20px 20px 80px; }
+    article h1 { font-size: 1.8em; line-height: 1.2; margin-bottom: 10px; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 32px; }
+    article h2 { font-size: 1.3em; margin: 32px 0 12px; color: white; }
+    article h3 { font-size: 1.1em; margin: 24px 0 8px; color: white; }
+    article p { margin-bottom: 12px; color: #ccc; line-height: 1.6; }
     article a { color: var(--blue); text-decoration: underline; }
-    article ul, article ol { margin: 0 0 16px 24px; color: #ccc; }
-    article li { margin-bottom: 6px; }
+    article ul, article ol { margin: 0 0 12px 20px; color: #ccc; }
+    article li { margin-bottom: 3px; }
     article strong { color: white; }
     article code { background: var(--card); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: #ddd; }
     article pre { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 16px 0; overflow-x: auto; }
