@@ -53,8 +53,7 @@ const WAVE_1: WaveConfig = {
   description: 'Reward early adopters who used BaseMail before April 1, 2026. 2× multiplier!',
   multiplier: 2,
   snapshotCutoff: Math.floor(new Date('2026-04-01T11:01:00Z').getTime() / 1000),
-  // TEST MODE: temporarily set to past for testing. Revert to: Math.floor(new Date('2026-04-01T11:01:00Z').getTime() / 1000)
-  claimOpensAt: Math.floor(new Date('2026-01-01T00:00:00Z').getTime() / 1000),
+  claimOpensAt: Math.floor(new Date('2026-04-01T11:01:00Z').getTime() / 1000),
   claimClosesAt: 0, // never expires
   scoring: {
     email_received: 1,

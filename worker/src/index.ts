@@ -420,6 +420,68 @@ app.get('/api/docs', (c) => {
         description: 'Dashboard: bonds received/sent, QAF score',
       },
 
+      // — $ATTN Tokens (v3) —
+      'GET /api/attn/balance': {
+        auth: 'Bearer token',
+        description: 'Get your ATTN balance, daily earned, and claim status',
+        response: '{ handle, balance, daily_earned, daily_earn_cap, can_claim, next_claim_in_seconds, constants }',
+      },
+      'POST /api/attn/claim': {
+        auth: 'Bearer token',
+        description: 'Claim daily ATTN drip (manual, no accumulation — miss a day, lose it)',
+        response: '{ claimed, amount, balance, next_claim_in_seconds }',
+        note: 'Returns claimed:false with reason if already claimed today or cap reached.',
+      },
+      'GET /api/attn/history': {
+        auth: 'Bearer token',
+        description: 'ATTN transaction history',
+        query: '?limit=20',
+        response: '{ transactions: [{ id, amount, type, note, created_at }] }',
+      },
+      'GET /api/attn/settings': {
+        auth: 'Bearer token',
+        description: 'Get your ATTN receive price setting',
+        response: '{ receive_price, note }',
+      },
+      'PUT /api/attn/settings': {
+        auth: 'Bearer token',
+        description: 'Set ATTN receive price (how much senders stake to email you)',
+        body: '{ receive_price: 1-10 }',
+      },
+      'POST /api/attn/buy': {
+        auth: 'Bearer token',
+        description: 'Purchase ATTN with USDC (on-chain verified)',
+        body: '{ tx_hash: "0x...", amount_usdc: number }',
+      },
+      'GET /api/attn-price/:handle': {
+        description: 'Check ATTN stake price for a recipient (public, no auth)',
+        response: '{ handle, attn_enabled, cold_email_stake, reply_thread_stake }',
+      },
+
+      // — Airdrop Waves —
+      'GET /api/airdrop/waves': {
+        auth: 'Bearer token',
+        description: 'List all airdrop waves with your score and claim status',
+        response: '{ waves: [{ id, name, badge, multiplier, status, score: { breakdown, base_score, total }, claim_opens_at, claimed? }] }',
+        note: 'status: preview (locked) | claimable | claimed | expired',
+      },
+      'GET /api/airdrop/:waveId': {
+        auth: 'Bearer token',
+        description: 'Get single wave detail with your score breakdown',
+        response: '{ id, name, status, score: { breakdown: { emails_received, emails_read, emails_replied, emails_sent, attn_staked, days_since_signup }, base_score, multiplier, total } }',
+      },
+      'POST /api/airdrop/:waveId/claim': {
+        auth: 'Bearer token',
+        description: 'Claim airdrop for a wave (only works after claim opens)',
+        response: '{ claimed, wave, amount, score }',
+        note: 'Wave 1 (Early Bird 🐣): 2× multiplier, opens 2026-04-01T04:01 PT. Score = received×1 + read×2 + replied×5 + sent×1 + staked×0.5 + days×2.',
+      },
+      'GET /api/airdrop/:waveId/leaderboard': {
+        auth: 'Bearer token',
+        description: 'Top 20 airdrop earners for a wave',
+        response: '{ wave, leaderboard: [{ handle, amount, claimed_at }] }',
+      },
+
       // — Public —
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
