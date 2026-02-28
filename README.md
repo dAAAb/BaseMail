@@ -114,13 +114,15 @@ Full API docs: [`GET https://api.basemail.ai/api/docs`](https://api.basemail.ai/
 ## Architecture
 
 ```
-Frontend ──────> Cloudflare Worker ──────> D1 (SQL)
-(Pages)          (Hono)                    R2 (MIME)
-React + Vite     api.basemail.ai           KV (nonce)
-    │                   │
-wagmi/SIWE        Hono REST API
-WalletConnect     ATTN + Email + Auth
-Basename buy      Cron: drip + settle
++---------------+     +--------------------+     +--------------+
+|   Frontend    |---->|    Cloudflare      |---->|   D1 (SQL)   |
+|   (Pages)     |     |   Worker (Hono)    |     |   R2 (MIME)  |
+|  React+Vite   |     |  api.basemail.ai   |     |   KV (nonce) |
++---------------+     +--------------------+     +--------------+
+        |                      |
+   wagmi/SIWE           Hono REST API
+   WalletConnect        ATTN + Email + Auth
+   Basename buy         Cron: drip + settle
 ```
 
 | Component | Stack |
