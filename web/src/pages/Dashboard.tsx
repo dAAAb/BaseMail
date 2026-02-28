@@ -108,20 +108,35 @@ function truncateEmail(handle: string): string {
   return `${handle.slice(0, 6)}...${handle.slice(-4)}@basemail.ai`;
 }
 
-function CopyButton({ text, label }: { text: string; label?: string }) {
+function CopyButton({ text, html, label }: { text: string; html?: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={(e) => {
+      onClick={async (e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(text);
+        try {
+          if (html) {
+            // Rich text copy: text/html + text/plain fallback
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'text/html': new Blob([html], { type: 'text/html' }),
+                'text/plain': new Blob([text], { type: 'text/plain' }),
+              }),
+            ]);
+          } else {
+            await navigator.clipboard.writeText(text);
+          }
+        } catch {
+          // Fallback
+          try { navigator.clipboard.writeText(text); } catch { prompt('Copy:', text); }
+        }
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
       className="text-gray-500 hover:text-base-blue transition text-xs flex items-center gap-1"
-      title="Copy to clipboard"
+      title={label || 'Copy to clipboard'}
     >
-      {copied ? 'Copied!' : (label || 'Copy')}
+      {copied ? '✅ Copied!' : (label || 'Copy')}
     </button>
   );
 }
@@ -1516,11 +1531,39 @@ function EmailDetail({ auth }: { auth: AuthState }) {
 
         {/* Download .md */}
         <div className="mt-4 pt-4 border-t border-gray-800 flex gap-2">
+          <button
+            onClick={() => {
+              const md = `# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`;
+              try {
+                const blob = new Blob([md], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(email.subject || 'email').replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50)}.md`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch {
+                prompt('Copy markdown:', md);
+              }
+            }}
+            className="text-gray-500 hover:text-base-blue text-xs flex items-center gap-1 transition"
+          >
+            💾 Save .md
+          </button>
           <CopyButton
-            label="📋 Copy Markdown"
+            label="🦞 Copy Markdown"
             text={`# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`}
           />
-          <CopyButton label="📄 Copy Plain Text" text={bodyText} />
+          <CopyButton label="📝 Copy Plain Text" text={bodyText} />
+          {bodyHtml && (
+            <CopyButton
+              label="🌐 Copy Rich Text"
+              text={bodyText}
+              html={bodyHtml}
+            />
+          )}
         </div>
       </div>
     </div>
