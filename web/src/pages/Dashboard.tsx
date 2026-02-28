@@ -1519,8 +1519,8 @@ function EmailDetail({ auth }: { auth: AuthState }) {
           <button
             onClick={() => {
               const md = `# ${email.subject || 'Email'}\n\n**From:** ${email.from_addr}\n**To:** ${email.to_addr}\n**Date:** ${new Date(email.created_at * 1000).toISOString()}\n\n---\n\n${bodyText}`;
+              // Try download, fallback to showing raw text
               try {
-                // Try standard download first
                 const blob = new Blob([md], { type: 'text/markdown' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -1531,9 +1531,7 @@ function EmailDetail({ auth }: { auth: AuthState }) {
                 document.body.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
               } catch {
-                // Fallback for in-app browsers (MetaMask, etc.)
-                const dataUri = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(md);
-                window.open(dataUri, '_blank');
+                prompt('Copy the markdown below:', md);
               }
             }}
             className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
@@ -1542,20 +1540,10 @@ function EmailDetail({ auth }: { auth: AuthState }) {
           </button>
           <button
             onClick={() => {
-              try {
-                navigator.clipboard.writeText(bodyText);
-              } catch {
-                // Fallback for in-app browsers
-                const ta = document.createElement('textarea');
-                ta.value = bodyText;
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-              }
-              alert('Copied!');
+              navigator.clipboard.writeText(bodyText).then(
+                () => alert('Copied!'),
+                () => prompt('Copy the text below:', bodyText),
+              );
             }}
             className="text-gray-500 hover:text-gray-300 text-xs flex items-center gap-1 transition"
           >
