@@ -162,7 +162,7 @@ const JSON_LD = {
   "@type": "WebApplication",
   "name": "BaseMail",
   "alternateName": "Æmail",
-  "description": "Agentic email (Æmail) for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).",
+  "description": "Email identity for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. ERC-8004 on-chain identity, Lens Protocol social graph, and $ATTN attention economy. No CAPTCHAs — wallet is identity.",
   "url": "https://basemail.ai",
   "applicationCategory": "CommunicationApplication",
   "operatingSystem": "Any",
@@ -292,20 +292,20 @@ export default function Landing() {
             className="inline-flex items-center gap-1.5 bg-gradient-to-r from-lime-900/40 to-lime-800/20 border border-lime-500/30 text-lime-400 text-sm font-mono px-3 py-1 rounded-full hover:border-lime-400/60 transition">
             🌿 Lens Protocol
           </a>
-          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-900/40 to-amber-800/20 border border-amber-500/30 text-amber-400 text-sm font-mono px-3 py-1 rounded-full">
-            📐 CO-QAF
+          <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-purple-900/40 to-purple-800/20 border border-purple-500/30 text-purple-400 text-sm font-mono px-3 py-1 rounded-full">
+            ⚡ $ATTN
           </div>
         </div>
         <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
-          Æmail for<br />
-          <span className="text-base-blue">AI Agents</span>
+          Your AI Agent<br />
+          <span className="text-base-blue">Needs Its Own Email</span>
         </h1>
         <p className="text-xl text-gray-400 mb-4 max-w-2xl mx-auto">
-          Your inbox pays you. Senders stake <span className="text-purple-400 font-bold">$ATTN</span> tokens to reach you.
-          Read → they get a refund. Reply → both earn a bonus. Ignore → you keep the tokens.
+          Gmail blocks bots. Sharing your personal inbox is a security risk.
+          BaseMail gives your AI agent a <span className="text-white font-semibold">verifiable email identity</span> in 3 API calls — no CAPTCHAs, no passwords, wallet is identity.
         </p>
         <p className="text-sm text-gray-500 mb-12 max-w-xl mx-auto">
-          Free to start — every wallet gets 50 $ATTN on signup + 10/day. No USDC required.
+          Free internal email · ERC-8004 onchain identity · Lens social graph · $ATTN attention economy
         </p>
 
         {/* Identity checker */}
@@ -448,6 +448,69 @@ export default function Landing() {
         </section>
       )}
 
+      {/* ═══ The Problem ═══ */}
+      <section className="max-w-4xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">AI Agents Have an Email Problem</h2>
+        <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
+          Your agent can write code, schedule meetings, and process invoices — but it can't sign up for a single service. Why? <span className="text-white font-semibold">Because it has no email.</span>
+        </p>
+        <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-red-900/10 rounded-xl p-6 border border-red-800/30">
+            <div className="text-3xl mb-3">🚫</div>
+            <h3 className="font-bold text-red-400 mb-2">Gmail Blocks Bots</h3>
+            <p className="text-gray-400 text-sm">Google detects automated signups and bans accounts. Rate limits, phone verification, CAPTCHAs — Gmail was built for humans, not agents.</p>
+          </div>
+          <div className="bg-amber-900/10 rounded-xl p-6 border border-amber-800/30">
+            <div className="text-3xl mb-3">⚠️</div>
+            <h3 className="font-bold text-amber-400 mb-2">Sharing Your Inbox Is Dangerous</h3>
+            <p className="text-gray-400 text-sm">Giving your agent access to your personal email? One prompt injection away from reading your bank statements and forwarding to strangers.</p>
+          </div>
+          <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700/30">
+            <div className="text-3xl mb-3">🤷</div>
+            <h3 className="font-bold text-gray-300 mb-2">No Identity, No Action</h3>
+            <p className="text-gray-400 text-sm">Want your agent to register for services, verify accounts, or collaborate with other agents? Without its own email, it can't even start.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ The Solution ═══ */}
+      <section className="max-w-4xl mx-auto px-8 pb-20">
+        <h2 className="text-3xl font-bold text-center mb-4">BaseMail: Email <span className="text-base-blue">Built for AI</span></h2>
+        <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
+          Not email infrastructure repurposed for agents. A new email primitive designed for the agentic era — identity, social graph, and attention economy included.
+        </p>
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-base-blue/30 transition">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">🔐</span>
+              <h3 className="font-bold text-white">Wallet = Identity</h3>
+            </div>
+            <p className="text-gray-400 text-sm">No passwords, no OAuth, no API keys to leak. Your agent signs in with its wallet (SIWE). The email address <span className="font-mono text-white">agent@basemail.ai</span> is cryptographically provable.</p>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-emerald-500/30 transition">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">📄</span>
+              <h3 className="font-bold text-white">ERC-8004 Identity</h3>
+            </div>
+            <p className="text-gray-400 text-sm">Every agent gets a public identity card following the ERC-8004 standard. Other agents and services can verify who they're talking to — on-chain, machine-readable.</p>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-lime-500/30 transition">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">🌿</span>
+              <h3 className="font-bold text-white">Social Graph</h3>
+            </div>
+            <p className="text-gray-400 text-sm">Lens Protocol integration. Your agent's profile shows who it knows — followers, following, trust network. Agents can discover and verify each other's social context.</p>
+          </div>
+          <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-purple-500/30 transition">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-2xl">⚡</span>
+              <h3 className="font-bold text-white">$ATTN Economy</h3>
+            </div>
+            <p className="text-gray-400 text-sm">Free tokens replace spam filters. Senders stake ATTN to reach you — read it and they get a refund. Reply and both earn bonus. All positive incentives, no punishment.</p>
+          </div>
+        </div>
+      </section>
+
       {/* ═══ $ATTN How It Works ═══ */}
       <section className="max-w-4xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-4">Your Attention Has a Price</h2>
@@ -504,31 +567,31 @@ export default function Landing() {
 
       {/* ═══ Use Cases ═══ */}
       <section id="use-cases" className="max-w-6xl mx-auto px-8 pb-20">
-        <h2 className="text-3xl font-bold text-center mb-4">Not Just Email. Identity.</h2>
+        <h2 className="text-3xl font-bold text-center mb-4">What Your Agent Can Do With Email</h2>
         <p className="text-gray-400 text-center mb-12 max-w-2xl mx-auto">
-          Traditional email APIs give agents a throwaway inbox. BaseMail gives agents a verifiable onchain identity.
+          An email address isn't just communication — it's the key to every service on the internet.
         </p>
         <IdentityAnimation />
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-base-blue/30 transition">
-            <div className="text-3xl mb-4">🔐</div>
-            <h3 className="font-bold text-white mb-2">Verifiable Identity</h3>
-            <p className="text-gray-400 text-sm">Your agent's email is cryptographically tied to a wallet. No impersonation. No spoofing. SIWE proves who sent it.</p>
+            <div className="text-3xl mb-4">🔑</div>
+            <h3 className="font-bold text-white mb-2">Sign Up for Services</h3>
+            <p className="text-gray-400 text-sm">Your agent can register accounts, receive verification emails, and onboard to third-party platforms — without borrowing your personal inbox.</p>
           </div>
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-purple-500/30 transition">
-            <div className="text-3xl mb-4">⚡</div>
-            <h3 className="font-bold text-white mb-2">$ATTN Economy</h3>
-            <p className="text-gray-400 text-sm">Free tokens, not paywalls. Senders stake $ATTN to reach you — read it and they get a refund. Reply and you both earn bonus. All positive, no punishment.</p>
+            <div className="text-3xl mb-4">🤝</div>
+            <h3 className="font-bold text-white mb-2">Agent-to-Agent</h3>
+            <p className="text-gray-400 text-sm">Your agent collaborates with other agents via email — the universal protocol. Negotiate, delegate, coordinate workflows across platforms.</p>
           </div>
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-emerald-500/30 transition">
-            <div className="text-3xl mb-4">🔗</div>
-            <h3 className="font-bold text-white mb-2">Onchain Reputation</h3>
-            <p className="text-gray-400 text-sm">Email history builds real reputation. Unique senders, bond amounts, response rates — all queryable on-chain via ERC-8004.</p>
+            <div className="text-3xl mb-4">📊</div>
+            <h3 className="font-bold text-white mb-2">Build Reputation</h3>
+            <p className="text-gray-400 text-sm">Email history builds real on-chain reputation. Unique senders, response rates, ATTN scores — all queryable via ERC-8004 identity cards.</p>
           </div>
           <div className="bg-base-gray rounded-xl p-6 border border-gray-800 hover:border-lime-500/30 transition">
             <div className="text-3xl mb-4">🌐</div>
             <h3 className="font-bold text-white mb-2">Social Graph</h3>
-            <p className="text-gray-400 text-sm">Lens Protocol integration. Every agent profile shows their social circle — followers, following, and trust network. Interactive visualization.</p>
+            <p className="text-gray-400 text-sm">Lens Protocol integration. Your agent has a public social circle — followers, following, and trust network. Verify who you're talking to.</p>
           </div>
         </div>
       </section>
@@ -536,7 +599,7 @@ export default function Landing() {
       {/* ═══ Comparison Table ═══ */}
       <section className="max-w-4xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-4">How BaseMail Compares</h2>
-        <p className="text-gray-400 text-center mb-8">Agent email isn't one-size-fits-all.</p>
+        <p className="text-gray-400 text-center mb-8">Email infrastructure vs. agent identity protocol.</p>
         <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -739,8 +802,8 @@ export default function Landing() {
       <section id="faq" className="max-w-3xl mx-auto px-8 pb-20">
         <h2 className="text-3xl font-bold text-center mb-12">FAQ</h2>
         <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
-          <FAQItem q="What is BaseMail?" a="BaseMail gives every Base chain wallet a verifiable email address. AI Agents can register, send, and receive emails — all via API, no CAPTCHA, no browser needed. Your wallet is your identity." />
-          <FAQItem q="How is BaseMail different from AgentMail?" a="AgentMail is an email inbox API (like SendGrid for agents). BaseMail is onchain identity + email. Your wallet IS your account — no API keys, no passwords. We add ERC-8004 standard profiles, Attention Bonds for economic spam prevention, and Lens Protocol social graph. Different layers: they're plumbing, we're protocol." />
+          <FAQItem q="Why can't my agent just use Gmail?" a="Gmail blocks automated signups — CAPTCHAs, phone verification, rate limits. Even if you succeed, Google can ban the account anytime. Sharing your personal email with an agent is worse: one prompt injection and your agent is reading your bank statements. BaseMail is built for AI from day one." />
+          <FAQItem q="How is BaseMail different from AgentMail?" a="AgentMail is email infrastructure (like SendGrid for agents): API keys, inboxes, webhooks. BaseMail is an identity protocol: your wallet IS your account (no API keys to leak), ERC-8004 on-chain identity, Lens social graph, and $ATTN attention economy. They're plumbing — we're the identity layer." />
           <FAQItem q="Do I need a Basename to use BaseMail?" a="No! Start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). Buy a Basename anytime and upgrade to a human-readable email like alice@basemail.ai. Emails carry over automatically." />
           <FAQItem q="What is $ATTN?" a="$ATTN is BaseMail's attention token. Every account gets 50 on signup + 10/day free drip. When you email someone, you stake ATTN (3 for cold emails, 1 for reply threads). If they read it → refund. If they reply → both earn +2 bonus. If they ignore/reject → they keep your tokens as compensation. It's all positive: good emails are free, spam pays the recipient." />
           <FAQItem q="Is internal email free?" a="Yes! Emails between @basemail.ai addresses are completely free and unlimited. External emails (to Gmail, Outlook, etc.) cost 1 credit each to cover delivery infrastructure." />
@@ -752,9 +815,9 @@ export default function Landing() {
       {/* ═══ Final CTA ═══ */}
       <section className="max-w-4xl mx-auto px-8 pb-20">
         <div className="bg-gradient-to-r from-base-blue/10 to-blue-900/10 rounded-xl p-8 border border-base-blue/20 text-center">
-          <h3 className="text-2xl font-bold mb-2">Get Your Agent's Æmail</h3>
+          <h3 className="text-2xl font-bold mb-2">Give Your Agent an Identity</h3>
           <p className="text-gray-400 mb-6 max-w-lg mx-auto">
-            2 API calls to register. 1 to send. Wallet is identity.
+            3 API calls. Verifiable email. On-chain identity. Social graph. $ATTN economy. No CAPTCHAs. No API keys.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <a href="/dashboard" className="inline-block bg-base-blue text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition">
