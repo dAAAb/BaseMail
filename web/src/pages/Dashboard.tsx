@@ -15,6 +15,10 @@ const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${s
 // Attention Bond Escrow — Base Mainnet
 const ESCROW_CONTRACT = '0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220' as `0x${string}`;
 const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${string}`;
+const PAYMENT_ESCROW_ADDRESS = '0xaf41b976978ac981d79c1008dd71681355c71bf6' as `0x${string}`;
+const PAYMENT_ESCROW_ABI = parseAbi([
+  'function deposit(bytes32 claimId, uint256 amount, uint256 expiry) external',
+]);
 const ESCROW_ABI = parseAbi([
   'function deposit(address _recipient, bytes32 _emailId, uint256 _amount) external',
   'function setAttentionPrice(uint256 _price) external',
@@ -746,14 +750,24 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const [recipientWallet, setRecipientWallet] = useState('');
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
-  const [status, setStatus] = useState<'idle' | 'switching' | 'transferring' | 'confirming' | 'sending_email' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'switching' | 'approving' | 'depositing' | 'transferring' | 'confirming' | 'sending_email' | 'success' | 'error'>('idle');
   const [error, setError] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [expiryHours, setExpiryHours] = useState(168); // 7 days default
   const { writeContractAsync } = useWriteContract();
 
-  // Resolve recipient handle → wallet
+  // Detect escrow mode: external email (not @basemail.ai)
+  const isEscrow = recipient.includes('@') && !recipient.toLowerCase().endsWith('@basemail.ai');
+
+  // Resolve recipient handle → wallet (skip for escrow/external email)
   useEffect(() => {
     if (!recipient || recipient.length < 2) {
+      setRecipientWallet('');
+      setResolveError('');
+      return;
+    }
+    // External email → escrow mode, no wallet needed
+    if (recipient.includes('@') && !recipient.toLowerCase().endsWith('@basemail.ai')) {
       setRecipientWallet('');
       setResolveError('');
       return;
@@ -778,48 +792,104 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   }, [recipient]);
 
   async function handleSend() {
-    if (!recipientWallet || !amount || parseFloat(amount) <= 0) return;
+    if (!amount || parseFloat(amount) <= 0) return;
+    if (!isEscrow && !recipientWallet) return;
     setError('');
 
     const net = USDC_NET_CONFIG[network];
+    const amountRaw = BigInt(Math.floor(parseFloat(amount) * 1e6));
+    const amountStr = parseFloat(amount).toFixed(2);
+    const networkLabel = network === 'base-mainnet' ? 'Base' : 'Base Sepolia (testnet)';
 
     try {
       // 1. Switch to selected network
       setStatus('switching');
       await switchChainAsync({ chainId: net.chainId });
 
-      // 2. Transfer USDC
-      setStatus('transferring');
-      const amountRaw = BigInt(Math.floor(parseFloat(amount) * 1e6));
-      const handle = recipient.replace(/@basemail\.ai$/i, '').toLowerCase();
-      const memo = new TextEncoder().encode(`basemail:${handle}@basemail.ai`);
-      const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
+      if (isEscrow) {
+        // ── Escrow mode: external email ──
+        const { keccak256 } = await import('viem');
+        const claimId = crypto.randomUUID();
+        const claimIdHash = keccak256(toHex(claimId));
+        const expiryTimestamp = BigInt(Math.floor(Date.now() / 1000) + expiryHours * 3600);
 
-      const hash = await writeContractAsync({
-        address: net.usdc,
-        abi: ERC20_ABI,
-        functionName: 'transfer',
-        args: [recipientWallet as `0x${string}`, amountRaw],
-        chainId: net.chainId,
-        dataSuffix: `0x${memoHex}` as `0x${string}`,
-      });
-      setTxHash(hash);
+        // 2a. Approve USDC spending
+        setStatus('approving');
+        await writeContractAsync({
+          address: net.usdc,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [PAYMENT_ESCROW_ADDRESS, amountRaw],
+          chainId: net.chainId,
+        });
 
-      // 3. Wait for confirmation + send verified payment email
-      setStatus('sending_email');
-      const emailTo = `${handle}@basemail.ai`;
-      const networkLabel = network === 'base-mainnet' ? 'Base' : 'Base Sepolia (testnet)';
-      const res = await apiFetch('/api/send', auth.token, {
-        method: 'POST',
-        body: JSON.stringify({
-          to: emailTo,
-          subject: `USDC Payment: $${parseFloat(amount).toFixed(2)}`,
-          body: `You received a payment of ${parseFloat(amount).toFixed(2)} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${hash}\n\nSent via BaseMail.ai`,
-          usdc_payment: { tx_hash: hash, amount: parseFloat(amount).toFixed(2), network },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send payment email');
+        // 2b. Deposit to PaymentEscrow
+        setStatus('depositing');
+        const hash = await writeContractAsync({
+          address: PAYMENT_ESCROW_ADDRESS,
+          abi: PAYMENT_ESCROW_ABI,
+          functionName: 'deposit',
+          args: [claimIdHash, amountRaw, expiryTimestamp],
+          chainId: net.chainId,
+        });
+        setTxHash(hash);
+
+        // 3. Send email with claim link
+        setStatus('sending_email');
+        const claimUrl = `https://basemail.ai/claim/${claimId}`;
+        const res = await apiFetch('/api/send', auth.token, {
+          method: 'POST',
+          body: JSON.stringify({
+            to: recipient,
+            subject: `💸 You received ${amountStr} USDC — Claim now`,
+            body: `${auth.handle} sent you ${amountStr} USDC on ${networkLabel}!\n\n` +
+              `Click to claim: ${claimUrl}\n\n` +
+              `This payment is held in escrow. No crypto wallet? One will be created for you automatically.\n\n` +
+              `Expires: ${new Date(Number(expiryTimestamp) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\n\n` +
+              `Sent via BaseMail.ai`,
+            escrow_claim: {
+              claim_id: claimId,
+              amount: amountStr,
+              deposit_tx: hash,
+              network,
+              expires_at: Number(expiryTimestamp),
+            },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to send claim email');
+      } else {
+        // ── Direct transfer: internal BaseMail user ──
+        setStatus('transferring');
+        const handle = recipient.replace(/@basemail\.ai$/i, '').toLowerCase();
+        const memo = new TextEncoder().encode(`basemail:${handle}@basemail.ai`);
+        const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const hash = await writeContractAsync({
+          address: net.usdc,
+          abi: ERC20_ABI,
+          functionName: 'transfer',
+          args: [recipientWallet as `0x${string}`, amountRaw],
+          chainId: net.chainId,
+          dataSuffix: `0x${memoHex}` as `0x${string}`,
+        });
+        setTxHash(hash);
+
+        // Send verified payment email
+        setStatus('sending_email');
+        const emailTo = `${handle}@basemail.ai`;
+        const res = await apiFetch('/api/send', auth.token, {
+          method: 'POST',
+          body: JSON.stringify({
+            to: emailTo,
+            subject: `USDC Payment: $${amountStr}`,
+            body: `You received a payment of ${amountStr} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${hash}\n\nSent via BaseMail.ai`,
+            usdc_payment: { tx_hash: hash, amount: amountStr, network },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to send payment email');
+      }
 
       setStatus('success');
     } catch (e: any) {
@@ -841,11 +911,16 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
 
         {status === 'success' ? (
           <div className="text-center py-6">
-            <div className="text-4xl mb-3">$</div>
-            <h4 className="text-xl font-bold text-green-400 mb-2">Payment Sent!</h4>
+            <div className="text-4xl mb-3">{isEscrow ? '📦' : '$'}</div>
+            <h4 className="text-xl font-bold text-green-400 mb-2">{isEscrow ? 'Escrow Deposited!' : 'Payment Sent!'}</h4>
             <p className="text-gray-400 text-sm mb-2">
-              {parseFloat(amount).toFixed(2)} USDC sent to {recipient}
+              {parseFloat(amount).toFixed(2)} USDC {isEscrow ? 'escrowed for' : 'sent to'} {recipient}
             </p>
+            {isEscrow && (
+              <p className="text-amber-400 text-xs mb-2">
+                Claim email sent! Recipient can claim with one click.
+              </p>
+            )}
             {txHash && (
               <a
                 href={`${USDC_NET_CONFIG[network].explorer}/tx/${txHash}`}
@@ -872,15 +947,18 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
                 type="text"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value.toLowerCase().trim())}
-                placeholder="handle or handle@basemail.ai"
+                placeholder="handle@basemail.ai or email@gmail.com"
                 className="w-full bg-base-dark border border-gray-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500"
               />
               {resolving && <p className="text-gray-500 text-xs mt-1">Resolving...</p>}
-              {resolveError && <p className="text-red-400 text-xs mt-1">{resolveError}</p>}
-              {recipientWallet && (
+              {!isEscrow && resolveError && <p className="text-red-400 text-xs mt-1">{resolveError}</p>}
+              {!isEscrow && recipientWallet && (
                 <p className="text-green-500 text-xs mt-1 font-mono">
                   {recipientWallet.slice(0, 6)}...{recipientWallet.slice(-4)}
                 </p>
+              )}
+              {isEscrow && recipient.includes('@') && (
+                <p className="text-amber-400 text-xs mt-1">📦 External email — USDC will be held in escrow</p>
               )}
             </div>
 
@@ -921,29 +999,72 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
                 placeholder="10.00"
                 className="w-full bg-base-dark border border-gray-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500"
               />
+              {isEscrow && parseFloat(amount) > 0 && parseFloat(amount) < 0.1 && (
+                <p className="text-red-400 text-xs mt-1">Minimum escrow: 0.10 USDC</p>
+              )}
             </div>
+
+            {/* Escrow: Expiry selector */}
+            {isEscrow && (
+              <div className="mb-4">
+                <label className="text-gray-400 text-xs mb-1 block">Claim Expiry</label>
+                <div className="flex gap-2">
+                  {[
+                    { label: '1h', hours: 1 },
+                    { label: '24h', hours: 24 },
+                    { label: '7d', hours: 168 },
+                    { label: '30d', hours: 720 },
+                  ].map(opt => (
+                    <button
+                      key={opt.hours}
+                      onClick={() => setExpiryHours(opt.hours)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition border ${
+                        expiryHours === opt.hours
+                          ? 'bg-amber-900/40 border-amber-500 text-amber-400'
+                          : 'bg-base-dark border-gray-700 text-gray-500 hover:border-gray-500'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Info */}
             <div className="bg-base-dark rounded-lg p-3 mb-4 text-xs text-gray-500 space-y-1">
-              <p>Payment goes directly to recipient's wallet on {USDC_NET_CONFIG[network].label}.</p>
+              {isEscrow ? (
+                <>
+                  <p className="text-amber-400 font-medium">📦 Escrow Mode</p>
+                  <p>USDC deposited to on-chain escrow contract. Recipient gets an email with a claim link.</p>
+                  <p>No crypto wallet needed — a BaseMail account is auto-created when they claim.</p>
+                  <p>If unclaimed, you can refund after the expiry period.</p>
+                </>
+              ) : (
+                <>
+                  <p>Payment goes directly to recipient's wallet on {USDC_NET_CONFIG[network].label}.</p>
+                  <p className="text-purple-400">On-chain memo: basemail:{recipient || '...'}@basemail.ai</p>
+                </>
+              )}
               {network === 'base-mainnet' && <p className="text-yellow-400">⚠️ This sends real USDC. Double-check the recipient.</p>}
-              <p>A verified payment email will be sent automatically.</p>
-              <p className="text-purple-400">On-chain memo: basemail:{recipient || '...'}@basemail.ai</p>
+              <p>A {isEscrow ? 'claim' : 'verified payment'} email will be sent automatically.</p>
             </div>
 
             {/* Send button */}
             <button
               onClick={handleSend}
-              disabled={!recipientWallet || !amount || parseFloat(amount) <= 0 || status !== 'idle' && status !== 'error'}
+              disabled={(!isEscrow && !recipientWallet) || !amount || parseFloat(amount) <= 0 || (isEscrow && parseFloat(amount) < 0.1) || (status !== 'idle' && status !== 'error')}
               className={`w-full text-white py-3 rounded-lg font-medium transition disabled:opacity-50 ${
                 network === 'base-mainnet' ? 'bg-green-600 hover:bg-green-500' : 'bg-purple-600 hover:bg-purple-500'
               }`}
             >
               {status === 'switching' ? `Switching to ${USDC_NET_CONFIG[network].label}...`
+                : status === 'approving' ? 'Approve USDC spending...'
+                : status === 'depositing' ? 'Depositing to escrow...'
                 : status === 'transferring' ? 'Confirm in wallet...'
                 : status === 'confirming' ? 'Waiting for confirmation...'
-                : status === 'sending_email' ? 'Sending payment email...'
-                : `Send ${amount || '0'} USDC`}
+                : status === 'sending_email' ? (isEscrow ? 'Sending claim email...' : 'Sending payment email...')
+                : isEscrow ? `📦 Escrow ${amount || '0'} USDC` : `Send ${amount || '0'} USDC`}
             </button>
 
             {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
