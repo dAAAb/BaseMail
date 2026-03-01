@@ -56,7 +56,7 @@ inboxRoutes.get('/', async (c) => {
                 ae.amount as attn_stake, ae.status as attn_status, ae.expires_at as attn_expires
          FROM emails e
          LEFT JOIN attention_bonds ab ON ab.email_id = e.id AND ab.status = 'active'
-         LEFT JOIN attn_escrow ae ON ae.email_id = e.id
+         LEFT JOIN attn_escrow ae ON (ae.email_id = e.id OR ae.email_id || '-sent' = e.id)
          WHERE e.handle = ? AND e.folder = ?
          ORDER BY
            CASE WHEN ae.amount IS NOT NULL AND ae.status = 'pending' THEN ae.amount ELSE 0 END DESC,

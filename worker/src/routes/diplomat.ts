@@ -393,7 +393,7 @@ diplomatRoutes.post('/send', async (c) => {
     llmReasoning = 'Pre-arbitrated by CRE workflow';
   } else {
     // Live Gemini arbitration
-    const geminiKey = (c.env as any).GEMINI_API_KEY || '';
+    const geminiKey = c.env.GEMINI_API_KEY || '';
     if (geminiKey) {
       const result = await arbitrateEmail(
         geminiKey, sender.handle, toHandle, body.subject, body.body, totalSent, unreadStreak
