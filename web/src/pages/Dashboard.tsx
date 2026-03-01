@@ -1912,6 +1912,17 @@ function Compose({ auth }: { auth: AuthState }) {
   const [cardFlipped, setCardFlipped] = useState(false);
   const [showQafInfo, setShowQafInfo] = useState(false);
   const [attnChecking, setAttnChecking] = useState(false);
+  const [arbitrationResult, setArbitrationResult] = useState<{
+    estimated_cost: number;
+    actual_cost: number;
+    discount: number;
+    llm_category: string;
+    llm_score: number;
+    llm_reasoning: string;
+    sender_balance_after: number;
+    in_debt: boolean;
+  } | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const isReply = subject.toLowerCase().startsWith('re:');
   useEffect(() => {
@@ -1966,27 +1977,37 @@ function Compose({ auth }: { auth: AuthState }) {
       const isSelfSend = toHandle === auth.handle?.toLowerCase();
       const endpoint = (isInternal && !isSelfSend) ? '/api/diplomat/send' : '/api/send';
       const payload: any = { to, subject, body };
-      if (isInternal && !isSelfSend) {
-        payload.attn_override = diplomatPricing ? diplomatPricing.final_cost : 0;
-        payload.llm_category = diplomatPricing ? diplomatPricing.llm_category : (isReply ? 'reply' : 'cold');
-        payload.llm_score = 5;
-        payload.qaf_n = diplomatPricing ? diplomatPricing.qaf_n : 0;
-      }
       const res = await apiFetch(endpoint, auth.token, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
-        // Check if it's a credits error
-        if (res.status === 402 || data.error?.includes('credit') || data.error?.includes('Credit')) {
-          setShowBuyCredits(true);
-          setError('');
+        // Check if it's an ATTN balance error (debt model)
+        if (res.status === 402) {
+          if (data.hint && data.balance < 0) {
+            setError(`⚠️ ATTN 餘額不足 (${data.balance} ATTN)。你的帳戶目前負債中，需要收到別人的信件來恢復餘額。`);
+          } else {
+            setError(`⚠️ ATTN 餘額不足：需要 ${data.required} ATTN，目前只有 ${data.balance} ATTN`);
+          }
           return;
         }
         throw new Error(data.error || 'Failed to send');
       }
-      navigate('/dashboard/sent');
+      // Show arbitration result for Diplomat sends
+      if (data.diplomat && isInternal && !isSelfSend) {
+        const d = data.diplomat;
+        setArbitrationResult(d);
+        if (d.discount > 0) {
+          // Discount! Show confetti 🎉
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 4000);
+        }
+        // Auto-navigate after showing result
+        setTimeout(() => navigate('/dashboard/sent'), d.discount > 0 ? 4000 : 2500);
+      } else {
+        navigate('/dashboard/sent');
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -2119,11 +2140,97 @@ function Compose({ auth }: { auth: AuthState }) {
 
         <button
           onClick={handleSend}
-          disabled={sending}
+          disabled={sending || !!arbitrationResult}
           className="bg-base-blue text-white px-8 py-3 rounded-lg font-medium hover:bg-blue-600 transition disabled:opacity-50"
         >
-          {sending ? 'Sending...' : 'Send'}
+          {sending ? '🦞 Arbitrating...' : 'Send'}
         </button>
+
+        {/* Arbitration Result */}
+        {arbitrationResult && (
+          <div className={`mt-4 rounded-lg p-4 border ${
+            arbitrationResult.discount > 0
+              ? 'bg-green-900/30 border-green-500/50'
+              : arbitrationResult.discount < 0
+              ? 'bg-red-900/30 border-red-500/50'
+              : 'bg-purple-900/30 border-purple-500/50'
+          }`}>
+            <div className="text-center">
+              {arbitrationResult.discount > 0 ? (
+                <>
+                  <div className="text-3xl mb-2">🎉🦞🎉</div>
+                  <div className="text-green-400 font-bold text-lg">好信件獎勵！</div>
+                  <div className="text-white text-2xl font-bold mt-1">
+                    <span className="line-through text-gray-500">{arbitrationResult.estimated_cost}</span>
+                    {' → '}
+                    <span className="text-green-400">{arbitrationResult.actual_cost} ATTN</span>
+                  </div>
+                  <div className="text-green-300 text-sm mt-1">節省了 {arbitrationResult.discount} ATTN！</div>
+                </>
+              ) : arbitrationResult.discount < 0 ? (
+                <>
+                  <div className="text-3xl mb-2">⚠️🦞</div>
+                  <div className="text-red-400 font-bold text-lg">信件品質偏低</div>
+                  <div className="text-white text-2xl font-bold mt-1">
+                    <span className="text-gray-500">{arbitrationResult.estimated_cost}</span>
+                    {' → '}
+                    <span className="text-red-400">{arbitrationResult.actual_cost} ATTN</span>
+                  </div>
+                  <div className="text-red-300 text-sm mt-1">多花了 {Math.abs(arbitrationResult.discount)} ATTN</div>
+                </>
+              ) : arbitrationResult.llm_category === 'reply' ? (
+                <>
+                  <div className="text-3xl mb-2">💬🦞</div>
+                  <div className="text-green-400 font-bold text-lg">回覆免費！</div>
+                  <div className="text-green-300 text-sm mt-1">回覆讓對話繼續流動 ✨</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl mb-2">🦞</div>
+                  <div className="text-purple-300 font-bold">信件已送出</div>
+                  <div className="text-white text-lg font-bold mt-1">{arbitrationResult.actual_cost} ATTN</div>
+                </>
+              )}
+              <div className="text-gray-400 text-xs mt-2">
+                🤖 Gemini 判定：{arbitrationResult.llm_category} ({arbitrationResult.llm_score}/10)
+              </div>
+              <div className="text-gray-500 text-xs mt-1 italic">
+                「{arbitrationResult.llm_reasoning}」
+              </div>
+              {arbitrationResult.in_debt && (
+                <div className="text-red-400 text-xs mt-2 font-bold">
+                  ⚠️ 餘額：{arbitrationResult.sender_balance_after} ATTN（負債中）
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Confetti effect */}
+        {showConfetti && (
+          <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+            <style>{`
+              @keyframes confetti-fall {
+                0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+                100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+              }
+            `}</style>
+            {Array.from({ length: 50 }).map((_, i) => (
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `-5%`,
+                  animation: `confetti-fall ${2 + Math.random() * 3}s ease-out ${Math.random() * 1.5}s forwards`,
+                  fontSize: `${14 + Math.random() * 18}px`,
+                }}
+              >
+                {['🎉', '✨', '🦞', '💰', '⭐', '🎊'][Math.floor(Math.random() * 6)]}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showBuyCredits && (

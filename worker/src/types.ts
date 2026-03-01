@@ -8,6 +8,7 @@ export interface Env {
   // Variables
   DOMAIN: string;
   BASE_CHAIN_ID: string;
+  GEMINI_API_KEY: string;
   JWT_SECRET?: string;
   WALLET_PRIVATE_KEY?: string;  // Worker 錢包私鑰，用於代付 Basename 註冊
   RESEND_API_KEY?: string;      // Resend.com API Key，用於外部寄信
