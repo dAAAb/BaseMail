@@ -50,7 +50,7 @@ function randomFallbackMessage(): string {
 }
 
 // ── Gemini LLM Arbitration ──
-async function arbitrateEmail(
+export async function arbitrateEmail(
   geminiKey: string,
   from: string,
   to: string,

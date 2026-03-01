@@ -230,8 +230,8 @@ sendRoutes.post('/', async (c) => {
   const emailId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
-  // ── ATTN v3: Auto-stake ATTN (never blocks sending) ──
-  let attnResult: { staked: boolean; amount: number; reason: string; balance_after?: number } = { staked: false, amount: 0, reason: 'skip' };
+  // ── ATTN v3: Auto-stake with Diplomat LLM arbitration when available ──
+  let attnResult: { staked: boolean; amount: number; reason: string; balance_after?: number; diplomat?: any } = { staked: false, amount: 0, reason: 'skip' };
   if (isValidEmail(to) && to.toLowerCase().endsWith(`@${c.env.DOMAIN}`)) {
     try {
       const { getStakeAmount, stakeAttn, ensureBalance } = await import('./attn');
@@ -248,6 +248,58 @@ sendRoutes.post('/', async (c) => {
         if (recipientAcct) {
           const stakeInfo = await getStakeAmount(c.env.DB, auth.handle, auth.wallet, recipientHandle);
 
+          // ── Try Diplomat LLM arbitration if Gemini key available ──
+          let diplomatResult: any = null;
+          if (stakeInfo.amount > 0 && c.env.GEMINI_API_KEY && stakeInfo.reason !== 'reply') {
+            try {
+              const { arbitrateEmail, qafPrice, DIPLOMAT } = await import('./diplomat');
+              const fromAddr = `${auth.handle}@basemail.ai`;
+              const toAddr = `${recipientHandle}@basemail.ai`;
+
+              // Get unread streak for QAF
+              const lastRead = await c.env.DB.prepare(`
+                SELECT MAX(created_at) as last_read_at FROM emails 
+                WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox' AND read = 1
+              `).bind(fromAddr, toAddr, recipientHandle).first<{ last_read_at: number | null }>();
+              const lastReadAt = lastRead?.last_read_at ?? 0;
+              const streakResult = await c.env.DB.prepare(`
+                SELECT COUNT(*) as total_sent,
+                  SUM(CASE WHEN read = 0 AND created_at > ? THEN 1 ELSE 0 END) as unread_streak
+                FROM emails WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox'
+              `).bind(lastReadAt, fromAddr, toAddr, recipientHandle).first<{ total_sent: number; unread_streak: number }>();
+
+              const n = streakResult?.unread_streak ?? 0;
+              const totalSent = streakResult?.total_sent ?? 0;
+              const qafBase = qafPrice(n);
+
+              // Call Gemini
+              const llm = await arbitrateEmail(
+                c.env.GEMINI_API_KEY, auth.handle, recipientHandle,
+                subject, typeof body === 'string' ? body : JSON.stringify(body),
+                totalSent, n
+              );
+              const llmCoeff = DIPLOMAT.LLM_COEFFICIENTS[llm.category as keyof typeof DIPLOMAT.LLM_COEFFICIENTS] ?? 1;
+              const actualCost = Math.max(1, Math.ceil(qafBase * llmCoeff));
+
+              diplomatResult = {
+                category: llm.category,
+                score: llm.score,
+                reasoning: llm.reasoning,
+                qaf_n: n,
+                qaf_base: qafBase,
+                llm_coefficient: llmCoeff,
+                estimated_cost: stakeInfo.amount,
+                actual_cost: actualCost,
+                discount: stakeInfo.amount - actualCost,
+                formula: `${qafBase} (QAF) × ${llmCoeff} (${llm.category}) = ${actualCost} ATTN`,
+              };
+
+              // Override stake amount with Diplomat-adjusted price
+              stakeInfo.amount = actualCost;
+              stakeInfo.reason = `diplomat:${llm.category}`;
+            } catch (_) { /* Diplomat/Gemini unavailable — fall back to fixed pricing */ }
+          }
+
           if (stakeInfo.amount > 0) {
             const result = await stakeAttn(
               c.env.DB, auth.wallet, auth.handle,
@@ -255,9 +307,9 @@ sendRoutes.post('/', async (c) => {
               emailId, stakeInfo.amount,
             );
             if (result) {
-              attnResult = { staked: true, amount: stakeInfo.amount, reason: stakeInfo.reason, balance_after: result.balance_after };
+              attnResult = { staked: true, amount: stakeInfo.amount, reason: stakeInfo.reason, balance_after: result.balance_after, diplomat: diplomatResult };
             } else {
-              attnResult = { staked: false, amount: stakeInfo.amount, reason: 'insufficient_balance' };
+              attnResult = { staked: false, amount: stakeInfo.amount, reason: 'insufficient_balance', diplomat: diplomatResult };
             }
           } else {
             attnResult = { staked: false, amount: 0, reason: stakeInfo.reason };
@@ -628,6 +680,7 @@ sendRoutes.post('/', async (c) => {
         amount: attnResult.amount,
         reason: attnResult.reason,
         balance_after: attnResult.balance_after,
+        ...(attnResult.diplomat ? { diplomat: attnResult.diplomat } : {}),
       },
     } : {}),
     ...(attnReplyBonus ? {
