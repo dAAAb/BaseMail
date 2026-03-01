@@ -1385,12 +1385,12 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                       {new Date(email.created_at * 1000).toLocaleString()}
                     </span>
                   </div>
-                  <div className={`text-sm flex items-center gap-2 ${!email.read ? 'text-white' : 'text-gray-400'}`}>
+                  <div className={`text-sm flex items-center gap-2 min-w-0 ${!email.read ? 'text-white' : 'text-gray-400'}`}>
                     {(email as any).bond_amount && (email as any).bond_status === 'active' && (() => {
                       const remaining = ((email as any).bond_deadline - Math.floor(Date.now() / 1000)) / 3600;
                       return (
                         <>
-                          <span className="text-amber-400 text-xs font-bold bg-amber-900/30 px-1.5 py-0.5 rounded" title="Attention Bond">
+                          <span className="text-amber-400 text-xs font-bold bg-amber-900/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Attention Bond">
                             💰 ${Number((email as any).bond_amount).toFixed(2)}
                           </span>
                           <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${remaining < 6 ? 'text-red-400 bg-red-900/30' : 'text-gray-400 bg-gray-800'}`} title="Time to reply">
@@ -1400,12 +1400,12 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                       );
                     })()}
                     {email.usdc_amount && (
-                      <span className="text-green-400 text-xs font-bold bg-green-900/30 px-1.5 py-0.5 rounded" title="Verified USDC Payment">
+                      <span className="text-green-400 text-xs font-bold bg-green-900/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Verified USDC Payment">
                         ${email.usdc_amount}
                       </span>
                     )}
                     {(email as any).attn_stake > 0 && (
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
                         (email as any).attn_status === 'pending' ? 'text-purple-400 bg-purple-900/30' :
                         (email as any).attn_status === 'refunded' ? 'text-green-400 bg-green-900/30' :
                         (email as any).attn_status === 'rejected' || (email as any).attn_status === 'transferred' ? 'text-red-400 bg-red-900/30' :
@@ -1424,7 +1424,7 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                         } {(email as any).attn_stake} ATTN
                       </span>
                     )}
-                    {email.subject || '(no subject)'}
+                    <span className="truncate">{email.subject || '(no subject)'}</span>
                   </div>
                   <div className="text-gray-600 text-xs truncate mt-1">{cleanSnippet(email.snippet)}</div>
                 </div>
