@@ -446,7 +446,7 @@ sendRoutes.post('/', async (c) => {
       }
     }
 
-    const inboxEmailId = generateId();
+    const inboxEmailId = emailId;  // Must match attn_escrow.email_id for ATTN badge JOIN
     const inboxR2Key = `emails/${recipientHandle}/inbox/${inboxEmailId}.eml`;
     await c.env.EMAIL_STORE.put(inboxR2Key, rawMime);
 
@@ -570,7 +570,7 @@ sendRoutes.post('/', async (c) => {
     `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx, usdc_network)
      VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
   ).bind(
-    emailId,
+    `${emailId}-sent`,
     auth.handle,
     fromAddr,
     to,
