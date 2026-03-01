@@ -250,7 +250,7 @@ sendRoutes.post('/', async (c) => {
 
           // ── Try Diplomat LLM arbitration if Gemini key available ──
           let diplomatResult: any = null;
-          if (stakeInfo.amount > 0 && c.env.GEMINI_API_KEY && stakeInfo.reason !== 'reply') {
+          if (stakeInfo.amount > 0 && c.env.GEMINI_API_KEY) {
             try {
               const { arbitrateEmail, qafPrice, DIPLOMAT } = await import('./diplomat');
               const fromAddr = `${auth.handle}@basemail.ai`;

@@ -406,20 +406,9 @@ export async function getStakeAmount(
     return { amount: 0, reason: 'whitelisted' };
   }
 
-  // Check if existing conversation (recipient has emailed sender before)
-  const priorEmail = await db.prepare(
-    `SELECT id FROM emails WHERE handle = ? AND from_addr LIKE ? AND folder = 'inbox' LIMIT 1`
-  ).bind(senderHandle, `${recipientHandle}@%`).first();
-
-  if (priorEmail) {
-    // Reply thread: lower stake
-    const settings = await db.prepare(
-      'SELECT receive_price FROM attn_settings WHERE handle = ?'
-    ).bind(recipientHandle).first<{ receive_price: number }>();
-    return { amount: settings?.receive_price ?? ATTN.REPLY_STAKE, reason: 'reply' };
-  }
-
-  // Cold email: higher stake
+  // Always return cold stake as estimated cost.
+  // Reply detection is handled by Diplomat LLM (checks subject starts with "Re:" + prior thread).
+  // getStakeAmount provides the *pre-arbitration estimate*; Diplomat adjusts the actual cost.
   const settings = await db.prepare(
     'SELECT receive_price FROM attn_settings WHERE handle = ?'
   ).bind(recipientHandle).first<{ receive_price: number }>();
