@@ -25,6 +25,7 @@ import { donateBuyRoutes } from './routes/donate-buy';
 import { claimRoutes } from './routes/claim';
 import { attnRoutes } from './routes/attn';
 import { airdropRoutes } from './routes/airdrop';
+import { diplomatRoutes } from './routes/diplomat';
 import { handleIncomingEmail } from './email-handler';
 import { handleCron } from './cron';
 
@@ -639,6 +640,7 @@ app.route('/api/donate-buy', donateBuyRoutes);
 app.route('/api/claim', claimRoutes);
 app.route('/api/attn', attnRoutes);
 app.route('/api/airdrop', airdropRoutes);
+app.route('/api/diplomat', diplomatRoutes);
 
 // Public ATTN price check (no auth required) — outside /api/attn/* to avoid auth middleware
 app.get('/api/attn-price/:handle', async (c) => {
