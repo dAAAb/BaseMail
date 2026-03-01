@@ -1962,10 +1962,10 @@ function Compose({ auth }: { auth: AuthState }) {
     try {
       // Use Diplomat send for internal BaseMail, regular send for external
       const isInternal = to.toLowerCase().endsWith('@basemail.ai');
-      const endpoint = (isInternal && !isSelfSend) ? '/api/diplomat/send' : '/api/send';
-      const payload: any = { to, subject, body };
       const toHandle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
       const isSelfSend = toHandle === auth.handle?.toLowerCase();
+      const endpoint = (isInternal && !isSelfSend) ? '/api/diplomat/send' : '/api/send';
+      const payload: any = { to, subject, body };
       if (isInternal && !isSelfSend) {
         payload.attn_override = diplomatPricing ? diplomatPricing.final_cost : 0;
         payload.llm_category = diplomatPricing ? diplomatPricing.llm_category : (isReply ? 'reply' : 'cold');
