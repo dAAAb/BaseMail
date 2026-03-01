@@ -144,8 +144,14 @@ export function authMiddleware() {
       if (!apiKeyAuth) {
         return c.json({ error: 'Invalid or revoked API key' }, 401);
       }
-      // Map API key to a handle. Wallet is unknown in this mode.
-      c.set('auth', { wallet: '', handle: apiKeyAuth.handle });
+      // Map API key to a handle. Resolve wallet from accounts table.
+      let apiWallet = '';
+      try {
+        const acct = await c.env.DB.prepare('SELECT wallet FROM accounts WHERE handle = ?')
+          .bind(apiKeyAuth.handle).first<{ wallet: string }>();
+        if (acct) apiWallet = acct.wallet;
+      } catch (_) { /* DB not ready */ }
+      c.set('auth', { wallet: apiWallet, handle: apiKeyAuth.handle });
       await next();
       return;
     }
