@@ -242,14 +242,14 @@ diplomatRoutes.post('/send', async (c) => {
   await c.env.EMAIL_STORE.put(r2Key, rawEmail);
 
   await c.env.DB.batch([
-    // Recipient inbox
-    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size)
-      VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?)`)
-      .bind(emailId, toHandle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length),
+    // Recipient inbox (with ATTN stake + diplomat metadata)
+    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, attn_stake, attn_status, from_handle)
+      VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`)
+      .bind(emailId, toHandle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length, body.attn_override, sender.handle),
     // Sender sent folder
-    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read)
-      VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1)`)
-      .bind(`${emailId}-sent`, sender.handle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length),
+    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, attn_stake, attn_status, from_handle)
+      VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, 'pending', ?)`)
+      .bind(`${emailId}-sent`, sender.handle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length, body.attn_override, sender.handle),
   ]);
 
   return c.json({

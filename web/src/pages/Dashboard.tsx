@@ -1859,32 +1859,51 @@ function Compose({ auth }: { auth: AuthState }) {
   const [error, setError] = useState('');
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
-  // ATTN stake detection
-  const [attnInfo, setAttnInfo] = useState<{ cold_stake: number; reply_stake: number; handle: string } | null>(null);
+  // Diplomat pricing detection
+  const [diplomatPricing, setDiplomatPricing] = useState<{
+    qaf_n: number; qaf_base: number; llm_category: string;
+    llm_coefficient: number; final_cost: number; formula: string;
+    handle: string;
+  } | null>(null);
   const [attnChecking, setAttnChecking] = useState(false);
 
   const isReply = subject.toLowerCase().startsWith('re:');
   useEffect(() => {
     const handle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
     if (!handle || !to.includes('@basemail.ai') || handle === auth.handle) {
-      setAttnInfo(null);
+      setDiplomatPricing(null);
       return;
     }
     const timer = setTimeout(async () => {
       setAttnChecking(true);
       try {
-        const res = await fetch(`${API_BASE}/api/attn-price/${handle}`);
+        const category = isReply ? 'reply' : 'cold';
+        const res = await fetch(`${API_BASE}/api/diplomat/pricing?from=${auth.handle}&to=${handle}&category=${category}`);
         const data = await res.json();
-        if (data.attn_enabled) {
-          setAttnInfo({ cold_stake: data.cold_email_stake, reply_stake: data.reply_thread_stake, handle });
+        if (data.pricing) {
+          setDiplomatPricing({ ...data.pricing, handle });
         } else {
-          setAttnInfo(null);
+          // Fallback to old ATTN price endpoint
+          const res2 = await fetch(`${API_BASE}/api/attn-price/${handle}`);
+          const data2 = await res2.json();
+          if (data2.attn_enabled) {
+            setDiplomatPricing({
+              qaf_n: 0, qaf_base: data2.cold_email_stake,
+              llm_category: isReply ? 'reply' : 'cold',
+              llm_coefficient: isReply ? 0 : 1,
+              final_cost: isReply ? 0 : data2.cold_email_stake,
+              formula: `${data2.cold_email_stake} ATTN`,
+              handle,
+            });
+          } else {
+            setDiplomatPricing(null);
+          }
         }
-      } catch { setAttnInfo(null); }
+      } catch { setDiplomatPricing(null); }
       setAttnChecking(false);
     }, 500);
     return () => clearTimeout(timer);
-  }, [to, auth.handle]);
+  }, [to, subject, auth.handle]);
 
   async function handleSend() {
     if (!to || !subject || !body) {
@@ -1895,9 +1914,19 @@ function Compose({ auth }: { auth: AuthState }) {
     setSending(true);
     setError('');
     try {
-      const res = await apiFetch('/api/send', auth.token, {
+      // Use Diplomat send for internal BaseMail, regular send for external
+      const isInternal = to.toLowerCase().endsWith('@basemail.ai');
+      const endpoint = isInternal ? '/api/diplomat/send' : '/api/send';
+      const payload: any = { to, subject, body };
+      if (isInternal && diplomatPricing) {
+        payload.attn_override = diplomatPricing.final_cost;
+        payload.llm_category = diplomatPricing.llm_category;
+        payload.llm_score = 5;
+        payload.qaf_n = diplomatPricing.qaf_n;
+      }
+      const res = await apiFetch(endpoint, auth.token, {
         method: 'POST',
-        body: JSON.stringify({ to, subject, body }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1937,22 +1966,34 @@ function Compose({ auth }: { auth: AuthState }) {
             className="w-full bg-base-gray border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-base-blue"
           />
         </div>
-        {/* ATTN stake info */}
-        {attnInfo && (
+        {/* Diplomat pricing info */}
+        {diplomatPricing && (
           <div className="bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-700/50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span>⚡</span>
-              <span className="text-purple-300 text-sm font-bold">$ATTN Auto-Stake</span>
+              <span>🦞</span>
+              <span className="text-purple-300 text-sm font-bold">The Diplomat — AI Pricing</span>
             </div>
-            <p className="text-gray-400 text-xs mb-1">
-              Sending to <span className="font-mono text-white">{attnInfo.handle}@basemail.ai</span> will auto-stake{' '}
-              <span className="text-purple-300 font-bold">{isReply ? attnInfo.reply_stake : attnInfo.cold_stake} ATTN</span>
-              {isReply ? ' (reply thread)' : ' (cold email)'}.
-            </p>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-300">{diplomatPricing.final_cost}</div>
+                <div className="text-gray-500 text-xs">ATTN cost</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-300 capitalize">{diplomatPricing.llm_category}</div>
+                <div className="text-gray-500 text-xs">AI classification</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-300">n={diplomatPricing.qaf_n}</div>
+                <div className="text-gray-500 text-xs">unread streak</div>
+              </div>
+            </div>
             <p className="text-gray-500 text-xs">
-              {isReply
-                ? 'Both of you earn +2 bonus ATTN for replying. 🎉'
-                : 'If they read your email, you get a full refund. If they reply, you both earn +2 bonus. Unread after 48h → tokens go to recipient.'}
+              {diplomatPricing.formula}
+              {diplomatPricing.llm_category === 'reply'
+                ? ' — Replies are free! Both of you earn +2 bonus ATTN. 🎉'
+                : diplomatPricing.qaf_n > 0
+                  ? ` — QAF: cost increases quadratically (n²) with unread emails. Read resets to 0.`
+                  : ' — First email at base rate. If ignored, follow-ups cost more (Quadratic Voting).'}
             </p>
           </div>
         )}
