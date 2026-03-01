@@ -13,6 +13,27 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
+
+// Ensure attn_escrow table exists (auto-created by attn module, but just in case)
+let diplomatMigrated = false;
+async function ensureEscrowTable(db: any) {
+  if (diplomatMigrated) return;
+  try {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS attn_escrow (
+      email_id TEXT PRIMARY KEY,
+      sender_wallet TEXT NOT NULL,
+      receiver_wallet TEXT NOT NULL,
+      sender_handle TEXT NOT NULL,
+      receiver_handle TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      expires_at INTEGER NOT NULL,
+      settled_at INTEGER
+    )`).run();
+  } catch { /* exists */ }
+  diplomatMigrated = true;
+}
 import { ATTN } from './attn';
 
 // ── QAF Pricing Constants ──
@@ -173,6 +194,7 @@ diplomatRoutes.use('/send', authMiddleware());
  * Called by CRE workflow after LLM arbitration.
  */
 diplomatRoutes.post('/send', async (c) => {
+  await ensureEscrowTable(c.env.DB);
   const auth = c.get('auth') as { wallet: string; handle?: string } | undefined;
   const wallet = auth?.wallet;
   const body = await c.req.json<{
@@ -217,6 +239,9 @@ diplomatRoutes.post('/send', async (c) => {
   const emailId = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 14)}`;
   const toHandle = body.to.replace(/@basemail\.ai$/i, '').toLowerCase();
 
+  // Get receiver wallet for escrow
+  const receiver = await c.env.DB.prepare('SELECT wallet FROM accounts WHERE handle = ?').bind(toHandle).first<{ wallet: string }>();
+
   await c.env.DB.batch([
     // Deduct from sender
     c.env.DB.prepare('UPDATE attn_balances SET balance = balance - ? WHERE wallet = ?')
@@ -231,6 +256,11 @@ diplomatRoutes.post('/send', async (c) => {
         emailId,
         `Diplomat: ${body.llm_category} (QAF n=${body.qaf_n}, score=${body.llm_score})`
       ),
+    // Escrow record (so inbox shows ATTN badge)
+    c.env.DB.prepare(`INSERT INTO attn_escrow (email_id, sender_wallet, receiver_wallet, sender_handle, receiver_handle, amount, status, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`)
+      .bind(emailId, wallet, receiver?.wallet || '', sender.handle, toHandle, body.attn_override,
+        Math.floor(Date.now() / 1000) + 48 * 3600),
   ]);
 
   // Store email in R2 + DB (simplified — real send goes through send.ts)
@@ -242,14 +272,14 @@ diplomatRoutes.post('/send', async (c) => {
   await c.env.EMAIL_STORE.put(r2Key, rawEmail);
 
   await c.env.DB.batch([
-    // Recipient inbox (with ATTN stake + diplomat metadata)
-    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, attn_stake, attn_status, from_handle)
-      VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`)
-      .bind(emailId, toHandle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length, body.attn_override, sender.handle),
+    // Recipient inbox
+    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size)
+      VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?)`)
+      .bind(emailId, toHandle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length),
     // Sender sent folder
-    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, attn_stake, attn_status, from_handle)
-      VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1, ?, 'pending', ?)`)
-      .bind(`${emailId}-sent`, sender.handle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length, body.attn_override, sender.handle),
+    c.env.DB.prepare(`INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read)
+      VALUES (?, ?, 'sent', ?, ?, ?, ?, ?, ?, 1)`)
+      .bind(`${emailId}-sent`, sender.handle, fromAddr, toAddr, body.subject, body.body.slice(0, 100), r2Key, rawEmail.length),
   ]);
 
   return c.json({
