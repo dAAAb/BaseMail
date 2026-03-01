@@ -15,5 +15,12 @@
     "deploy:web": "npm run deploy --workspace=web",
     "db:migrate": "npm run db:migrate --workspace=worker",
     "test:contracts": "npm test --workspace=contracts"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.4",
+    "vite": "^6.4.1"
+  },
+  "dependencies": {
+    "mime-db": "^1.54.0"
   }
 }

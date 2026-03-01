@@ -99,10 +99,19 @@ diplomatRoutes.get('/history', async (c) => {
   const unreadCount = result?.unread_streak ?? 0;
   const totalSent = result?.total_sent ?? 0;
 
+  // Count replies: emails FROM recipient TO sender
+  const repliesResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as replied
+    FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'sent'
+  `).bind(toAddr, fromAddr, to).first<{ replied: number }>();
+  const replied = repliesResult?.replied ?? 0;
+
   return c.json({
     from,
     to,
     total_sent: totalSent,
+    replied,
     unread_streak: unreadCount,
     last_read_at: lastReadAt || null,
     qaf: {
@@ -162,6 +171,44 @@ diplomatRoutes.get('/pricing', async (c) => {
     ? (await c.env.DB.prepare('SELECT balance FROM attn_balances WHERE wallet = ?').bind(senderAcct.wallet).first<{ balance: number }>())?.balance ?? 0
     : 0;
 
+  // Relationship stats: me → them
+  const meSentResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox'
+  `).bind(fromAddr, toAddr, to).first<{ cnt: number }>();
+  const meSent = meSentResult?.cnt ?? 0;
+
+  const theyRepliedResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'sent'
+  `).bind(toAddr, fromAddr, to).first<{ cnt: number }>();
+  const theyReplied = theyRepliedResult?.cnt ?? 0;
+
+  // Relationship stats: them → me
+  const theyUnreadResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox' AND read = 0
+  `).bind(fromAddr, toAddr, to).first<{ cnt: number }>();
+  const theyUnread = theyUnreadResult?.cnt ?? 0;
+
+  const theySentResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox'
+  `).bind(toAddr, fromAddr, from).first<{ cnt: number }>();
+  const theySent = theySentResult?.cnt ?? 0;
+
+  const meRepliedResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'sent'
+  `).bind(fromAddr, toAddr, from).first<{ cnt: number }>();
+  const meReplied = meRepliedResult?.cnt ?? 0;
+
+  const meUnreadResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as cnt FROM emails
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox' AND read = 0
+  `).bind(toAddr, fromAddr, from).first<{ cnt: number }>();
+  const meUnread = meUnreadResult?.cnt ?? 0;
+
   return c.json({
     from,
     to,
@@ -172,6 +219,10 @@ diplomatRoutes.get('/pricing', async (c) => {
       llm_coefficient: llmCoeff,
       final_cost: finalCost,
       formula: `${qafBase} (QAF n=${n}) × ${llmCoeff} (${category}) = ${finalCost} ATTN`,
+    },
+    relationship: {
+      me_to_them: { sent: meSent, replied: theyReplied, unread: theyUnread },
+      them_to_me: { sent: theySent, replied: meReplied, unread: meUnread },
     },
     sender_balance: balance,
     can_afford: balance >= finalCost,

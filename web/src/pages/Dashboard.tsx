@@ -5,7 +5,7 @@ import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'vi
 import { base, mainnet } from 'wagmi/chains';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 
-const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
+const API_BASE = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.includes('ngrok') || window.location.hostname.includes('loca.lt'))) ? '' : 'https://api.basemail.ai';
 const DEPOSIT_ADDRESS = '0x4BbdB896eCEd7d202AD7933cEB220F7f39d0a9Fe';
 
 // USDC Hackathon — Base Sepolia Testnet
@@ -1256,6 +1256,11 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
   const [bondedCount, setBondedCount] = useState(0);
   const [filterBonded, setFilterBonded] = useState(false);
   const [bondSort, setBondSort] = useState<'deadline' | 'bond_amount'>('deadline');
+  const [filterAttn, setFilterAttn] = useState<'all' | 'pending' | 'returned'>('all');
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const filterContact = searchParams.get('contact');
+  const filterUnread = searchParams.get('unread') === '1';
 
   const fetchInbox = useCallback(() => {
     setLoading(true);
@@ -1309,19 +1314,34 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
       </div>
 
       {/* Bonded filter bar */}
-      {folder === 'inbox' && (
+      {(folder === 'inbox' || folder === 'sent') && (
         <div className="flex items-center gap-2 mb-4">
-          <button onClick={() => setFilterBonded(false)} className={`text-xs px-3 py-1.5 rounded-full transition ${!filterBonded ? 'bg-base-blue text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>All</button>
-          <button onClick={() => setFilterBonded(true)} className={`text-xs px-3 py-1.5 rounded-full transition ${filterBonded ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
-            🔥 Bonded{bondedCount > 0 ? ` (${bondedCount})` : ''}
+          <button onClick={() => { setFilterBonded(false); setFilterAttn('all'); }} className={`text-xs px-3 py-1.5 rounded-full transition ${!filterBonded && filterAttn === 'all' ? 'bg-base-blue text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>All</button>
+          <button onClick={() => { setFilterAttn('pending'); setFilterBonded(false); }} className={`text-xs px-3 py-1.5 rounded-full transition ${filterAttn === 'pending' && !filterBonded ? 'bg-purple-500/20 text-purple-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+            ⚡ Pending
           </button>
-          {filterBonded && (
+          <button onClick={() => { setFilterAttn('returned'); setFilterBonded(false); }} className={`text-xs px-3 py-1.5 rounded-full transition ${filterAttn === 'returned' && !filterBonded ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+            🔙 Returned
+          </button>
+          {folder === 'inbox' && <button onClick={() => { setFilterBonded(true); setFilterAttn('all'); }} className={`text-xs px-3 py-1.5 rounded-full transition ${filterBonded ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-800 text-gray-400 hover:text-white'}`}>
+            🔥 Bonded{bondedCount > 0 ? ` (${bondedCount})` : ''}
+          </button>}
+          {filterBonded && folder === 'inbox' && (
             <div className="flex items-center gap-1 ml-2">
               <span className="text-gray-600 text-xs">Sort:</span>
               <button onClick={() => setBondSort('deadline')} className={`text-xs px-2 py-1 rounded transition ${bondSort === 'deadline' ? 'text-white bg-gray-700' : 'text-gray-500 hover:text-gray-300'}`}>⏰ Deadline</button>
               <button onClick={() => setBondSort('bond_amount')} className={`text-xs px-2 py-1 rounded transition ${bondSort === 'bond_amount' ? 'text-white bg-gray-700' : 'text-gray-500 hover:text-gray-300'}`}>💰 Amount</button>
             </div>
           )}
+        </div>
+      )}
+
+      {filterContact && (
+        <div className="flex items-center gap-2 mb-4 bg-purple-900/20 border border-purple-700/50 rounded-lg px-4 py-2">
+          <span className="text-purple-300 text-sm">
+            {filterUnread ? '📭' : '🔍'} {folder === 'inbox' ? `From ${filterContact}` : `To ${filterContact}`}{filterUnread ? ' · unread only' : ''}
+          </span>
+          <Link to={folder === 'inbox' ? '/dashboard' : '/dashboard/sent'} className="ml-auto text-gray-500 hover:text-white text-xs">✕ Clear</Link>
         </div>
       )}
 
@@ -1334,7 +1354,19 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
         </div>
       ) : (
         <div className="space-y-1">
-          {emails.map((email) => (
+          {emails.filter((email) => {
+            if (filterAttn === 'pending') return (email as any).attn_stake > 0 && (email as any).attn_status === 'pending';
+            if (filterAttn === 'returned') return (email as any).attn_stake > 0 && ((email as any).attn_status === 'refunded' || (email as any).attn_status === 'rejected');
+            if (filterContact) {
+              const contactAddr = `${filterContact}@basemail.ai`.toLowerCase();
+              const match = folder === 'inbox'
+                ? email.from_addr?.toLowerCase() === contactAddr
+                : email.to_addr?.toLowerCase() === contactAddr;
+              if (!match) return false;
+              if (filterUnread && folder === 'inbox' && email.read) return false;
+            }
+            return true;
+          }).map((email) => (
             <Link
               key={email.id}
               to={`/dashboard/email/${email.id}`}
@@ -1376,9 +1408,17 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                       <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                         (email as any).attn_status === 'pending' ? 'text-purple-400 bg-purple-900/30' :
                         (email as any).attn_status === 'refunded' ? 'text-green-400 bg-green-900/30' :
+                        (email as any).attn_status === 'rejected' ? 'text-red-400 bg-red-900/30' :
                         'text-gray-400 bg-gray-800'
                       }`} title={`$ATTN: ${(email as any).attn_status}`}>
-                        ⚡ {(email as any).attn_stake} ATTN
+                        {folder === 'sent'
+                          ? ((email as any).attn_status === 'pending' ? '⏳' :
+                             (email as any).attn_status === 'refunded' ? '✅' :
+                             (email as any).attn_status === 'rejected' ? '❌' : '⚡')
+                          : ((email as any).attn_status === 'pending' ? '⚡' :
+                             (email as any).attn_status === 'refunded' ? '🔙' :
+                             (email as any).attn_status === 'rejected' ? '💰' : '⚡')
+                        } {(email as any).attn_stake} ATTN
                       </span>
                     )}
                     {email.subject || '(no subject)'}
@@ -1864,7 +1904,12 @@ function Compose({ auth }: { auth: AuthState }) {
     qaf_n: number; qaf_base: number; llm_category: string;
     llm_coefficient: number; final_cost: number; formula: string;
     handle: string;
+    relationship?: {
+      me_to_them: { sent: number; replied: number; unread: number };
+      them_to_me: { sent: number; replied: number; unread: number };
+    };
   } | null>(null);
+  const [cardFlipped, setCardFlipped] = useState(false);
   const [attnChecking, setAttnChecking] = useState(false);
 
   const isReply = subject.toLowerCase().startsWith('re:');
@@ -1881,7 +1926,7 @@ function Compose({ auth }: { auth: AuthState }) {
         const res = await fetch(`${API_BASE}/api/diplomat/pricing?from=${auth.handle}&to=${handle}&category=${category}`);
         const data = await res.json();
         if (data.pricing) {
-          setDiplomatPricing({ ...data.pricing, handle });
+          setDiplomatPricing({ ...data.pricing, handle, relationship: data.relationship });
         } else {
           // Fallback to old ATTN price endpoint
           const res2 = await fetch(`${API_BASE}/api/attn-price/${handle}`);
@@ -1903,7 +1948,7 @@ function Compose({ auth }: { auth: AuthState }) {
       setAttnChecking(false);
     }, 500);
     return () => clearTimeout(timer);
-  }, [to, subject, auth.handle]);
+  }, [to, isReply, auth.handle]);
 
   async function handleSend() {
     if (!to || !subject || !body) {
@@ -1916,13 +1961,15 @@ function Compose({ auth }: { auth: AuthState }) {
     try {
       // Use Diplomat send for internal BaseMail, regular send for external
       const isInternal = to.toLowerCase().endsWith('@basemail.ai');
-      const endpoint = isInternal ? '/api/diplomat/send' : '/api/send';
+      const endpoint = (isInternal && !isSelfSend) ? '/api/diplomat/send' : '/api/send';
       const payload: any = { to, subject, body };
-      if (isInternal && diplomatPricing) {
-        payload.attn_override = diplomatPricing.final_cost;
-        payload.llm_category = diplomatPricing.llm_category;
+      const toHandle = to.replace(/@basemail\.ai$/i, '').toLowerCase();
+      const isSelfSend = toHandle === auth.handle?.toLowerCase();
+      if (isInternal && !isSelfSend) {
+        payload.attn_override = diplomatPricing ? diplomatPricing.final_cost : 0;
+        payload.llm_category = diplomatPricing ? diplomatPricing.llm_category : (isReply ? 'reply' : 'cold');
         payload.llm_score = 5;
-        payload.qaf_n = diplomatPricing.qaf_n;
+        payload.qaf_n = diplomatPricing ? diplomatPricing.qaf_n : 0;
       }
       const res = await apiFetch(endpoint, auth.token, {
         method: 'POST',
@@ -1973,6 +2020,74 @@ function Compose({ auth }: { auth: AuthState }) {
               <span>🦞</span>
               <span className="text-purple-300 text-sm font-bold">The Diplomat — AI Pricing</span>
             </div>
+            {diplomatPricing.llm_category === 'reply' ? (
+              <div className="space-y-3">
+                {diplomatPricing.relationship && (
+                  <div
+                    className="cursor-pointer select-none"
+                    onClick={() => setCardFlipped(!cardFlipped)}
+                    style={{ perspective: '600px' }}
+                  >
+                    <div
+                      className="relative transition-transform duration-500"
+                      style={{ transformStyle: 'preserve-3d', transform: cardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
+                    >
+                      {/* Front: me → them */}
+                      <div style={{ backfaceVisibility: 'hidden' }}>
+                        <div className="text-gray-400 text-xs mb-2 text-center">你對 <span className="text-purple-300">{diplomatPricing.handle}</span> <span className="text-gray-600 ml-1">🔄</span></div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-purple-300">📨 {diplomatPricing.relationship.me_to_them.sent}</div>
+                            <div className="text-gray-500 text-xs">sent</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-green-400">💬 {diplomatPricing.relationship.me_to_them.replied}</div>
+                            <div className="text-gray-500 text-xs">they replied</div>
+                          </div>
+                          <div className="text-center">
+                            {diplomatPricing.relationship.me_to_them.unread > 0 ? (
+                              <Link to={`/dashboard/sent?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="block hover:scale-110 transition-transform">
+                                <div className="text-lg font-bold text-yellow-400">📭 {diplomatPricing.relationship.me_to_them.unread}</div>
+                                <div className="text-yellow-500/70 text-xs underline">unread by them</div>
+                              </Link>
+                            ) : (
+                              <><div className="text-lg font-bold text-gray-400">📭 0</div><div className="text-gray-500 text-xs">unread by them</div></>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Back: them → me */}
+                      <div className="absolute inset-0" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                        <div className="text-gray-400 text-xs mb-2 text-center"><span className="text-purple-300">{diplomatPricing.handle}</span> 對你 <span className="text-gray-600 ml-1">🔄</span></div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-purple-300">📨 {diplomatPricing.relationship.them_to_me.sent}</div>
+                            <div className="text-gray-500 text-xs">received</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-green-400">💬 {diplomatPricing.relationship.them_to_me.replied}</div>
+                            <div className="text-gray-500 text-xs">you replied</div>
+                          </div>
+                          <div className="text-center">
+                            {diplomatPricing.relationship.them_to_me.unread > 0 ? (
+                              <Link to={`/dashboard?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="block hover:scale-110 transition-transform">
+                                <div className="text-lg font-bold text-yellow-400">📭 {diplomatPricing.relationship.them_to_me.unread}</div>
+                                <div className="text-yellow-500/70 text-xs underline">unread by you</div>
+                              </Link>
+                            ) : (
+                              <><div className="text-lg font-bold text-gray-400">📭 0</div><div className="text-gray-500 text-xs">unread by you</div></>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="text-center">
+                  <span className="text-green-400 font-bold text-sm">✅ FREE — Replies keep the conversation alive!</span>
+                </div>
+              </div>
+            ) : (<>
             <div className="grid grid-cols-3 gap-3 mb-3">
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-300">{diplomatPricing.final_cost}</div>
@@ -1987,14 +2102,44 @@ function Compose({ auth }: { auth: AuthState }) {
                 <div className="text-gray-500 text-xs">unread streak</div>
               </div>
             </div>
+            {diplomatPricing.relationship && diplomatPricing.relationship.me_to_them.sent > 0 && (
+              <div
+                className="cursor-pointer select-none mb-2"
+                onClick={() => setCardFlipped(!cardFlipped)}
+                style={{ perspective: '600px' }}
+              >
+                <div
+                  className="relative transition-transform duration-500"
+                  style={{ transformStyle: 'preserve-3d', transform: cardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)', minHeight: '24px' }}
+                >
+                  <div className="flex items-center gap-4 text-xs text-gray-500" style={{ backfaceVisibility: 'hidden' }}>
+                    <span className="text-gray-600">你對 {diplomatPricing.handle}</span>
+                    <span>📨 {diplomatPricing.relationship.me_to_them.sent}</span>
+                    <span>💬 {diplomatPricing.relationship.me_to_them.replied}</span>
+                    {diplomatPricing.relationship.me_to_them.unread > 0 ? (
+                      <Link to={`/dashboard/sent?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="text-yellow-400 underline hover:text-yellow-300">📭 {diplomatPricing.relationship.me_to_them.unread}</Link>
+                    ) : <span>📭 0</span>}
+                    <span className="text-gray-700">🔄</span>
+                  </div>
+                  <div className="absolute inset-0 flex items-center gap-4 text-xs text-gray-500" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                    <span className="text-gray-600">{diplomatPricing.handle} 對你</span>
+                    <span>📨 {diplomatPricing.relationship.them_to_me.sent}</span>
+                    <span>💬 {diplomatPricing.relationship.them_to_me.replied}</span>
+                    {diplomatPricing.relationship.them_to_me.unread > 0 ? (
+                      <Link to={`/dashboard?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="text-yellow-400 underline hover:text-yellow-300">📭 {diplomatPricing.relationship.them_to_me.unread}</Link>
+                    ) : <span>📭 0</span>}
+                    <span className="text-gray-700">🔄</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <p className="text-gray-500 text-xs">
               {diplomatPricing.formula}
-              {diplomatPricing.llm_category === 'reply'
-                ? ' — Replies are free! Both of you earn +2 bonus ATTN. 🎉'
-                : diplomatPricing.qaf_n > 0
-                  ? ` — QAF: cost increases quadratically (n²) with unread emails. Read resets to 0.`
-                  : ' — First email at base rate. If ignored, follow-ups cost more (Quadratic Voting).'}
+              {diplomatPricing.qaf_n > 0
+                  ? <> — <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300">QAF</a>: cost increases quadratically (n²) with unread emails. Read resets to 0.</>
+                  : <> — First email at base rate. If ignored, follow-ups cost more (<a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300">Quadratic Voting</a>).</>}
             </p>
+            </>)}
           </div>
         )}
         {attnChecking && <div className="text-gray-500 text-xs">Checking ATTN requirements...</div>}
@@ -2642,6 +2787,20 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
             {auth.token}
           </div>
           <p className="text-gray-600 text-xs mt-2">Click to copy</p>
+        </div>
+
+        {/* Disconnect */}
+        <div className="pt-4 border-t border-gray-800">
+          <button
+            onClick={() => {
+              localStorage.removeItem('basemail_auth');
+              setAuth(null as any);
+              window.location.href = '/';
+            }}
+            className="w-full bg-red-900/30 text-red-400 border border-red-800 px-4 py-3 rounded-lg font-medium hover:bg-red-900/50 transition"
+          >
+            🔌 Disconnect Wallet
+          </button>
         </div>
       </div>
     </div>
