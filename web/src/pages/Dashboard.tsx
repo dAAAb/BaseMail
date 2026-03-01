@@ -1356,7 +1356,7 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
         <div className="space-y-1">
           {emails.filter((email) => {
             if (filterAttn === 'pending') return (email as any).attn_stake > 0 && (email as any).attn_status === 'pending';
-            if (filterAttn === 'returned') return (email as any).attn_stake > 0 && ((email as any).attn_status === 'refunded' || (email as any).attn_status === 'rejected');
+            if (filterAttn === 'returned') return (email as any).attn_stake > 0 && ['refunded', 'rejected', 'transferred', 'expired'].includes((email as any).attn_status);
             if (filterContact) {
               const contactAddr = `${filterContact}@basemail.ai`.toLowerCase();
               const match = folder === 'inbox'
@@ -1408,16 +1408,19 @@ function Inbox({ auth, folder }: { auth: AuthState; folder: string }) {
                       <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                         (email as any).attn_status === 'pending' ? 'text-purple-400 bg-purple-900/30' :
                         (email as any).attn_status === 'refunded' ? 'text-green-400 bg-green-900/30' :
-                        (email as any).attn_status === 'rejected' ? 'text-red-400 bg-red-900/30' :
+                        (email as any).attn_status === 'rejected' || (email as any).attn_status === 'transferred' ? 'text-red-400 bg-red-900/30' :
+                        (email as any).attn_status === 'expired' ? (folder === 'sent' ? 'text-gray-400 bg-gray-800' : 'text-yellow-400 bg-yellow-900/30') :
                         'text-gray-400 bg-gray-800'
                       }`} title={`$ATTN: ${(email as any).attn_status}`}>
                         {folder === 'sent'
                           ? ((email as any).attn_status === 'pending' ? '⏳' :
                              (email as any).attn_status === 'refunded' ? '✅' :
-                             (email as any).attn_status === 'rejected' ? '❌' : '⚡')
+                             (email as any).attn_status === 'rejected' || (email as any).attn_status === 'transferred' ? '❌' :
+                             (email as any).attn_status === 'expired' ? '🥀' : '⚡')
                           : ((email as any).attn_status === 'pending' ? '⚡' :
                              (email as any).attn_status === 'refunded' ? '🔙' :
-                             (email as any).attn_status === 'rejected' ? '💰' : '⚡')
+                             (email as any).attn_status === 'rejected' || (email as any).attn_status === 'transferred' ? '💰' :
+                             (email as any).attn_status === 'expired' ? '🤑' : '⚡')
                         } {(email as any).attn_stake} ATTN
                       </span>
                     )}
