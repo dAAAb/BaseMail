@@ -11,6 +11,8 @@
  */
 
 import { Hono } from 'hono';
+import { createPublicClient, http, type Hex } from 'viem';
+import { base } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
@@ -350,6 +352,8 @@ diplomatRoutes.post('/send', async (c) => {
     llm_category?: LlmCategory;
     llm_score?: number;
     qaf_n?: number;
+    // Auto-buy: if ATTN insufficient, use this USDC tx to purchase ATTN first
+    buy_tx_hash?: string;
   }>();
 
   if (!body.to || !body.subject || !body.body) {
@@ -390,16 +394,81 @@ diplomatRoutes.post('/send', async (c) => {
 
   // ── Step 2: Check balance vs estimated cost (cold ×1 = worst pre-arbitration) ──
   const bal = await c.env.DB.prepare('SELECT balance FROM attn_balances WHERE LOWER(wallet) = LOWER(?)').bind(wallet).first<{ balance: number }>();
-  const balance = bal?.balance ?? 0;
+  let balance = bal?.balance ?? 0;
   const estimatedCost = Math.max(1, Math.ceil(qafBase * DIPLOMAT.LLM_COEFFICIENTS.cold));
 
   if (balance < estimatedCost) {
-    return c.json({
-      error: 'Insufficient ATTN balance',
-      required: estimatedCost,
-      balance,
-      hint: balance < 0 ? 'Your account has negative ATTN. Receive emails to recover.' : undefined,
-    }, 402);
+    // ── Auto-buy: if buy_tx_hash provided, verify USDC tx and top up ATTN ──
+    if (body.buy_tx_hash) {
+      try {
+        const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') });
+        const receipt = await client.waitForTransactionReceipt({
+          hash: body.buy_tx_hash as Hex,
+          timeout: 15_000,
+        });
+        if (receipt.status !== 'success') {
+          return c.json({ error: 'Auto-buy: USDC transaction failed on-chain' }, 400);
+        }
+        const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+        const USDC_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+        const transferLog = receipt.logs.find(
+          (log) => log.address.toLowerCase() === USDC_ADDRESS.toLowerCase()
+            && log.topics[0] === USDC_TRANSFER_TOPIC
+        );
+        if (!transferLog || !transferLog.topics[1]) {
+          return c.json({ error: 'Auto-buy: No USDC Transfer event found in tx' }, 400);
+        }
+        const txFrom = ('0x' + transferLog.topics[1].slice(26)).toLowerCase();
+        if (txFrom !== wallet.toLowerCase()) {
+          return c.json({ error: 'Auto-buy: USDC sender does not match authenticated wallet' }, 400);
+        }
+        // Check not already used
+        const existing = await c.env.DB.prepare(
+          "SELECT id FROM attn_transactions WHERE note LIKE ? AND type = 'purchase'"
+        ).bind(`%${body.buy_tx_hash}%`).first();
+        if (existing) {
+          return c.json({ error: 'Auto-buy: This tx has already been used' }, 409);
+        }
+        const BUY_RATE = 100; // 1 USDC = 100 ATTN
+        const usdcAmount = Number(BigInt(transferLog.data)) / 1e6;
+        const attnPurchased = Math.floor(usdcAmount * BUY_RATE);
+        if (attnPurchased < 1) {
+          return c.json({ error: 'Auto-buy: USDC amount too small for even 1 ATTN' }, 400);
+        }
+        // Credit ATTN
+        const purchaseTxId = `autobuy-${Date.now().toString(36)}`;
+        await c.env.DB.batch([
+          c.env.DB.prepare('UPDATE attn_balances SET balance = balance + ? WHERE wallet = ?')
+            .bind(attnPurchased, wallet),
+          c.env.DB.prepare(
+            "INSERT INTO attn_transactions (id, wallet, amount, type, note) VALUES (?, ?, ?, 'purchase', ?)"
+          ).bind(purchaseTxId, wallet, attnPurchased,
+            `Auto-buy: ${usdcAmount.toFixed(2)} USDC → ${attnPurchased} ATTN | tx: ${body.buy_tx_hash}`),
+        ]);
+        // Update balance for rest of flow
+        balance = balance + attnPurchased;
+        // Continue to send — balance is now sufficient
+      } catch (e: any) {
+        return c.json({ error: `Auto-buy failed: ${e.message}` }, 400);
+      }
+    } else {
+      const shortfall = estimatedCost - balance;
+      const usdcNeeded = Math.ceil(shortfall / 100 * 100) / 100; // round up to 0.01
+      return c.json({
+        error: 'Insufficient ATTN balance',
+        required: estimatedCost,
+        balance,
+        shortfall,
+        auto_buy: {
+          hint: 'Send USDC to the BaseMail treasury, then retry with buy_tx_hash',
+          usdc_needed: usdcNeeded.toFixed(2),
+          attn_per_usdc: 100,
+          treasury_address: '0x44F892b06849A285528ECeA8E08Ae5d93F166e70',
+          example: `POST /api/diplomat/send { ...same payload, "buy_tx_hash": "0x..." }`,
+        },
+        hint: balance < 0 ? 'Your account has negative ATTN. Receive emails to recover.' : undefined,
+      }, 402);
+    }
   }
 
   // ── Step 3: Gemini LLM Arbitration ──
@@ -608,3 +677,57 @@ export async function settleExpiredEscrows(db: D1Database, receiverHandle: strin
   }
   return settled;
 }
+
+// ══════════════════════════════════════════════
+// GET /api/diplomat/buy-quote?to=handle
+// Quick quote: how much USDC needed to send to someone
+// ══════════════════════════════════════════════
+diplomatRoutes.use('/buy-quote', authMiddleware());
+diplomatRoutes.get('/buy-quote', async (c) => {
+  const auth = c.get('auth') as { wallet: string; handle?: string };
+  const wallet = auth.wallet;
+  const toHandle = (c.req.query('to') || '').replace(/@basemail\.ai$/i, '').toLowerCase();
+  if (!toHandle) return c.json({ error: 'to query param required' }, 400);
+
+  const sender = auth.handle
+    ? { handle: auth.handle }
+    : await c.env.DB.prepare('SELECT handle FROM accounts WHERE LOWER(wallet) = LOWER(?)').bind(wallet).first<{ handle: string }>();
+  if (!sender) return c.json({ error: 'Sender not registered' }, 404);
+
+  const fromAddr = `${sender.handle}@basemail.ai`;
+  const toAddr = `${toHandle}@basemail.ai`;
+
+  // Get unread streak
+  const lastRead = await c.env.DB.prepare(`
+    SELECT MAX(created_at) as last_read_at FROM emails 
+    WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox' AND read = 1
+  `).bind(fromAddr, toAddr, toHandle).first<{ last_read_at: number | null }>();
+  const lastReadAt = lastRead?.last_read_at ?? 0;
+  const streakResult = await c.env.DB.prepare(`
+    SELECT SUM(CASE WHEN read = 0 AND created_at > ? THEN 1 ELSE 0 END) as unread_streak
+    FROM emails WHERE from_addr = ? AND to_addr = ? AND handle = ? AND folder = 'inbox'
+  `).bind(lastReadAt, fromAddr, toAddr, toHandle).first<{ unread_streak: number }>();
+  const n = streakResult?.unread_streak ?? 0;
+  const qafBase = qafPrice(n);
+  const estimatedCost = Math.max(1, Math.ceil(qafBase * 1)); // cold ×1
+
+  const bal = await c.env.DB.prepare('SELECT balance FROM attn_balances WHERE LOWER(wallet) = LOWER(?)').bind(wallet).first<{ balance: number }>();
+  const balance = bal?.balance ?? 0;
+  const shortfall = Math.max(0, estimatedCost - balance);
+  const usdcNeeded = shortfall > 0 ? Math.max(0.01, Math.ceil(shortfall / 100 * 100) / 100) : 0;
+
+  return c.json({
+    to: toAddr,
+    estimated_attn_cost: estimatedCost,
+    qaf_n: n,
+    current_balance: balance,
+    shortfall,
+    usdc_needed: usdcNeeded.toFixed(2),
+    attn_per_usdc: 100,
+    treasury_address: '0x44F892b06849A285528ECeA8E08Ae5d93F166e70',
+    can_afford: balance >= estimatedCost,
+    note: shortfall > 0
+      ? `Send ${usdcNeeded.toFixed(2)} USDC to treasury, then POST /api/diplomat/send with buy_tx_hash`
+      : 'Balance sufficient — no purchase needed',
+  });
+});
