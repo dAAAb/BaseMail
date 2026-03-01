@@ -34,6 +34,12 @@ inboxRoutes.get('/', async (c) => {
     ).bind(now, auth.handle, now).run();
   } catch (_) { /* ignore if table doesn't exist */ }
 
+  // Lazy-settle expired ATTN escrows → transfer to receiver
+  try {
+    const { settleExpiredEscrows } = await import('./diplomat');
+    await settleExpiredEscrows(c.env.DB, auth.handle);
+  } catch (_) { /* ignore if not ready */ }
+
   let emails;
   if (bonded) {
     const sortCol = sort === 'bond_amount' ? 'ab.amount_usdc' : sort === 'deadline' ? 'ab.response_deadline' : 'e.created_at';
@@ -132,6 +138,11 @@ inboxRoutes.post('/mark-read', async (c) => {
     const qs = ids.map(() => '?').join(',');
     const stmt = `UPDATE emails SET read = 1 WHERE handle = ? AND id IN (${qs})`;
     await c.env.DB.prepare(stmt).bind(auth.handle, ...ids).run();
+    // Refund ATTN escrow for each read email
+    try {
+      const { refundOnRead } = await import('./attn');
+      for (const id of ids) { await refundOnRead(c.env.DB, id); }
+    } catch (_) { /* ATTN not ready */ }
   } else {
     // Mark all unread in folder
     await c.env.DB.prepare(

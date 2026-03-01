@@ -529,3 +529,82 @@ export function qafPrice(unreadCount: number): number {
   const n = Math.min(unreadCount + 1, DIPLOMAT.QAF_CAP);
   return n * n;
 }
+
+// ── Reject Email ──
+diplomatRoutes.use('/reject/:emailId', authMiddleware());
+
+/**
+ * POST /api/diplomat/reject/:emailId
+ * Recipient rejects an email → ATTN transfers to recipient.
+ */
+diplomatRoutes.post('/reject/:emailId', async (c) => {
+  const auth = c.get('auth') as { wallet: string; handle?: string };
+  if (!auth.wallet) return c.json({ error: 'Authentication failed' }, 401);
+
+  const emailId = c.req.param('emailId');
+
+  // Verify this email belongs to the authenticated user's inbox
+  const email = await c.env.DB.prepare(
+    'SELECT id, handle FROM emails WHERE id = ? AND handle = ? AND folder = \'inbox\''
+  ).bind(emailId, auth.handle).first();
+  if (!email) return c.json({ error: 'Email not found in your inbox' }, 404);
+
+  try {
+    const { rejectEmail } = await import('./attn');
+    const result = await rejectEmail(c.env.DB, emailId, auth.wallet);
+    if (!result) return c.json({ error: 'No pending escrow for this email' }, 404);
+    return c.json({ success: true, attn_transferred: result.transferred });
+  } catch (e: any) {
+    return c.json({ error: e.message || 'Reject failed' }, 500);
+  }
+});
+
+// ── Lazy Expiry Settlement ──
+
+/**
+ * Settle all expired escrows for a given receiver handle.
+ * Called lazily when user opens inbox.
+ * Expired + unread → ATTN goes to receiver.
+ */
+export async function settleExpiredEscrows(db: D1Database, receiverHandle: string): Promise<number> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const expired = await db.prepare(
+    `SELECT ae.email_id, ae.sender_wallet, ae.receiver_wallet, ae.amount
+     FROM attn_escrow ae
+     WHERE ae.receiver_handle = ? AND ae.status = 'pending' AND ae.expires_at < ?`
+  ).bind(receiverHandle, now).all<{
+    email_id: string; sender_wallet: string; receiver_wallet: string; amount: number;
+  }>();
+
+  if (!expired.results?.length) return 0;
+
+  let settled = 0;
+  for (const esc of expired.results) {
+    if (!esc.receiver_wallet) continue;
+    try {
+      const txId = `attn-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 14)}`;
+      const txId2 = `attn-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 14)}b`;
+      await db.batch([
+        // Transfer to receiver
+        db.prepare('UPDATE attn_balances SET balance = balance + ? WHERE wallet = ?')
+          .bind(esc.amount, esc.receiver_wallet),
+        // Mark escrow expired
+        db.prepare('UPDATE attn_escrow SET status = \'expired\', settled_at = ? WHERE email_id = ?')
+          .bind(now, esc.email_id),
+        // Log for receiver
+        db.prepare(
+          `INSERT INTO attn_transactions (id, wallet, amount, type, ref_email_id, note, created_at)
+           VALUES (?, ?, ?, 'expired_earn', ?, 'Email expired unread — ATTN earned', ?)`
+        ).bind(txId, esc.receiver_wallet, esc.amount, esc.email_id, now),
+        // Log for sender
+        db.prepare(
+          `INSERT INTO attn_transactions (id, wallet, amount, type, ref_email_id, note, created_at)
+           VALUES (?, ?, ?, 'expired_loss', ?, 'Email expired unread — ATTN forfeited', ?)`
+        ).bind(txId2, esc.sender_wallet, -esc.amount, esc.email_id, now),
+      ]);
+      settled++;
+    } catch (_) { /* skip individual failures */ }
+  }
+  return settled;
+}
