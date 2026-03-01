@@ -165,7 +165,7 @@ diplomatRoutes.get('/pricing', async (c) => {
 });
 
 // ── Authenticated endpoints ──
-diplomatRoutes.use('/*', authMiddleware);
+diplomatRoutes.use('/send', authMiddleware());
 
 /**
  * POST /api/diplomat/send
@@ -173,7 +173,8 @@ diplomatRoutes.use('/*', authMiddleware);
  * Called by CRE workflow after LLM arbitration.
  */
 diplomatRoutes.post('/send', async (c) => {
-  const wallet = c.get('wallet');
+  const auth = c.get('auth') as { wallet: string; handle?: string } | undefined;
+  const wallet = auth?.wallet;
   const body = await c.req.json<{
     to: string;
     subject: string;
@@ -192,12 +193,16 @@ diplomatRoutes.post('/send', async (c) => {
     return c.json({ error: 'attn_override required (from Diplomat pricing)' }, 400);
   }
 
+  if (!wallet) return c.json({ error: 'Authentication failed' }, 401);
+
   // Get sender handle
-  const sender = await c.env.DB.prepare('SELECT handle FROM accounts WHERE wallet = ?').bind(wallet).first<{ handle: string }>();
+  const sender = auth?.handle
+    ? { handle: auth.handle }
+    : await c.env.DB.prepare('SELECT handle FROM accounts WHERE LOWER(wallet) = LOWER(?)').bind(wallet).first<{ handle: string }>();
   if (!sender) return c.json({ error: 'Sender not registered' }, 404);
 
   // Get sender balance
-  const bal = await c.env.DB.prepare('SELECT balance FROM attn_balances WHERE wallet = ?').bind(wallet).first<{ balance: number }>();
+  const bal = await c.env.DB.prepare('SELECT balance FROM attn_balances WHERE LOWER(wallet) = LOWER(?)').bind(wallet).first<{ balance: number }>();
   const balance = bal?.balance ?? 0;
 
   if (balance < body.attn_override) {
