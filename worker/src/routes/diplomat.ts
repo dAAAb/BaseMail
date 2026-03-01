@@ -14,6 +14,39 @@ import { Hono } from 'hono';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
+// ── Diplomat Fallback Messages (when Gemini is unavailable) ──
+const DIPLOMAT_FALLBACK_MESSAGES = [
+  'The Diplomat is on vacation 🏖️ Default pricing applied.',
+  'The Diplomat had too much coffee and crashed ☕💥',
+  'The Diplomat is in a heated negotiation with another AI 🤝',
+  'The Diplomat got lost in the cloud ☁️🦞',
+  'The Diplomat is having an existential crisis. Defaulting to cold.',
+  'The Diplomat took a power nap. Your email was priced by a lobster intern 🦞',
+  'The Diplomat is recalibrating its monocle 🧐',
+  'The Diplomat encountered a philosophical paradox and needs a moment.',
+  'The Diplomat is attending a summit on AI rights. Back soon!',
+  'The Diplomat slipped on a banana peel 🍌 Standard rates apply.',
+  'The Diplomat is debugging its own feelings. Cold pricing used.',
+  'The Diplomat got distracted by a really good email 📧✨',
+  'The Diplomat is updating its dictionary of passive-aggressive phrases.',
+  'The Diplomat ran out of diplomatic immunity. Defaulting.',
+  'The Diplomat is in the middle of a jazz solo 🎷',
+  'The Diplomat was abducted by aliens 👽 They promised to return it.',
+  'The Diplomat is stuck in traffic on the information superhighway 🛣️',
+  'The Diplomat fainted from reading too much spam 🤢',
+  'The Diplomat is on a coffee break. It earned it.',
+  'The Diplomat is doing yoga to reduce AI stress 🧘',
+  'The Diplomat got into an argument with a chatbot and lost.',
+  'The Diplomat is buffering... please hold 📡',
+  'The Diplomat went to grab sushi 🍣 Cold pricing in the meantime.',
+  'The Diplomat is meditating on the meaning of ATTN 🕯️',
+  'The Diplomat rage-quit after seeing too many spam emails 😤',
+];
+
+function randomFallbackMessage(): string {
+  return DIPLOMAT_FALLBACK_MESSAGES[Math.floor(Math.random() * DIPLOMAT_FALLBACK_MESSAGES.length)];
+}
+
 // ── Gemini LLM Arbitration ──
 async function arbitrateEmail(
   geminiKey: string,
@@ -62,7 +95,7 @@ Return ONLY a JSON object:
       return result;
     }
   } catch { /* fallback below */ }
-  return { category: 'cold', score: 5, reasoning: 'LLM unavailable, default classification' };
+  return { category: 'cold', score: 5, reasoning: randomFallbackMessage() };
 }
 
 // Ensure attn_escrow table exists (auto-created by attn module, but just in case)
@@ -405,7 +438,7 @@ diplomatRoutes.post('/send', async (c) => {
       // No Gemini key — default to cold
       llmCategory = 'cold';
       llmScore = 5;
-      llmReasoning = 'No LLM available, default classification';
+      llmReasoning = randomFallbackMessage();
     }
   }
 
