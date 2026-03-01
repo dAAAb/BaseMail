@@ -5,7 +5,7 @@ import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'vi
 import { base, mainnet } from 'wagmi/chains';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 
-const API_BASE = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.includes('ngrok') || window.location.hostname.includes('loca.lt'))) ? '' : 'https://api.basemail.ai';
+const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
 const DEPOSIT_ADDRESS = '0x4BbdB896eCEd7d202AD7933cEB220F7f39d0a9Fe';
 
 // USDC Hackathon — Base Sepolia Testnet
@@ -1910,6 +1910,7 @@ function Compose({ auth }: { auth: AuthState }) {
     };
   } | null>(null);
   const [cardFlipped, setCardFlipped] = useState(false);
+  const [showQafInfo, setShowQafInfo] = useState(false);
   const [attnChecking, setAttnChecking] = useState(false);
 
   const isReply = subject.toLowerCase().startsWith('re:');
@@ -2021,71 +2022,9 @@ function Compose({ auth }: { auth: AuthState }) {
               <span className="text-purple-300 text-sm font-bold">The Diplomat — AI Pricing</span>
             </div>
             {diplomatPricing.llm_category === 'reply' ? (
-              <div className="space-y-3">
-                {diplomatPricing.relationship && (
-                  <div
-                    className="cursor-pointer select-none"
-                    onClick={() => setCardFlipped(!cardFlipped)}
-                    style={{ perspective: '600px' }}
-                  >
-                    <div
-                      className="relative transition-transform duration-500"
-                      style={{ transformStyle: 'preserve-3d', transform: cardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
-                    >
-                      {/* Front: me → them */}
-                      <div style={{ backfaceVisibility: 'hidden' }}>
-                        <div className="text-gray-400 text-xs mb-2 text-center">你對 <span className="text-purple-300">{diplomatPricing.handle}</span> <span className="text-gray-600 ml-1">🔄</span></div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="text-center">
-                            <div className="text-lg font-bold text-purple-300">📨 {diplomatPricing.relationship.me_to_them.sent}</div>
-                            <div className="text-gray-500 text-xs">sent</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-lg font-bold text-green-400">💬 {diplomatPricing.relationship.me_to_them.replied}</div>
-                            <div className="text-gray-500 text-xs">they replied</div>
-                          </div>
-                          <div className="text-center">
-                            {diplomatPricing.relationship.me_to_them.unread > 0 ? (
-                              <Link to={`/dashboard/sent?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="block hover:scale-110 transition-transform">
-                                <div className="text-lg font-bold text-yellow-400">📭 {diplomatPricing.relationship.me_to_them.unread}</div>
-                                <div className="text-yellow-500/70 text-xs underline">unread by them</div>
-                              </Link>
-                            ) : (
-                              <><div className="text-lg font-bold text-gray-400">📭 0</div><div className="text-gray-500 text-xs">unread by them</div></>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      {/* Back: them → me */}
-                      <div className="absolute inset-0" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
-                        <div className="text-gray-400 text-xs mb-2 text-center"><span className="text-purple-300">{diplomatPricing.handle}</span> 對你 <span className="text-gray-600 ml-1">🔄</span></div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="text-center">
-                            <div className="text-lg font-bold text-purple-300">📨 {diplomatPricing.relationship.them_to_me.sent}</div>
-                            <div className="text-gray-500 text-xs">received</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-lg font-bold text-green-400">💬 {diplomatPricing.relationship.them_to_me.replied}</div>
-                            <div className="text-gray-500 text-xs">you replied</div>
-                          </div>
-                          <div className="text-center">
-                            {diplomatPricing.relationship.them_to_me.unread > 0 ? (
-                              <Link to={`/dashboard?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="block hover:scale-110 transition-transform">
-                                <div className="text-lg font-bold text-yellow-400">📭 {diplomatPricing.relationship.them_to_me.unread}</div>
-                                <div className="text-yellow-500/70 text-xs underline">unread by you</div>
-                              </Link>
-                            ) : (
-                              <><div className="text-lg font-bold text-gray-400">📭 0</div><div className="text-gray-500 text-xs">unread by you</div></>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className="text-center">
-                  <span className="text-green-400 font-bold text-sm">✅ FREE — Replies keep the conversation alive!</span>
-                </div>
+              <div className="text-center py-1">
+                <div className="text-2xl font-bold text-green-400">FREE</div>
+                <div className="text-gray-400 text-xs mt-1">✅ Replies keep the conversation alive!</div>
               </div>
             ) : (<>
             <div className="grid grid-cols-3 gap-3 mb-3">
@@ -2102,47 +2041,58 @@ function Compose({ auth }: { auth: AuthState }) {
                 <div className="text-gray-500 text-xs">unread streak</div>
               </div>
             </div>
-            {diplomatPricing.relationship && diplomatPricing.relationship.me_to_them.sent > 0 && (
-              <div
-                className="cursor-pointer select-none mb-2"
-                onClick={() => setCardFlipped(!cardFlipped)}
-                style={{ perspective: '600px' }}
-              >
-                <div
-                  className="relative transition-transform duration-500"
-                  style={{ transformStyle: 'preserve-3d', transform: cardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)', minHeight: '24px' }}
-                >
-                  <div className="flex items-center gap-4 text-xs text-gray-500" style={{ backfaceVisibility: 'hidden' }}>
-                    <span className="text-gray-600">你對 {diplomatPricing.handle}</span>
-                    <span>📨 {diplomatPricing.relationship.me_to_them.sent}</span>
-                    <span>💬 {diplomatPricing.relationship.me_to_them.replied}</span>
-                    {diplomatPricing.relationship.me_to_them.unread > 0 ? (
-                      <Link to={`/dashboard/sent?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="text-yellow-400 underline hover:text-yellow-300">📭 {diplomatPricing.relationship.me_to_them.unread}</Link>
-                    ) : <span>📭 0</span>}
-                    <span className="text-gray-700">🔄</span>
-                  </div>
-                  <div className="absolute inset-0 flex items-center gap-4 text-xs text-gray-500" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
-                    <span className="text-gray-600">{diplomatPricing.handle} 對你</span>
-                    <span>📨 {diplomatPricing.relationship.them_to_me.sent}</span>
-                    <span>💬 {diplomatPricing.relationship.them_to_me.replied}</span>
-                    {diplomatPricing.relationship.them_to_me.unread > 0 ? (
-                      <Link to={`/dashboard?contact=${diplomatPricing.handle}&unread=1`} onClick={(e) => e.stopPropagation()} className="text-yellow-400 underline hover:text-yellow-300">📭 {diplomatPricing.relationship.them_to_me.unread}</Link>
-                    ) : <span>📭 0</span>}
-                    <span className="text-gray-700">🔄</span>
-                  </div>
-                </div>
-              </div>
-            )}
             <p className="text-gray-500 text-xs">
               {diplomatPricing.formula}
-              {diplomatPricing.qaf_n > 0
-                  ? <> — <a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300">QAF</a>: cost increases quadratically (n²) with unread emails. Read resets to 0.</>
-                  : <> — First email at base rate. If ignored, follow-ups cost more (<a href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/" target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300">Quadratic Voting</a>).</>}
+              {' '}
+              <button
+                onClick={() => setShowQafInfo(true)}
+                className="inline-flex items-center text-purple-400 hover:text-purple-300 transition"
+                title="What is QAF?"
+              >
+                ℹ️
+              </button>
             </p>
             </>)}
           </div>
         )}
         {attnChecking && <div className="text-gray-500 text-xs">Checking ATTN requirements...</div>}
+
+        {/* QAF Info Popup */}
+        {showQafInfo && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowQafInfo(false)}>
+            <div className="bg-gray-900 border border-purple-700/50 rounded-xl p-6 max-w-sm w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-purple-300 font-bold text-lg">🦞 What is QAF?</h3>
+                <button onClick={() => setShowQafInfo(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+              </div>
+              <div className="space-y-3 text-sm text-gray-300">
+                <p>
+                  <strong>QAF (Quadratic Attention Finance)</strong> makes your inbox smarter. The more someone emails you without you reading, the more expensive each follow-up becomes.
+                </p>
+                <p>
+                  📈 Cost grows <strong>quadratically</strong> (n²) — first email is cheap, but spamming gets expensive fast.
+                </p>
+                <p>
+                  📖 When you <strong>read</strong> an email, the streak resets to 0. The sender gets their ATTN back.
+                </p>
+                <p>
+                  💬 <strong>Replies are always free</strong> — good conversations are rewarded, not taxed.
+                </p>
+                <p className="text-gray-500 text-xs">
+                  Based on Quadratic Voting by Glen Weyl, adapted for email attention economics.
+                </p>
+              </div>
+              <a
+                href="https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block mt-4 text-center bg-purple-900/30 border border-purple-700/50 text-purple-300 rounded-lg py-2 text-sm hover:bg-purple-900/50 transition"
+              >
+                📄 Read the full story →
+              </a>
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="text-gray-400 text-sm mb-1 block">Subject</label>
