@@ -1986,9 +1986,9 @@ function Compose({ auth }: { auth: AuthState }) {
         // Check if it's an ATTN balance error (debt model)
         if (res.status === 402) {
           if (data.hint && data.balance < 0) {
-            setError(`⚠️ ATTN 餘額不足 (${data.balance} ATTN)。你的帳戶目前負債中，需要收到別人的信件來恢復餘額。`);
+            setError(`⚠️ Insufficient ATTN (${data.balance} ATTN). Your account is in debt — receive emails to recover.`);
           } else {
-            setError(`⚠️ ATTN 餘額不足：需要 ${data.required} ATTN，目前只有 ${data.balance} ATTN`);
+            setError(`⚠️ Insufficient ATTN: need ${data.required} ATTN, only have ${data.balance} ATTN`);
           }
           return;
         }
@@ -2159,47 +2159,47 @@ function Compose({ auth }: { auth: AuthState }) {
               {arbitrationResult.discount > 0 ? (
                 <>
                   <div className="text-3xl mb-2">🎉🦞🎉</div>
-                  <div className="text-green-400 font-bold text-lg">好信件獎勵！</div>
+                  <div className="text-green-400 font-bold text-lg">Good Email Reward!</div>
                   <div className="text-white text-2xl font-bold mt-1">
                     <span className="line-through text-gray-500">{arbitrationResult.estimated_cost}</span>
                     {' → '}
                     <span className="text-green-400">{arbitrationResult.actual_cost} ATTN</span>
                   </div>
-                  <div className="text-green-300 text-sm mt-1">節省了 {arbitrationResult.discount} ATTN！</div>
+                  <div className="text-green-300 text-sm mt-1">Saved {arbitrationResult.discount} ATTN!</div>
                 </>
               ) : arbitrationResult.discount < 0 ? (
                 <>
                   <div className="text-3xl mb-2">⚠️🦞</div>
-                  <div className="text-red-400 font-bold text-lg">信件品質偏低</div>
+                  <div className="text-red-400 font-bold text-lg">Low Quality Detected</div>
                   <div className="text-white text-2xl font-bold mt-1">
                     <span className="text-gray-500">{arbitrationResult.estimated_cost}</span>
                     {' → '}
                     <span className="text-red-400">{arbitrationResult.actual_cost} ATTN</span>
                   </div>
-                  <div className="text-red-300 text-sm mt-1">多花了 {Math.abs(arbitrationResult.discount)} ATTN</div>
+                  <div className="text-red-300 text-sm mt-1">Extra {Math.abs(arbitrationResult.discount)} ATTN charged</div>
                 </>
               ) : arbitrationResult.llm_category === 'reply' ? (
                 <>
                   <div className="text-3xl mb-2">💬🦞</div>
-                  <div className="text-green-400 font-bold text-lg">回覆免費！</div>
-                  <div className="text-green-300 text-sm mt-1">回覆讓對話繼續流動 ✨</div>
+                  <div className="text-green-400 font-bold text-lg">Reply — FREE!</div>
+                  <div className="text-green-300 text-sm mt-1">Replies keep the conversation alive ✨</div>
                 </>
               ) : (
                 <>
                   <div className="text-3xl mb-2">🦞</div>
-                  <div className="text-purple-300 font-bold">信件已送出</div>
+                  <div className="text-purple-300 font-bold">Email Sent</div>
                   <div className="text-white text-lg font-bold mt-1">{arbitrationResult.actual_cost} ATTN</div>
                 </>
               )}
               <div className="text-gray-400 text-xs mt-2">
-                🤖 Gemini 判定：{arbitrationResult.llm_category} ({arbitrationResult.llm_score}/10)
+                🤖 Gemini verdict: {arbitrationResult.llm_category} ({arbitrationResult.llm_score}/10)
               </div>
               <div className="text-gray-500 text-xs mt-1 italic">
                 「{arbitrationResult.llm_reasoning}」
               </div>
               {arbitrationResult.in_debt && (
                 <div className="text-red-400 text-xs mt-2 font-bold">
-                  ⚠️ 餘額：{arbitrationResult.sender_balance_after} ATTN（負債中）
+                  ⚠️ Balance: {arbitrationResult.sender_balance_after} ATTN (in debt)
                 </div>
               )}
             </div>
