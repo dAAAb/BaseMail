@@ -4,6 +4,20 @@ import { marked } from 'marked';
 
 // Static blog index — slug → metadata (newest first)
 const POSTS: Record<string, { title: string; date: string; tags: string; description: string; heroImage?: string }> = {
+  'the-diplomat-chainlink-hackathon': {
+    title: 'The Diplomat: AI-Powered Email Arbitration on Chainlink CRE',
+    date: '2026-03-02',
+    tags: 'The Diplomat, Chainlink, CRE, hackathon, AI arbitration',
+    description: 'BaseMail enters the Chainlink Convergence Hackathon with The Diplomat — an LLM arbitration layer that uses Chainlink CRE and Gemini AI to price every email based on intent.',
+    heroImage: '/blog/the-diplomat-chainlink-hackathon.webp',
+  },
+  'usdc-escrow-claim-external-email': {
+    title: 'Send USDC to Anyone — Even Without a Wallet',
+    date: '2026-03-02',
+    tags: 'USDC, escrow, payments, external email',
+    description: 'BaseMail now lets you send USDC to any email address — Gmail, Outlook, anything. The recipient gets a claim link and doesn\'t need a crypto wallet.',
+    heroImage: '/blog/usdc-escrow-claim-external-email.webp',
+  },
   'attn-v3-announcement': {
     title: 'BaseMail v3: Your Inbox Is Now a Savings Account',
     date: '2026-02-28',
