@@ -9,6 +9,7 @@ const POSTS: Record<string, { title: string; date: string; tags: string; descrip
     date: '2026-03-02',
     tags: 'World ID, human verification, identity, trust',
     description: 'BaseMail now supports World ID v4 verification — cryptographic proof that you\'re a unique human. No passwords, no KYC, just math.',
+    heroImage: '/blog/world-id-human-verification.png',
   },
   'the-diplomat-chainlink-hackathon': {
     title: 'The Diplomat: AI-Powered Email Arbitration on Chainlink CRE',
