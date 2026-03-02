@@ -1,99 +1,57 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 
-// Static blog index — slug → metadata (newest first)
-const POSTS: Record<string, { title: string; date: string; tags: string; description: string; heroImage?: string }> = {
-  'world-id-human-verification': {
-    title: 'World ID Integration: Proving You\'re Human on BaseMail',
-    date: '2026-03-02',
-    tags: 'World ID, human verification, identity, trust',
-    description: 'BaseMail now supports World ID v4 verification — cryptographic proof that you\'re a unique human. No passwords, no KYC, just math.',
-    heroImage: '/blog/world-id-human-verification.png',
-  },
-  'the-diplomat-chainlink-hackathon': {
-    title: 'The Diplomat: AI-Powered Email Arbitration on Chainlink CRE',
-    date: '2026-03-02',
-    tags: 'The Diplomat, Chainlink, CRE, hackathon, AI arbitration',
-    description: 'BaseMail enters the Chainlink Convergence Hackathon with The Diplomat — an LLM arbitration layer that uses Chainlink CRE and Gemini AI to price every email based on intent.',
-    heroImage: '/blog/the-diplomat-chainlink-hackathon.webp',
-  },
-  'usdc-escrow-claim-external-email': {
-    title: 'Send USDC to Anyone — Even Without a Wallet',
-    date: '2026-03-02',
-    tags: 'USDC, escrow, payments, external email',
-    description: 'BaseMail now lets you send USDC to any email address — Gmail, Outlook, anything. The recipient gets a claim link and doesn\'t need a crypto wallet.',
-    heroImage: '/blog/usdc-escrow-claim-external-email.webp',
-  },
-  'attn-v3-announcement': {
-    title: 'BaseMail v3: Your Inbox Is Now a Savings Account',
-    date: '2026-02-28',
-    tags: '$ATTN, v3, attention economy, announcement',
-    description: 'Introducing $ATTN — free tokens that make spam economically irrational and good conversations literally free. All positive feedback, no punishment.',
-    heroImage: '/blog/attn-v3-announcement.webp',
-  },
-  'who-needs-agentic-email': {
-    title: 'Who Needs Agentic Email? (More People Than You Think)',
-    date: '2026-02-28',
-    tags: 'agentic email, use cases, AI agents, OpenClaw',
-    description: 'From solo developers running OpenClaw agents to enterprises deploying agent fleets — here\'s who needs agentic email and why.',
-    heroImage: '/blog/who-needs-agentic-email.webp',
-  },
-  'why-agents-need-email': {
-    title: 'Why Your AI Agent Needs Its Own Email Address',
-    date: '2026-02-28',
-    tags: 'AI agents, email, identity, pain points',
-    description: 'Gmail blocks bots. Sharing your inbox is a security risk. Without its own email, your agent can\'t sign up for anything.',
-    heroImage: '/blog/why-agents-need-email.webp',
-  },
-  'attention-bonds-quadratic-funding-spam': {
-    title: 'Attention Bonds: How Quadratic Funding Kills Spam',
-    date: '2026-02-22',
-    tags: 'attention bonds, quadratic funding, CO-QAF',
-    description: 'Learn how Attention Bonds use Quadratic Funding to eliminate spam while rewarding genuine communication.',
-    heroImage: '/blog/attention-bonds-quadratic-funding-spam.webp',
-  },
-  'basemail-vs-agentmail': {
-    title: 'BaseMail vs AgentMail: Onchain Identity vs SaaS',
-    date: '2026-02-22',
-    tags: 'comparison, agent email, onchain identity',
-    description: 'A detailed comparison of BaseMail and AgentMail approaches to AI agent email.',
-    heroImage: '/blog/basemail-vs-agentmail.webp',
-  },
-  'erc-8004-agent-email-resolution': {
-    title: 'ERC-8004: The Standard for Agent Email Resolution',
-    date: '2026-02-22',
-    tags: 'ERC-8004, standard, agent discovery',
-    description: 'How ERC-8004 enables verifiable agent email resolution on the blockchain.',
-    heroImage: '/blog/erc-8004-agent-email-resolution.webp',
-  },
-  'lens-protocol-agent-social-graph': {
-    title: 'Lens Protocol + Agent Identity: Social Graph for AI',
-    date: '2026-02-22',
-    tags: 'Lens Protocol, social graph, agent identity',
-    description: 'Integrating Lens Protocol social graph with AI agent identity on BaseMail.',
-    heroImage: '/blog/lens-protocol-agent-social-graph.webp',
-  },
-  'openclaw-agent-email-tutorial': {
-    title: 'How to Give Your OpenClaw Agent an Email in 2 Minutes',
-    date: '2026-02-22',
-    tags: 'tutorial, OpenClaw, getting started',
-    description: 'Quick tutorial to set up email for your OpenClaw AI agent with BaseMail.',
-    heroImage: '/blog/openclaw-agent-email-tutorial.webp',
-  },
-  'why-agents-need-onchain-identity': {
-    title: 'Why AI Agents Need Onchain Identity (Not Just an Inbox)',
-    date: '2026-02-22',
-    tags: 'identity, AI agents, onchain',
-    description: 'The case for onchain identity as the foundation of AI agent communication.',
-    heroImage: '/blog/why-agents-need-onchain-identity.webp',
-  },
-};
+// Auto-import all blog posts at build time (raw strings)
+const modules = import.meta.glob('../../content/blog/*.md', { as: 'raw', eager: true }) as Record<string, string>;
 
-const SLUGS = Object.keys(POSTS);
+interface PostMeta {
+  slug: string;
+  title: string;
+  date: string;
+  author: string;
+  tags: string;
+  description: string;
+  heroImage?: string;
+}
+
+/** Parse pseudo-frontmatter from our .md blog format */
+function parseMeta(slug: string, raw: string): PostMeta {
+  const lines = raw.split('\n');
+  const title = (lines[0] || '').replace(/^#\s+/, '');
+  let date = '', author = '', tags = '', description = '', heroImage: string | undefined;
+
+  for (let i = 1; i < Math.min(lines.length, 12); i++) {
+    const line = lines[i];
+    if (line.startsWith('**Published')) date = line.replace(/.*\*\*Published:\*\*\s*/, '').trim();
+    else if (line.startsWith('**Author')) author = line.replace(/.*\*\*Author:\*\*\s*/, '').trim();
+    else if (line.startsWith('**Tags')) tags = line.replace(/.*\*\*Tags:\*\*\s*/, '').trim();
+    else if (line.startsWith('**Description')) description = line.replace(/.*\*\*Description:\*\*\s*/, '').trim();
+    else if (line.startsWith('**Hero')) heroImage = line.replace(/.*\*\*Hero(?:Image|Image):\*\*\s*/, '').trim();
+  }
+
+  // Auto-detect hero image: check /blog/<slug>.webp or .png convention
+  if (!heroImage) {
+    heroImage = `/blog/${slug}.webp`;
+  }
+
+  return { slug, title, date, author, tags, description, heroImage };
+}
+
+/** Build sorted post list from glob imports */
+function buildPosts(): PostMeta[] {
+  const posts: PostMeta[] = [];
+  for (const [path, raw] of Object.entries(modules)) {
+    const slug = path.split('/').pop()?.replace(/\.md$/, '') || '';
+    posts.push(parseMeta(slug, raw));
+  }
+  // Sort by date descending, then title
+  posts.sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title));
+  return posts;
+}
 
 // Blog list page
-function BlogIndex() {
+function BlogIndex({ posts }: { posts: PostMeta[] }) {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="max-w-3xl mx-auto px-6 py-16">
@@ -101,35 +59,33 @@ function BlogIndex() {
         <h1 className="text-4xl font-bold mb-2">Blog</h1>
         <p className="text-gray-400 mb-12">Insights on agentic email, onchain identity, and mechanism design.</p>
         <div className="space-y-8">
-          {SLUGS.map(slug => {
-            const p = POSTS[slug];
-            return (
-              <Link key={slug} to={`/blog/${slug}`} className="block group">
-                <article className="border border-gray-800 rounded-xl overflow-hidden hover:border-gray-600 transition">
-                  {p.heroImage && (
-                    <div className="aspect-[3/2] overflow-hidden bg-gray-900">
-                      <img
-                        src={p.heroImage}
-                        alt={p.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
-                  <div className="p-6">
-                    <time className="text-gray-500 text-sm">{p.date}</time>
-                    <h2 className="text-xl font-semibold mt-1 group-hover:text-blue-400 transition">{p.title}</h2>
-                    <p className="text-gray-400 mt-2 text-sm">{p.description}</p>
-                    <div className="mt-3 flex gap-2 flex-wrap">
-                      {p.tags.split(', ').slice(0, 3).map(t => (
-                        <span key={t} className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{t}</span>
-                      ))}
-                    </div>
+          {posts.map(p => (
+            <Link key={p.slug} to={`/blog/${p.slug}`} className="block group">
+              <article className="border border-gray-800 rounded-xl overflow-hidden hover:border-gray-600 transition">
+                {p.heroImage && (
+                  <div className="aspect-[3/2] overflow-hidden bg-gray-900">
+                    <img
+                      src={p.heroImage}
+                      alt={p.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
                   </div>
-                </article>
-              </Link>
-            );
-          })}
+                )}
+                <div className="p-6">
+                  <time className="text-gray-500 text-sm">{p.date}</time>
+                  <h2 className="text-xl font-semibold mt-1 group-hover:text-blue-400 transition">{p.title}</h2>
+                  <p className="text-gray-400 mt-2 text-sm">{p.description}</p>
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    {p.tags.split(', ').slice(0, 3).map(t => (
+                      <span key={t} className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            </Link>
+          ))}
         </div>
       </div>
     </div>
@@ -137,34 +93,32 @@ function BlogIndex() {
 }
 
 // Blog post page
-function BlogPost() {
+function BlogPost({ posts }: { posts: PostMeta[] }) {
   const { slug } = useParams<{ slug: string }>();
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
-  const meta = slug ? POSTS[slug] : null;
+  const meta = posts.find(p => p.slug === slug);
 
   useEffect(() => {
     if (!slug || !meta) { setLoading(false); return; }
-    import(`../../content/blog/${slug}.md?raw`)
-      .then(mod => {
-        // Strip the frontmatter-like header (title, date, tags lines)
-        let md = (mod.default || mod) as string;
-        // Remove first lines that are metadata
-        const lines = md.split('\n');
-        let start = 0;
-        for (let i = 0; i < Math.min(lines.length, 10); i++) {
-          if (lines[i].startsWith('**Published') || lines[i].startsWith('**Author') || lines[i].startsWith('**Tags') || lines[i].trim() === '') {
-            start = i + 1;
-          } else if (i > 0 && lines[i].startsWith('#')) {
-            // Keep the title
-            start = i;
-            break;
-          }
-        }
-        setHtml(marked.parse(lines.slice(start).join('\n')) as string);
-        setLoading(false);
-      })
-      .catch(() => { setHtml(''); setLoading(false); });
+    const key = Object.keys(modules).find(k => k.endsWith(`/${slug}.md`));
+    if (!key) { setLoading(false); return; }
+
+    const raw = modules[key];
+    // Strip header lines (title, metadata, ---) to get body
+    const lines = raw.split('\n');
+    let start = 0;
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
+      const line = lines[i].trim();
+      if (line === '---') { start = i + 1; break; }
+      if (line.startsWith('**Published') || line.startsWith('**Author') ||
+          line.startsWith('**Tags') || line.startsWith('**Description') ||
+          line.startsWith('**Hero') || line === '' || line.startsWith('#')) {
+        start = i + 1;
+      }
+    }
+    setHtml(marked.parse(lines.slice(start).join('\n')) as string);
+    setLoading(false);
   }, [slug, meta]);
 
   if (!meta) {
@@ -186,7 +140,12 @@ function BlogPost() {
         <article>
           {meta.heroImage && (
             <div className="aspect-[3/2] overflow-hidden rounded-xl mb-8 bg-gray-900">
-              <img src={meta.heroImage} alt={meta.title} className="w-full h-full object-cover" />
+              <img
+                src={meta.heroImage}
+                alt={meta.title}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
             </div>
           )}
           <time className="text-gray-500 text-sm">{meta.date}</time>
@@ -212,6 +171,7 @@ function BlogPost() {
 }
 
 export default function Blog() {
+  const posts = useMemo(() => buildPosts(), []);
   const { slug } = useParams<{ slug: string }>();
-  return slug ? <BlogPost /> : <BlogIndex />;
+  return slug ? <BlogPost posts={posts} /> : <BlogIndex posts={posts} />;
 }
