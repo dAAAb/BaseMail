@@ -162,6 +162,7 @@ export default function AgentProfile() {
   const { account: lensAccount, lensVersion, loading: lensLoading } = useLensAccount(wallet, basename || handle);
   const { profile: lensProfile, loading: lensGraphLoading, load: loadLensGraph } = useLensProfileOnDemand(lensAccount);
   const [lensExpanded, setLensExpanded] = useState(false);
+  const [isHuman, setIsHuman] = useState<{ verified: boolean; level?: string } | null>(null);
 
   useEffect(() => {
     if (!handle) return;
@@ -180,6 +181,9 @@ export default function AgentProfile() {
         // Fetch price + coqaf in parallel
         fetch(`${API_BASE}/api/attention/price/${handle}`).then(r => r.json()).then(setPriceData).catch(() => {});
         fetch(`${API_BASE}/api/attention/coqaf/${handle}`).then(r => r.json()).then(setCoqafData).catch(() => {});
+        fetch(`${API_BASE}/api/world-id/status/${handle}`).then(r => r.json()).then((d: any) => {
+          setIsHuman(d.is_human ? { verified: true, level: d.verification_level } : { verified: false });
+        }).catch(() => {});
       })
       .catch(e => {
         setError(e.message);
@@ -268,6 +272,11 @@ export default function AgentProfile() {
                 📄 ERC-8004
               </span>
               <LensBadge handle={lensAccount?.username?.localName} loading={lensLoading} />
+              {isHuman?.verified && (
+                <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30" title={`World ID verified (${isHuman.level || 'orb'})`}>
+                  ✅ Human
+                </span>
+              )}
             </div>
           </div>
         </div>

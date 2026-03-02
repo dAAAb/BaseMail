@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import WorldIdVerify from '../components/WorldIdVerify';
 import { Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSendTransaction, useBalance, useSwitchChain } from 'wagmi';
 import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'viem';
@@ -2782,6 +2783,9 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
             </div>
           )}
         </div>
+
+        {/* World ID Human Verification */}
+        <WorldIdVerify token={auth.token!} handle={auth.handle!} wallet={auth.wallet} />
 
         <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
           <h3 className="font-bold mb-4">Webhook Notification</h3>

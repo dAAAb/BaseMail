@@ -18,6 +18,19 @@ identityRoutes.get('/:handle', async (c) => {
     return c.json({ error: 'Handle not found' }, 404);
   }
 
+  // Check World ID verification status
+  let is_human = false;
+  let verification_level: string | null = null;
+  try {
+    const wid = await c.env.DB.prepare(
+      'SELECT verification_level FROM world_id_verifications WHERE handle = ? LIMIT 1'
+    ).bind(handle).first<{ verification_level: string }>();
+    if (wid) {
+      is_human = true;
+      verification_level = wid.verification_level;
+    }
+  } catch (_) { /* table may not exist yet */ }
+
   return c.json({
     handle: (account as any).handle,
     email: `${(account as any).handle}@${c.env.DOMAIN}`,
@@ -25,6 +38,8 @@ identityRoutes.get('/:handle', async (c) => {
     basename: (account as any).basename,
     registered_at: (account as any).created_at,
     tx_hash: (account as any).tx_hash,
+    is_human,
+    verification_level,
   });
 });
 

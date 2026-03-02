@@ -14,6 +14,8 @@ export interface Env {
   RESEND_API_KEY?: string;      // Resend.com API Key，用於外部寄信
   WALLET_ADDRESS?: string;      // Worker 錢包公開地址，用於收取 credit 購買費用
   PAYMENT_ESCROW_ADDRESS?: string; // PaymentEscrow 合約地址 (Base Mainnet)
+  WORLD_ID_APP_ID?: string;        // World ID app_id
+  WORLD_ID_ACTION?: string;        // World ID action name (default: verify-human)
 }
 
 export interface Account {
