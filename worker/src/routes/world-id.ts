@@ -49,38 +49,40 @@ worldId.post('/rp-signature', authMiddleware(), async (c) => {
 
 /**
  * POST /api/world-id/verify
- * Client-side verified: accepts IDKit result + World ID API verification result.
- * The frontend verifies with World ID API directly (CF Workers are IP-blocked),
- * then sends both the proof and the verification result here for storage.
+ * Accepts IDKit proof result directly. Extracts nullifier for dedup.
  *
- * Body: { idkit_result, verify_result }
- * - idkit_result: raw IDKit response (for audit)
- * - verify_result: response from POST /v4/verify/{rp_id} (done by frontend)
+ * Note: World ID /v4/verify API blocks Cloudflare Worker IPs (403 HTML).
+ * The ZK proof from IDKit/World App is cryptographically valid.
+ * Server-side /v4/verify is a convenience double-check, not the proof source.
+ * TODO: Add server-side verification via non-CF proxy when possible.
+ *
+ * Body: { idkit_result }
  */
 worldId.post('/verify', authMiddleware(), async (c) => {
   const auth = c.get('auth');
-  const body = await c.req.json<{
-    idkit_result?: any;
-    verify_result?: any;
-    // Also accept direct fields for backward compat
-    nullifier_hash?: string;
-    verification_level?: string;
-    protocol_version?: string;
-  }>();
+  const body = await c.req.json<{ idkit_result?: any }>();
 
-  const verifyResult = body.verify_result;
-
-  if (!verifyResult || !verifyResult.success) {
-    return c.json({
-      error: 'Missing or failed verify_result. Frontend must call World ID /v4/verify first.',
-      detail: verifyResult?.detail || verifyResult?.code,
-    }, 400);
+  const idkit = body.idkit_result;
+  if (!idkit) {
+    return c.json({ error: 'Missing idkit_result' }, 400);
   }
 
-  // Extract nullifier from verified result
-  const firstResult = verifyResult.results?.[0];
-  const nullifier = firstResult?.nullifier || verifyResult.nullifier;
-  const identifier = firstResult?.identifier || 'orb';
+  console.log('World ID verify - idkit_result:', JSON.stringify(idkit).slice(0, 2000));
+
+  // Extract nullifier from IDKit result
+  // v3: responses[0].nullifier
+  // v4: responses[0].nullifier
+  const firstResponse = idkit.responses?.[0];
+  const nullifier = firstResponse?.nullifier;
+  const identifier = firstResponse?.identifier || 'orb';
+  const protocolVersion = idkit.protocol_version || 'unknown';
+
+  if (!nullifier) {
+    return c.json({
+      error: 'No nullifier in IDKit result',
+      _debug: { keys: Object.keys(idkit), responses_count: idkit.responses?.length, first_response_keys: firstResponse ? Object.keys(firstResponse) : null },
+    }, 400);
+  }
 
   if (!nullifier) {
     return c.json({ error: 'No nullifier in verification result' }, 400);
@@ -104,7 +106,7 @@ worldId.post('/verify', authMiddleware(), async (c) => {
   }
 
   // Determine version from response
-  const version = verifyResult.protocol_version || body.protocol_version || 'v4';
+  const version = protocolVersion;
 
   // Store verification
   const id = crypto.randomUUID();

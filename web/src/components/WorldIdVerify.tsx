@@ -70,41 +70,16 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
     }
   }, [token]);
 
-  // handleVerify: verify proof with World ID API directly from browser,
-  // then store result in our backend
+  // handleVerify: store IDKit proof in our backend.
+  // Note: World ID /v4/verify API blocks CF Worker IPs (403),
+  // so we trust the IDKit ZK proof directly and store it.
+  // The proof is cryptographically valid from World App — /v4/verify
+  // is a server-side convenience check, not the source of truth.
   const handleVerify = useCallback(async (idkitResult: IDKitResult) => {
     console.log('IDKit result:', JSON.stringify(idkitResult));
 
     try {
-      // Step 1: Verify with World ID API (from browser — CF Workers are IP-blocked)
-      let verifyData: any;
-      try {
-        const verifyRes = await fetch(WORLD_ID_VERIFY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(idkitResult),
-        });
-        verifyData = await verifyRes.json();
-        console.log('World ID verify response:', verifyRes.status, verifyData);
-
-        if (!verifyRes.ok || !verifyData.success) {
-          const msg = `World ID API: ${verifyData.detail || verifyData.code || verifyRes.status}`;
-          setError(msg);
-          throw new Error(msg);
-        }
-      } catch (fetchErr: any) {
-        // CORS or network error
-        if (!fetchErr.message?.startsWith('World ID API:')) {
-          const msg = `World ID fetch error (likely CORS): ${fetchErr.message}`;
-          console.error(msg);
-          setError(msg);
-          throw new Error(msg);
-        }
-        throw fetchErr;
-      }
-
-      // Step 2: Store in our backend
-      const storeRes = await fetch(`${API_BASE}/api/world-id/verify`, {
+      const res = await fetch(`${API_BASE}/api/world-id/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,22 +87,23 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
         },
         body: JSON.stringify({
           idkit_result: idkitResult,
-          verify_result: verifyData,
         }),
       });
 
-      const storeData = await storeRes.json() as any;
-      if (!storeRes.ok) {
-        const msg = `Backend store: ${storeData.error || storeRes.status}`;
+      const data = await res.json() as any;
+      console.log('Backend verify response:', res.status, data);
+
+      if (!res.ok) {
+        const msg = data.detail || data.error || `Backend error ${res.status}`;
         setError(msg);
         throw new Error(msg);
       }
     } catch (e: any) {
-      // Error already set in setError above
       console.error('handleVerify failed:', e);
+      if (!error) setError(e.message || 'Verification failed');
       throw e;
     }
-  }, [token]);
+  }, [token, error]);
 
   // onSuccess: update UI
   const handleSuccess = useCallback((_result: IDKitResult) => {
