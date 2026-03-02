@@ -9,6 +9,8 @@
     "db:migrate:local": "wrangler d1 execute basemail-db --file=src/db/schema.sql --local"
   },
   "dependencies": {
+    "@noble/hashes": "^2.0.1",
+    "@noble/secp256k1": "^3.0.0",
     "@worldcoin/idkit-server": "^1.0.0",
     "hono": "^4.7.0",
     "mimetext": "^3.0.24",

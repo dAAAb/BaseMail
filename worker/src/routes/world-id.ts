@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
-import { signRequest } from '@worldcoin/idkit-server';
+import { signRpRequest } from '../rp-sign';
 
 const worldId = new Hono<AppBindings>();
 
@@ -37,7 +37,7 @@ worldId.post('/rp-signature', authMiddleware(), async (c) => {
     return c.json({ error: 'World ID signing key not configured' }, 500);
   }
 
-  const { sig, nonce, createdAt, expiresAt } = signRequest(ACTION, SIGNING_KEY);
+  const { sig, nonce, createdAt, expiresAt } = await signRpRequest(SIGNING_KEY);
 
   return c.json({
     sig,
