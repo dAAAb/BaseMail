@@ -75,10 +75,13 @@ worldId.post('/verify', authMiddleware(), async (c) => {
   if (!verifyRes.ok) {
     const err = await verifyRes.text();
     console.error('World ID v4 verify failed:', verifyRes.status, err);
+    let parsed: any = {};
+    try { parsed = JSON.parse(err); } catch (_) {}
     return c.json({
       error: 'World ID verification failed',
-      detail: verifyRes.status === 400 ? 'Invalid proof or already used' : 'Verification service error',
-      status: verifyRes.status,
+      detail: parsed.detail || parsed.message || err.slice(0, 500),
+      code: parsed.code,
+      world_id_status: verifyRes.status,
     }, 400);
   }
 

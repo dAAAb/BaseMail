@@ -77,9 +77,10 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
       },
       body: JSON.stringify(result),
     });
+    const data = await res.json() as any;
     if (!res.ok) {
-      const data = await res.json() as any;
-      throw new Error(data.error || 'Backend verification failed');
+      console.error('World ID verify error:', data);
+      throw new Error(data.detail || data.error || 'Backend verification failed');
     }
   }, [token]);
 
