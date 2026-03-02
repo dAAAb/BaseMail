@@ -7,8 +7,8 @@ const worldId = new Hono<AppBindings>();
 
 // ─── Auto-migrate: create table if not exists ───
 async function ensureTable(db: D1Database) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS world_id_verifications (
+  try {
+    await db.exec(`CREATE TABLE IF NOT EXISTS world_id_verifications (
       id                TEXT PRIMARY KEY,
       handle            TEXT NOT NULL,
       wallet            TEXT NOT NULL,
@@ -18,10 +18,14 @@ async function ensureTable(db: D1Database) {
       world_id_version  TEXT NOT NULL DEFAULT 'v4',
       verified_at       INTEGER NOT NULL DEFAULT (unixepoch()),
       FOREIGN KEY (handle) REFERENCES accounts(handle)
-    );
-    CREATE INDEX IF NOT EXISTS idx_worldid_handle ON world_id_verifications(handle);
-    CREATE INDEX IF NOT EXISTS idx_worldid_nullifier ON world_id_verifications(nullifier_hash);
-  `);
+    )`);
+  } catch (_) {}
+  try {
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_worldid_handle ON world_id_verifications(handle)`);
+  } catch (_) {}
+  try {
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_worldid_nullifier ON world_id_verifications(nullifier_hash)`);
+  } catch (_) {}
 }
 
 /**
