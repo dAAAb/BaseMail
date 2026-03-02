@@ -62,30 +62,41 @@ worldId.post('/verify', authMiddleware(), async (c) => {
     return c.json({ error: 'World ID not configured' }, 500);
   }
 
+  // Log incoming payload for debugging
+  console.log('World ID verify incoming payload:', JSON.stringify(body).slice(0, 2000));
+
   // Forward IDKit result to World ID v4 verify API
-  const verifyRes = await fetch(
-    `https://developer.worldcoin.org/api/v4/verify/${RP_ID}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-  );
+  const verifyUrl = `https://developer.worldcoin.org/api/v4/verify/${RP_ID}`;
+  console.log('Forwarding to:', verifyUrl);
+
+  const verifyRes = await fetch(verifyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const responseText = await verifyRes.text();
+  console.log('World ID response:', verifyRes.status, responseText.slice(0, 2000));
 
   if (!verifyRes.ok) {
-    const err = await verifyRes.text();
-    console.error('World ID v4 verify failed:', verifyRes.status, err);
     let parsed: any = {};
-    try { parsed = JSON.parse(err); } catch (_) {}
+    try { parsed = JSON.parse(responseText); } catch (_) {}
     return c.json({
       error: 'World ID verification failed',
-      detail: parsed.detail || parsed.message || err.slice(0, 500),
+      detail: parsed.detail || parsed.message || responseText.slice(0, 500),
       code: parsed.code,
       world_id_status: verifyRes.status,
+      // Debug: include truncated payload info
+      _debug_payload_keys: Object.keys(body),
+      _debug_protocol: body.protocol_version,
+      _debug_responses_count: body.responses?.length,
     }, 400);
   }
 
-  const verifyData = await verifyRes.json<any>();
+  let verifyData: any;
+  try { verifyData = JSON.parse(responseText); } catch (_) {
+    return c.json({ error: 'Invalid JSON from World ID API', raw: responseText.slice(0, 500) }, 500);
+  }
 
   // Extract nullifier from response
   // v3 legacy: responses[0].nullifier
@@ -185,6 +196,37 @@ worldId.delete('/verify', authMiddleware(), async (c) => {
   } catch (_) { /* is_human column may not exist */ }
 
   return c.json({ ok: true, message: 'World ID verification removed' });
+});
+
+/**
+ * GET /api/world-id/debug
+ * Temporary: test World ID v4 API connectivity
+ */
+worldId.get('/debug', async (c) => {
+  const RP_ID = c.env.WORLD_ID_RP_ID;
+  const HAS_SIGNING_KEY = !!c.env.WORLD_ID_SIGNING_KEY;
+
+  // Test connectivity to World ID API
+  let apiTest = 'untested';
+  try {
+    const res = await fetch(`https://developer.worldcoin.org/api/v4/verify/${RP_ID}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ protocol_version: '3.0', nonce: 'test', action: 'verify-human', responses: [] }),
+    });
+    const text = await res.text();
+    apiTest = `${res.status}: ${text.slice(0, 300)}`;
+  } catch (e: any) {
+    apiTest = `Error: ${e.message}`;
+  }
+
+  return c.json({
+    rp_id: RP_ID,
+    has_signing_key: HAS_SIGNING_KEY,
+    app_id: c.env.WORLD_ID_APP_ID,
+    action: c.env.WORLD_ID_ACTION,
+    api_test: apiTest,
+  });
 });
 
 export { worldId as worldIdRoutes };
