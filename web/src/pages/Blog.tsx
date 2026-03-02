@@ -4,6 +4,12 @@ import { marked } from 'marked';
 
 // Static blog index — slug → metadata (newest first)
 const POSTS: Record<string, { title: string; date: string; tags: string; description: string; heroImage?: string }> = {
+  'world-id-human-verification': {
+    title: 'World ID Integration: Proving You\'re Human on BaseMail',
+    date: '2026-03-02',
+    tags: 'World ID, human verification, identity, trust',
+    description: 'BaseMail now supports World ID v4 verification — cryptographic proof that you\'re a unique human. No passwords, no KYC, just math.',
+  },
   'the-diplomat-chainlink-hackathon': {
     title: 'The Diplomat: AI-Powered Email Arbitration on Chainlink CRE',
     date: '2026-03-02',
