@@ -66,17 +66,44 @@ worldId.post('/verify', authMiddleware(), async (c) => {
   console.log('World ID verify incoming payload:', JSON.stringify(body).slice(0, 2000));
 
   // Forward IDKit result to World ID v4 verify API
-  const verifyUrl = `https://developer.worldcoin.org/api/v4/verify/${RP_ID}`;
-  console.log('Forwarding to:', verifyUrl);
+  // Try multiple domains (some return 403 HTML from CF Workers)
+  const verifyDomains = [
+    'https://developer.world.org',
+    'https://developer.worldcoin.org',
+    'https://staging-developer.worldcoin.org',
+  ];
 
-  const verifyRes = await fetch(verifyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let verifyRes: Response | null = null;
+  let responseText = '';
+  let usedDomain = '';
 
-  const responseText = await verifyRes.text();
-  console.log('World ID response:', verifyRes.status, responseText.slice(0, 2000));
+  for (const domain of verifyDomains) {
+    const url = `${domain}/api/v4/verify/${RP_ID}`;
+    console.log('Trying:', url);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    console.log(`${domain} response:`, res.status, text.slice(0, 500));
+
+    // If we get HTML 403, try next domain
+    if (res.status === 403 && text.includes('<html')) {
+      continue;
+    }
+
+    verifyRes = res;
+    responseText = text;
+    usedDomain = domain;
+    break;
+  }
+
+  if (!verifyRes) {
+    return c.json({ error: 'All World ID API domains returned 403. CF Worker IP may be blocked.' }, 502);
+  }
+
+  console.log('Used domain:', usedDomain, 'Status:', verifyRes.status);
 
   if (!verifyRes.ok) {
     let parsed: any = {};
@@ -206,18 +233,25 @@ worldId.get('/debug', async (c) => {
   const RP_ID = c.env.WORLD_ID_RP_ID;
   const HAS_SIGNING_KEY = !!c.env.WORLD_ID_SIGNING_KEY;
 
-  // Test connectivity to World ID API
-  let apiTest = 'untested';
-  try {
-    const res = await fetch(`https://developer.worldcoin.org/api/v4/verify/${RP_ID}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ protocol_version: '3.0', nonce: 'test', action: 'verify-human', responses: [] }),
-    });
-    const text = await res.text();
-    apiTest = `${res.status}: ${text.slice(0, 300)}`;
-  } catch (e: any) {
-    apiTest = `Error: ${e.message}`;
+  // Test connectivity to all World ID API domains
+  const domains = [
+    'https://developer.world.org',
+    'https://developer.worldcoin.org',
+    'https://staging-developer.worldcoin.org',
+  ];
+  const apiTests: Record<string, string> = {};
+  for (const domain of domains) {
+    try {
+      const res = await fetch(`${domain}/api/v4/verify/${RP_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protocol_version: '3.0', nonce: 'test', action: 'verify-human', responses: [] }),
+      });
+      const text = await res.text();
+      apiTests[domain] = `${res.status}: ${text.slice(0, 200)}`;
+    } catch (e: any) {
+      apiTests[domain] = `Error: ${e.message}`;
+    }
   }
 
   return c.json({
@@ -225,7 +259,7 @@ worldId.get('/debug', async (c) => {
     has_signing_key: HAS_SIGNING_KEY,
     app_id: c.env.WORLD_ID_APP_ID,
     action: c.env.WORLD_ID_ACTION,
-    api_test: apiTest,
+    api_tests: apiTests,
   });
 });
 
