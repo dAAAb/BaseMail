@@ -75,36 +75,57 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
   const handleVerify = useCallback(async (idkitResult: IDKitResult) => {
     console.log('IDKit result:', JSON.stringify(idkitResult));
 
-    // Step 1: Verify with World ID API (from browser — CF Workers are IP-blocked)
-    const verifyRes = await fetch(WORLD_ID_VERIFY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(idkitResult),
-    });
+    try {
+      // Step 1: Verify with World ID API (from browser — CF Workers are IP-blocked)
+      let verifyData: any;
+      try {
+        const verifyRes = await fetch(WORLD_ID_VERIFY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(idkitResult),
+        });
+        verifyData = await verifyRes.json();
+        console.log('World ID verify response:', verifyRes.status, verifyData);
 
-    const verifyData = await verifyRes.json() as any;
-    console.log('World ID verify response:', verifyRes.status, verifyData);
+        if (!verifyRes.ok || !verifyData.success) {
+          const msg = `World ID API: ${verifyData.detail || verifyData.code || verifyRes.status}`;
+          setError(msg);
+          throw new Error(msg);
+        }
+      } catch (fetchErr: any) {
+        // CORS or network error
+        if (!fetchErr.message?.startsWith('World ID API:')) {
+          const msg = `World ID fetch error (likely CORS): ${fetchErr.message}`;
+          console.error(msg);
+          setError(msg);
+          throw new Error(msg);
+        }
+        throw fetchErr;
+      }
 
-    if (!verifyRes.ok || !verifyData.success) {
-      throw new Error(verifyData.detail || verifyData.code || 'World ID verification failed');
-    }
+      // Step 2: Store in our backend
+      const storeRes = await fetch(`${API_BASE}/api/world-id/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          idkit_result: idkitResult,
+          verify_result: verifyData,
+        }),
+      });
 
-    // Step 2: Store in our backend
-    const storeRes = await fetch(`${API_BASE}/api/world-id/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        idkit_result: idkitResult,
-        verify_result: verifyData,
-      }),
-    });
-
-    const storeData = await storeRes.json() as any;
-    if (!storeRes.ok) {
-      throw new Error(storeData.error || 'Failed to store verification');
+      const storeData = await storeRes.json() as any;
+      if (!storeRes.ok) {
+        const msg = `Backend store: ${storeData.error || storeRes.status}`;
+        setError(msg);
+        throw new Error(msg);
+      }
+    } catch (e: any) {
+      // Error already set in setError above
+      console.error('handleVerify failed:', e);
+      throw e;
     }
   }, [token]);
 
