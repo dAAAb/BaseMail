@@ -16,6 +16,8 @@ export interface Env {
   PAYMENT_ESCROW_ADDRESS?: string; // PaymentEscrow 合約地址 (Base Mainnet)
   WORLD_ID_APP_ID?: string;        // World ID app_id
   WORLD_ID_ACTION?: string;        // World ID action name (default: verify-human)
+  WORLD_ID_RP_ID?: string;         // World ID rp_id
+  WORLD_ID_SIGNING_KEY?: string;   // World ID RP signing key (SECRET - never expose)
 }
 
 export interface Account {

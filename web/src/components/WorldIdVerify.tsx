@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { IDKitRequestWidget, useIDKitRequest, orbLegacy } from '@worldcoin/idkit';
-import type { IDKitResult } from '@worldcoin/idkit';
+import { IDKitRequestWidget, orbLegacy } from '@worldcoin/idkit';
+import type { IDKitResult, RpContext } from '@worldcoin/idkit';
 
 const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
 const WORLD_ID_APP_ID = 'app_7099aeba034f8327d91420254b4b660e';
 const WORLD_ID_ACTION = 'verify-human';
+const WORLD_ID_RP_ID = 'rp_2b23fabfd8dffcaf';
 
 interface Props {
   token: string;
@@ -18,6 +19,7 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
   const [verifiedAt, setVerifiedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [widgetOpen, setWidgetOpen] = useState(false);
+  const [rpContext, setRpContext] = useState<RpContext | null>(null);
 
   // Check current status on mount
   useEffect(() => {
@@ -35,51 +37,59 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
       .catch(() => setStatus('unverified'));
   }, [handle]);
 
-  const handleSuccess = useCallback(async (result: IDKitResult) => {
-    setStatus('verifying');
+  // Fetch RP signature before opening widget
+  const handleOpenWidget = useCallback(async () => {
     setError('');
-
     try {
-      // Extract v3 legacy proof fields from result
-      const v3 = result.responses?.find((r: any) => r.version === 'v3' || r.merkle_root);
-      const merkle_root = v3?.merkle_root || (result as any).merkle_root;
-      const nullifier_hash = v3?.nullifier_hash || (result as any).nullifier_hash;
-      const proof = v3?.proof || (result as any).proof;
-
-      if (!merkle_root || !nullifier_hash || !proof) {
-        setError('No valid proof in response');
-        setStatus('unverified');
-        return;
-      }
-
-      const res = await fetch(`${API_BASE}/api/world-id/verify`, {
+      const res = await fetch(`${API_BASE}/api/world-id/rp-signature`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          merkle_root,
-          nullifier_hash,
-          proof,
-          verification_level: v3?.verification_level || 'orb',
-          signal: wallet,
-        }),
       });
-      const data = await res.json() as any;
-      if (data.ok || data.is_human) {
-        setStatus('verified');
-        setVerificationLevel(data.verification_level || 'orb');
-        setVerifiedAt(Math.floor(Date.now() / 1000));
-      } else {
-        setError(data.error || 'Verification failed');
-        setStatus('unverified');
+      if (!res.ok) {
+        const data = await res.json() as any;
+        setError(data.error || 'Failed to get RP signature');
+        return;
       }
+      const rpSig = await res.json() as { sig: string; nonce: string; created_at: number; expires_at: number };
+      setRpContext({
+        rp_id: WORLD_ID_RP_ID,
+        nonce: rpSig.nonce,
+        created_at: rpSig.created_at,
+        expires_at: rpSig.expires_at,
+        signature: rpSig.sig,
+      });
+      setWidgetOpen(true);
     } catch (e: any) {
       setError(e.message || 'Network error');
-      setStatus('unverified');
     }
-  }, [token, wallet]);
+  }, [token]);
+
+  // handleVerify: send proof to backend for v4 verification
+  const handleVerify = useCallback(async (result: IDKitResult) => {
+    const res = await fetch(`${API_BASE}/api/world-id/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(result),
+    });
+    if (!res.ok) {
+      const data = await res.json() as any;
+      throw new Error(data.error || 'Backend verification failed');
+    }
+  }, [token]);
+
+  // onSuccess: update UI after successful verification
+  const handleSuccess = useCallback((_result: IDKitResult) => {
+    setStatus('verified');
+    setVerificationLevel('orb');
+    setVerifiedAt(Math.floor(Date.now() / 1000));
+    setWidgetOpen(false);
+  }, []);
 
   if (status === 'loading') {
     return (
@@ -118,7 +128,7 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
           </p>
 
           <button
-            onClick={() => setWidgetOpen(true)}
+            onClick={handleOpenWidget}
             disabled={status === 'verifying'}
             className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:from-purple-500 hover:to-blue-500 transition disabled:opacity-50 flex items-center gap-2"
           >
@@ -133,18 +143,23 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
             )}
           </button>
 
-          <IDKitRequestWidget
-            app_id={WORLD_ID_APP_ID as `app_${string}`}
-            action={WORLD_ID_ACTION}
-            preset={orbLegacy({ signal: wallet })}
-            open={widgetOpen}
-            onOpenChange={setWidgetOpen}
-            onSuccess={handleSuccess}
-            onError={(err) => {
-              setError(`Verification error: ${err}`);
-              setStatus('unverified');
-            }}
-          />
+          {rpContext && (
+            <IDKitRequestWidget
+              app_id={WORLD_ID_APP_ID as `app_${string}`}
+              action={WORLD_ID_ACTION}
+              rp_context={rpContext}
+              allow_legacy_proofs={true}
+              preset={orbLegacy({ signal: wallet })}
+              open={widgetOpen}
+              onOpenChange={setWidgetOpen}
+              handleVerify={handleVerify}
+              onSuccess={handleSuccess}
+              onError={(err) => {
+                setError(`Verification error: ${err}`);
+                setWidgetOpen(false);
+              }}
+            />
+          )}
 
           {error && (
             <p className="text-red-400 text-sm mt-3">{error}</p>

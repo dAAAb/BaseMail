@@ -16,6 +16,8 @@ REGISTRY_CONTRACT = "0x54569D87348ba71e33832b78D61FBC0B94Fed17D"
 PAYMENT_ESCROW_ADDRESS = "0xaf41b976978ac981d79c1008dd71681355c71bf6"
 WORLD_ID_APP_ID = "app_7099aeba034f8327d91420254b4b660e"
 WORLD_ID_ACTION = "verify-human"
+WORLD_ID_RP_ID = "rp_2b23fabfd8dffcaf"
+# WORLD_ID_SIGNING_KEY is stored as a wrangler secret (never in code!)
 
 # D1 Database — 帳號與郵件索引
 [[d1_databases]]
