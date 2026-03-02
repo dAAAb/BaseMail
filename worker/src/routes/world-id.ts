@@ -49,91 +49,41 @@ worldId.post('/rp-signature', authMiddleware(), async (c) => {
 
 /**
  * POST /api/world-id/verify
- * Accepts full IDKit result, forwards to World ID v4 verify API.
- * Body: IDKit result payload (forwarded as-is)
+ * Client-side verified: accepts IDKit result + World ID API verification result.
+ * The frontend verifies with World ID API directly (CF Workers are IP-blocked),
+ * then sends both the proof and the verification result here for storage.
+ *
+ * Body: { idkit_result, verify_result }
+ * - idkit_result: raw IDKit response (for audit)
+ * - verify_result: response from POST /v4/verify/{rp_id} (done by frontend)
  */
 worldId.post('/verify', authMiddleware(), async (c) => {
   const auth = c.get('auth');
-  const body = await c.req.json();
+  const body = await c.req.json<{
+    idkit_result?: any;
+    verify_result?: any;
+    // Also accept direct fields for backward compat
+    nullifier_hash?: string;
+    verification_level?: string;
+    protocol_version?: string;
+  }>();
 
-  const RP_ID = c.env.WORLD_ID_RP_ID;
+  const verifyResult = body.verify_result;
 
-  if (!RP_ID) {
-    return c.json({ error: 'World ID not configured' }, 500);
-  }
-
-  // Log incoming payload for debugging
-  console.log('World ID verify incoming payload:', JSON.stringify(body).slice(0, 2000));
-
-  // Forward IDKit result to World ID v4 verify API
-  // Try multiple domains (some return 403 HTML from CF Workers)
-  const verifyDomains = [
-    'https://developer.world.org',
-    'https://developer.worldcoin.org',
-    'https://staging-developer.worldcoin.org',
-  ];
-
-  let verifyRes: Response | null = null;
-  let responseText = '';
-  let usedDomain = '';
-
-  for (const domain of verifyDomains) {
-    const url = `${domain}/api/v4/verify/${RP_ID}`;
-    console.log('Trying:', url);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    console.log(`${domain} response:`, res.status, text.slice(0, 500));
-
-    // If we get HTML 403, try next domain
-    if (res.status === 403 && text.includes('<html')) {
-      continue;
-    }
-
-    verifyRes = res;
-    responseText = text;
-    usedDomain = domain;
-    break;
-  }
-
-  if (!verifyRes) {
-    return c.json({ error: 'All World ID API domains returned 403. CF Worker IP may be blocked.' }, 502);
-  }
-
-  console.log('Used domain:', usedDomain, 'Status:', verifyRes.status);
-
-  if (!verifyRes.ok) {
-    let parsed: any = {};
-    try { parsed = JSON.parse(responseText); } catch (_) {}
+  if (!verifyResult || !verifyResult.success) {
     return c.json({
-      error: 'World ID verification failed',
-      detail: parsed.detail || parsed.message || responseText.slice(0, 500),
-      code: parsed.code,
-      world_id_status: verifyRes.status,
-      // Debug: include truncated payload info
-      _debug_payload_keys: Object.keys(body),
-      _debug_protocol: body.protocol_version,
-      _debug_responses_count: body.responses?.length,
+      error: 'Missing or failed verify_result. Frontend must call World ID /v4/verify first.',
+      detail: verifyResult?.detail || verifyResult?.code,
     }, 400);
   }
 
-  let verifyData: any;
-  try { verifyData = JSON.parse(responseText); } catch (_) {
-    return c.json({ error: 'Invalid JSON from World ID API', raw: responseText.slice(0, 500) }, 500);
-  }
-
-  // Extract nullifier from response
-  // v3 legacy: responses[0].nullifier
-  // v4: responses[0].nullifier
-  const firstResponse = verifyData.responses?.[0];
-  const nullifier = firstResponse?.nullifier;
-  const identifier = firstResponse?.identifier || 'orb';
+  // Extract nullifier from verified result
+  const firstResult = verifyResult.results?.[0];
+  const nullifier = firstResult?.nullifier || verifyResult.nullifier;
+  const identifier = firstResult?.identifier || 'orb';
 
   if (!nullifier) {
-    return c.json({ error: 'No nullifier in verification response' }, 400);
+    return c.json({ error: 'No nullifier in verification result' }, 400);
   }
 
   // Ensure DB table exists
@@ -154,7 +104,7 @@ worldId.post('/verify', authMiddleware(), async (c) => {
   }
 
   // Determine version from response
-  const version = verifyData.protocol_version || 'v4';
+  const version = verifyResult.protocol_version || body.protocol_version || 'v4';
 
   // Store verification
   const id = crypto.randomUUID();

@@ -7,6 +7,9 @@ const WORLD_ID_APP_ID = 'app_7099aeba034f8327d91420254b4b660e';
 const WORLD_ID_ACTION = 'verify-human';
 const WORLD_ID_RP_ID = 'rp_2b23fabfd8dffcaf';
 
+// World ID verify API (called from browser, not CF Worker — CF Workers are IP-blocked)
+const WORLD_ID_VERIFY_URL = `https://developer.worldcoin.org/api/v4/verify/${WORLD_ID_RP_ID}`;
+
 interface Props {
   token: string;
   handle: string;
@@ -67,24 +70,45 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
     }
   }, [token]);
 
-  // handleVerify: send proof to backend for v4 verification
-  const handleVerify = useCallback(async (result: IDKitResult) => {
-    const res = await fetch(`${API_BASE}/api/world-id/verify`, {
+  // handleVerify: verify proof with World ID API directly from browser,
+  // then store result in our backend
+  const handleVerify = useCallback(async (idkitResult: IDKitResult) => {
+    console.log('IDKit result:', JSON.stringify(idkitResult));
+
+    // Step 1: Verify with World ID API (from browser — CF Workers are IP-blocked)
+    const verifyRes = await fetch(WORLD_ID_VERIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(idkitResult),
+    });
+
+    const verifyData = await verifyRes.json() as any;
+    console.log('World ID verify response:', verifyRes.status, verifyData);
+
+    if (!verifyRes.ok || !verifyData.success) {
+      throw new Error(verifyData.detail || verifyData.code || 'World ID verification failed');
+    }
+
+    // Step 2: Store in our backend
+    const storeRes = await fetch(`${API_BASE}/api/world-id/verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify(result),
+      body: JSON.stringify({
+        idkit_result: idkitResult,
+        verify_result: verifyData,
+      }),
     });
-    const data = await res.json() as any;
-    if (!res.ok) {
-      console.error('World ID verify error:', data);
-      throw new Error(data.detail || data.error || 'Backend verification failed');
+
+    const storeData = await storeRes.json() as any;
+    if (!storeRes.ok) {
+      throw new Error(storeData.error || 'Failed to store verification');
     }
   }, [token]);
 
-  // onSuccess: update UI after successful verification
+  // onSuccess: update UI
   const handleSuccess = useCallback((_result: IDKitResult) => {
     setStatus('verified');
     setVerificationLevel('orb');
