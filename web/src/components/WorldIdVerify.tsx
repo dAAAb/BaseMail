@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { IDKitRequestWidget, useIDKitRequest, orbLegacy } from '@worldcoin/idkit';
+import type { IDKitResult } from '@worldcoin/idkit';
 
 const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
 const WORLD_ID_APP_ID = 'app_7099aeba034f8327d91420254b4b660e';
@@ -10,24 +12,14 @@ interface Props {
   wallet: string;
 }
 
-// Dynamically load IDKit
-let idkitLoaded = false;
-function loadIDKit(): Promise<any> {
-  if (idkitLoaded && (window as any).IDKit) return Promise.resolve((window as any).IDKit);
-  return new Promise((resolve, reject) => {
-    // Use the CDN-based approach via dynamic import
-    // For now we'll use the REST/redirect approach as fallback
-    resolve(null);
-  });
-}
-
 export default function WorldIdVerify({ token, handle, wallet }: Props) {
   const [status, setStatus] = useState<'loading' | 'unverified' | 'verified' | 'verifying' | 'error'>('loading');
   const [verificationLevel, setVerificationLevel] = useState<string | null>(null);
   const [verifiedAt, setVerifiedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [widgetOpen, setWidgetOpen] = useState(false);
 
-  // Check current status
+  // Check current status on mount
   useEffect(() => {
     fetch(`${API_BASE}/api/world-id/status/${handle}`)
       .then(r => r.json())
@@ -43,111 +35,24 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
       .catch(() => setStatus('unverified'));
   }, [handle]);
 
-  const handleVerify = useCallback(async () => {
+  const handleSuccess = useCallback(async (result: IDKitResult) => {
     setStatus('verifying');
     setError('');
 
     try {
-      // Use World ID's hosted verification page (World App bridge)
-      // This works without npm package — redirect flow
-      const callbackUrl = `${window.location.origin}/dashboard/settings`;
+      // Extract v3 legacy proof fields from result
+      const v3 = result.responses?.find((r: any) => r.version === 'v3' || r.merkle_root);
+      const merkle_root = v3?.merkle_root || (result as any).merkle_root;
+      const nullifier_hash = v3?.nullifier_hash || (result as any).nullifier_hash;
+      const proof = v3?.proof || (result as any).proof;
 
-      // Build the World ID verification URL
-      const params = new URLSearchParams({
-        app_id: WORLD_ID_APP_ID,
-        action: WORLD_ID_ACTION,
-        signal: wallet,
-        credential_types: 'orb,device',
-        return_to: callbackUrl,
-      });
-
-      // For web, we use the miniapp-based bridge URL
-      // Or we can use the IDKit JS SDK via script tag
-      const scriptUrl = 'https://cdn.worldcoin.org/idkit/v1/idkit.js';
-
-      // Load IDKit script if not loaded
-      if (!document.querySelector(`script[src="${scriptUrl}"]`)) {
-        const script = document.createElement('script');
-        script.src = scriptUrl;
-        script.async = true;
-        await new Promise<void>((resolve, reject) => {
-          script.onload = () => resolve();
-          script.onerror = () => reject(new Error('Failed to load IDKit'));
-          document.head.appendChild(script);
-        });
+      if (!merkle_root || !nullifier_hash || !proof) {
+        setError('No valid proof in response');
+        setStatus('unverified');
+        return;
       }
 
-      // Wait for IDKit to be available
-      await new Promise<void>((resolve) => {
-        const check = () => {
-          if ((window as any).IDKit) resolve();
-          else setTimeout(check, 100);
-        };
-        check();
-      });
-
-      const IDKit = (window as any).IDKit;
-      IDKit.init({
-        app_id: WORLD_ID_APP_ID,
-        action: WORLD_ID_ACTION,
-        signal: wallet,
-        enableTelemetry: false,
-        onSuccess: async (result: any) => {
-          // Send proof to our backend
-          try {
-            const res = await fetch(`${API_BASE}/api/world-id/verify`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                merkle_root: result.merkle_root,
-                nullifier_hash: result.nullifier_hash,
-                proof: result.proof,
-                verification_level: result.verification_level || 'orb',
-                signal: wallet,
-              }),
-            });
-            const data = await res.json() as any;
-            if (data.ok || data.is_human) {
-              setStatus('verified');
-              setVerificationLevel(data.verification_level || 'orb');
-              setVerifiedAt(Math.floor(Date.now() / 1000));
-            } else {
-              setError(data.error || 'Verification failed');
-              setStatus('unverified');
-            }
-          } catch (e: any) {
-            setError(e.message || 'Network error');
-            setStatus('unverified');
-          }
-        },
-        onError: (err: any) => {
-          setError(err?.message || 'World ID verification cancelled');
-          setStatus('unverified');
-        },
-      });
-
-      IDKit.open();
-    } catch (e: any) {
-      // Fallback: use @worldcoin/idkit React component approach
-      // For now, show manual instructions
-      setError('IDKit failed to load. Please try again or use World App directly.');
-      setStatus('unverified');
-    }
-  }, [token, wallet]);
-
-  // Handle URL callback from World ID redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const proof = params.get('proof');
-    const merkle_root = params.get('merkle_root');
-    const nullifier_hash = params.get('nullifier_hash');
-    if (proof && merkle_root && nullifier_hash) {
-      // Auto-verify from redirect
-      setStatus('verifying');
-      fetch(`${API_BASE}/api/world-id/verify`, {
+      const res = await fetch(`${API_BASE}/api/world-id/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -157,26 +62,22 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
           merkle_root,
           nullifier_hash,
           proof,
-          verification_level: params.get('verification_level') || 'orb',
+          verification_level: v3?.verification_level || 'orb',
           signal: wallet,
         }),
-      })
-        .then(r => r.json())
-        .then((data: any) => {
-          if (data.ok || data.is_human) {
-            setStatus('verified');
-            setVerificationLevel(data.verification_level || 'orb');
-            // Clean URL
-            window.history.replaceState({}, '', window.location.pathname);
-          } else {
-            setError(data.error || 'Verification failed');
-            setStatus('unverified');
-          }
-        })
-        .catch(() => {
-          setError('Verification failed');
-          setStatus('unverified');
-        });
+      });
+      const data = await res.json() as any;
+      if (data.ok || data.is_human) {
+        setStatus('verified');
+        setVerificationLevel(data.verification_level || 'orb');
+        setVerifiedAt(Math.floor(Date.now() / 1000));
+      } else {
+        setError(data.error || 'Verification failed');
+        setStatus('unverified');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Network error');
+      setStatus('unverified');
     }
   }, [token, wallet]);
 
@@ -215,8 +116,9 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
             Prove you're a unique human using World ID. Verified accounts get a ✅ badge on their profile,
             increasing trust for email recipients.
           </p>
+
           <button
-            onClick={handleVerify}
+            onClick={() => setWidgetOpen(true)}
             disabled={status === 'verifying'}
             className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:from-purple-500 hover:to-blue-500 transition disabled:opacity-50 flex items-center gap-2"
           >
@@ -230,6 +132,20 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
               </>
             )}
           </button>
+
+          <IDKitRequestWidget
+            app_id={WORLD_ID_APP_ID as `app_${string}`}
+            action={WORLD_ID_ACTION}
+            preset={orbLegacy({ signal: wallet })}
+            open={widgetOpen}
+            onOpenChange={setWidgetOpen}
+            onSuccess={handleSuccess}
+            onError={(err) => {
+              setError(`Verification error: ${err}`);
+              setStatus('unverified');
+            }}
+          />
+
           {error && (
             <p className="text-red-400 text-sm mt-3">{error}</p>
           )}
