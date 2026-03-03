@@ -63,6 +63,20 @@ The repo contains 15 skills across five categories:
 |-------|-------------|
 | **switchbot** | Control curtains, lights, plugs, sensors |
 
+## Already on ClawHub — 15,000+ Downloads
+
+These skills have been live on [ClawHub](https://clawhub.com) (OpenClaw's skill marketplace) for a while now, and the numbers speak for themselves:
+
+- **12 published skills** with **15,400+ total downloads**
+- **HeyGen AI Avatar Video** leads with 2,100 downloads
+- **WalletConnect Agent** at 1,900, **BaseMail** at 1,700
+
+![ClawHub @dAAAb profile — 12 skills, 15k+ downloads](/blog/clawhub-daaab-screenshot.webp)
+
+👉 [clawhub.ai/u/dAAAb](https://clawhub.ai/u/dAAAb)
+
+With the Agent Skills format, these same skills are now accessible far beyond ClawHub — to every agent that supports the open standard.
+
 ## Why Agent Skills Format?
 
 [Agent Skills](https://agentskills.io/) is an open specification by Vercel Labs. A skill is just a `SKILL.md` file (with optional scripts) that teaches an agent how to use a tool. No SDK. No vendor lock-in. Any agent that reads markdown can use it.
