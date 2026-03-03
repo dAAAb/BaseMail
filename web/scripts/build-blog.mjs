@@ -27,6 +27,8 @@ function md2html(md) {
     // Bold + italic
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Images (must run before links)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />')
     // Links
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     // Horizontal rules
@@ -52,7 +54,7 @@ function md2html(md) {
     .map(block => {
       block = block.trim();
       if (!block) return '';
-      if (/^<(h[1-6]|ul|ol|pre|table|div|hr|section)/.test(block)) return block;
+      if (/^<(h[1-6]|ul|ol|pre|table|div|hr|section|img)/.test(block)) return block;
       return `<p>${block}</p>`;
     })
     .join('\n\n');
