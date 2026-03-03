@@ -71,7 +71,7 @@ These skills have been live on [ClawHub](https://clawhub.com) (OpenClaw's skill 
 - **HeyGen AI Avatar Video** leads with 2,100 downloads
 - **WalletConnect Agent** at 1,900, **BaseMail** at 1,700
 
-![ClawHub @dAAAb profile — 12 skills, 15k+ downloads](https://basemail.ai/blog/clawhub-daaab-screenshot.webp)
+<img src="https://basemail.ai/blog/clawhub-daaab-screenshot.webp" alt="ClawHub @dAAAb profile — 12 skills, 15k+ downloads" style="max-width:100%;border-radius:12px;" />
 
 👉 [clawhub.ai/u/dAAAb](https://clawhub.ai/u/dAAAb)
 
