@@ -1,0 +1,7 @@
+file 'n7_ns7_01-inbox.mp4'
+file 'n7_ns7_02-compose-diplomat.mp4'
+file 'n7_ns7_04-compose-full.mp4'
+file 'n7_ns_07-findmail.mp4'
+file 'n7_ns7_05-sent.mp4'
+file 'n7_ns7_06-attn.mp4'
+file 'n7_remotion-22s.mp4'

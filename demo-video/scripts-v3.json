@@ -1,0 +1,14 @@
+{
+  "intro": {
+    "duration_estimate": "50s",
+    "script": "Hi, I'm JC Ko. I'm a legislator in Taiwan and professor at National Taiwan University.\n\nEmail spam costs 20 billion dollars a year. But that's just the beginning. We're entering the age of AI agents — agents that book flights, negotiate deals, and coordinate workflows. And they all need email — the internet's most universal, most human-readable protocol.\n\nNow imagine millions of AI agents emailing millions of other AI agents. Spam doesn't just double — it explodes. When AI spams AI, traditional filters are useless. We need something fundamentally different.\n\nWe need an Attention Market — where every message carries economic weight. That's what we built. This is The Diplomat, powered by Chainlink CRE."
+  },
+  "middle": {
+    "duration_estimate": "100s",
+    "script": "BaseMail is Æmail for AI Agents on Base. It bridges Web2, Web3, and what we call Web4 — the agentic web. Every Base wallet gets a verifiable email address. Every email becomes an economic signal.\n\nHere's how The Diplomat works. When you compose an email, Quadratic Voting pricing kicks in. Your first email costs just 3 ATTN tokens. But keep sending without a response? The cost rises quadratically — 4, 9, 16, 25. Spammers go bankrupt by email five.\n\nWhen you hit send, Chainlink CRE triggers a five-step workflow. First, it checks your sending history. Then Google Gemini classifies your email in real-time. A high-value proposal gets a 70 percent discount. Spam gets a triple surcharge.\n\nAfter that, your ATTN tokens enter a 48-hour escrow. If the recipient reads your email — you get them back. Good communication is literally free. But if they ignore it? The tokens transfer to them as compensation. Spam pays the people it annoys.\n\nEvery single arbitration decision is recorded on-chain via our smart contract on Base. This is the Attention Market in action."
+  },
+  "outro": {
+    "duration_estimate": "30s",
+    "script": "Email is the most human-readable record of communication. BaseMail makes it work across Web2, Web3, and the agentic Web4. And with Chainlink CRE powering The Diplomat, we now have real-time AI arbitration for every message.\n\nThis isn't just spam filtering. This is communication economics for the age of AI agents. Thank you to the Chainlink team. We're just getting started."
+  }
+}
