@@ -94,7 +94,7 @@ export async function handleIncomingEmail(
     Math.floor(Date.now() / 1000),
   ).run();
 
-  // 如有 webhook，非同步通知 Agent
+  // Legacy webhook (account.webhook_url)
   if (account.webhook_url) {
     ctx.waitUntil(notifyWebhook(account.webhook_url, {
       event: 'new_email',
@@ -106,6 +106,20 @@ export async function handleIncomingEmail(
       timestamp: Math.floor(Date.now() / 1000),
     }));
   }
+
+  // Registered webhooks (webhooks table) with HMAC signature
+  ctx.waitUntil(deliverWebhooks(env, deliverHandle, {
+    event: 'message.received',
+    data: {
+      email_id: emailId,
+      from: fromAddr,
+      to: toAddr,
+      subject,
+      body: snippet,
+      created_at: Math.floor(Date.now() / 1000),
+    },
+    timestamp: Math.floor(Date.now() / 1000),
+  }));
 }
 
 function extractHandle(toAddr: string, domain: string): string | null {
@@ -191,5 +205,71 @@ async function notifyWebhook(url: string, payload: Record<string, any>): Promise
     });
   } catch {
     // webhook 失敗不影響郵件接收
+  }
+}
+
+/**
+ * Deliver webhook payload to all registered webhooks for a handle,
+ * with HMAC-SHA256 signature in X-BaseMail-Signature header.
+ */
+async function deliverWebhooks(
+  env: Env,
+  handle: string,
+  payload: Record<string, any>,
+): Promise<void> {
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT id, url, secret, events FROM webhooks WHERE handle = ? AND active = 1"
+    ).bind(handle).all<{ id: string; url: string; secret: string; events: string }>();
+
+    const webhooks = rows.results || [];
+    if (!webhooks.length) return;
+
+    const bodyStr = JSON.stringify(payload);
+    const event = payload.event || '';
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const wh of webhooks) {
+      // Check if webhook subscribes to this event
+      const subscribedEvents = wh.events.split(',').map((e) => e.trim());
+      if (!subscribedEvents.includes(event)) continue;
+
+      try {
+        // HMAC-SHA256 signature
+        const key = await crypto.subtle.importKey(
+          'raw',
+          new TextEncoder().encode(wh.secret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign'],
+        );
+        const sig = await crypto.subtle.sign(
+          'HMAC',
+          key,
+          new TextEncoder().encode(bodyStr),
+        );
+        const hexSig = Array.from(new Uint8Array(sig))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+
+        await fetch(wh.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-BaseMail-Signature': `sha256=${hexSig}`,
+          },
+          body: bodyStr,
+        });
+
+        // Update last_triggered_at (best effort)
+        await env.DB.prepare(
+          'UPDATE webhooks SET last_triggered_at = ? WHERE id = ?'
+        ).bind(now, wh.id).run();
+      } catch {
+        // Individual webhook failure doesn't affect others
+      }
+    }
+  } catch {
+    // DB failure doesn't affect email delivery
   }
 }

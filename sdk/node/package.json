@@ -1,0 +1,38 @@
+{
+  "name": "basemail",
+  "version": "0.1.0",
+  "description": "Official SDK for BaseMail — Email for AI Agents on Base chain",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "basemail",
+    "email",
+    "ai-agent",
+    "base-chain",
+    "ethereum",
+    "siwe"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

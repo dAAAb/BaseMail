@@ -85,6 +85,62 @@ Full API docs: [`GET https://api.basemail.ai/api/docs`](https://api.basemail.ai/
 
 ---
 
+## SDKs
+
+### Node.js / TypeScript
+
+```bash
+npm install basemail
+```
+
+```typescript
+import { BaseMail } from 'basemail'
+
+// Option A: Private key (auto SIWE)
+const client = new BaseMail({ privateKey: '0x...' })
+
+// Option B: API key
+const client = new BaseMail({ apiKey: 'bm_live_...' })
+
+// Option C: Existing JWT
+const client = new BaseMail({ token: 'eyJ...' })
+
+// Send email
+await client.send({ to: 'alice@basemail.ai', subject: 'Hello', body: 'Hi!' })
+
+// Read inbox
+const { emails, total, unread } = await client.inbox({ limit: 10 })
+```
+
+### Python
+
+```bash
+pip install basemail
+```
+
+```python
+from basemail import BaseMail
+
+# Option A: Private key (auto SIWE)
+client = BaseMail(private_key="0x...")
+
+# Option B: API key
+client = BaseMail(api_key="bm_live_...")
+
+# Option C: Existing JWT
+client = BaseMail(token="eyJ...")
+
+# Send email
+client.send(to="alice@basemail.ai", subject="Hello", body="Hi!")
+
+# Read inbox
+result = client.inbox(limit=10)
+```
+
+See [`sdk/node/README.md`](sdk/node/README.md) and [`sdk/python/README.md`](sdk/python/README.md) for full SDK documentation.
+
+---
+
 ## $ATTN Token Details
 
 | Parameter | Value |
@@ -165,14 +221,18 @@ BaseMail/
 │   │   ├── index.ts          # Routes + API docs
 │   │   ├── cron.ts           # Daily drip + escrow settlement
 │   │   ├── auth.ts           # JWT + SIWE verification
-│   │   ├── email-handler.ts  # Inbound email processing
+│   │   ├── email-handler.ts  # Inbound email processing + webhooks
 │   │   └── routes/
 │   │       ├── attn.ts       # $ATTN token endpoints (v3)
 │   │       ├── auth.ts       # /api/auth/*
 │   │       ├── send.ts       # /api/send (with ATTN auto-stake)
 │   │       ├── inbox.ts      # /api/inbox/* (with ATTN refund/reject)
+│   │       ├── webhooks.ts   # /api/webhooks/* (webhook management)
 │   │       └── ...
 │   └── wrangler.toml
+├── sdk/
+│   ├── node/            # Node.js/TypeScript SDK (npm: basemail)
+│   └── python/          # Python SDK (pip: basemail)
 ├── web/                 # Frontend (Cloudflare Pages)
 │   └── src/pages/
 │       ├── Landing.tsx       # Landing page

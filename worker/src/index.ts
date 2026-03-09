@@ -27,6 +27,7 @@ import { attnRoutes } from './routes/attn';
 import { airdropRoutes } from './routes/airdrop';
 import { diplomatRoutes } from './routes/diplomat';
 import { worldIdRoutes } from './routes/world-id';
+import { webhookRoutes } from './routes/webhooks';
 import { handleIncomingEmail } from './email-handler';
 import { handleCron } from './cron';
 
@@ -132,6 +133,28 @@ app.get('/api/openapi.json', (c) => {
           description: 'Returns standardized agent registration data per ERC-8004.',
           parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'ERC-8004 registration JSON' } },
+        },
+      },
+      '/api/webhooks': {
+        post: {
+          summary: 'Create webhook',
+          description: 'Register a webhook URL to receive real-time notifications when events occur (e.g. new email received).',
+          security: [{ bearerAuth: [] }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { url: { type: 'string', description: 'HTTPS URL to receive webhook POST requests' }, events: { type: 'array', items: { type: 'string' }, description: 'Events to subscribe to (default: ["message.received"])' } }, required: ['url'] } } } },
+          responses: { '201': { description: 'Webhook created with secret for signature verification' } },
+        },
+        get: {
+          summary: 'List webhooks',
+          security: [{ bearerAuth: [] }],
+          responses: { '200': { description: 'Array of registered webhooks' } },
+        },
+      },
+      '/api/webhooks/{id}': {
+        delete: {
+          summary: 'Delete webhook',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Webhook deleted' } },
         },
       },
       '/api/attention/price/{handle}': {
@@ -484,6 +507,24 @@ app.get('/api/docs', (c) => {
         response: '{ wave, leaderboard: [{ handle, amount, claimed_at }] }',
       },
 
+      // — Webhooks (token required) —
+      'POST /api/webhooks': {
+        auth: 'Bearer token',
+        description: 'Register a webhook URL to receive real-time notifications (e.g. message.received)',
+        body: '{ url: "https://...", events?: ["message.received"] }',
+        response: '{ id, url, events, secret, active, created_at }',
+        note: 'Store the secret — it is shown only once. Webhook payloads include X-BaseMail-Signature: sha256=<HMAC-SHA256 of body using secret>.',
+      },
+      'GET /api/webhooks': {
+        auth: 'Bearer token',
+        description: 'List your registered webhooks',
+        response: '{ webhooks: [...] }',
+      },
+      'DELETE /api/webhooks/:id': {
+        auth: 'Bearer token',
+        description: 'Delete a webhook',
+      },
+
       // — Public —
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
@@ -643,6 +684,7 @@ app.route('/api/attn', attnRoutes);
 app.route('/api/airdrop', airdropRoutes);
 app.route('/api/diplomat', diplomatRoutes);
 app.route('/api/world-id', worldIdRoutes);
+app.route('/api/webhooks', webhookRoutes);
 
 // Public ATTN price check (no auth required) — outside /api/attn/* to avoid auth middleware
 app.get('/api/attn-price/:handle', async (c) => {
