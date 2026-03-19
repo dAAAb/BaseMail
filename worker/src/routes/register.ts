@@ -301,9 +301,11 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     return c.json({ error: 'This Basename handle is already registered by another wallet' }, 409);
   }
 
-  // 更新帳號 handle + 遷移所有 FK 子表（D1 不支援 PRAGMA defer_foreign_keys）
+  // 更新帳號 handle + 遷移所有 FK 子表
+  // SQLite: PRAGMA defer_foreign_keys must be set BEFORE the transaction starts.
+  // D1 batch() is an implicit transaction, so PRAGMA goes before it.
+  await c.env.DB.prepare("PRAGMA defer_foreign_keys = ON").run();
   const batchResults = await c.env.DB.batch([
-    c.env.DB.prepare("PRAGMA foreign_keys = OFF"),
     // 1. 更新主表
     c.env.DB.prepare(
       'UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?'
@@ -348,9 +350,8 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     c.env.DB.prepare(
       'UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?'
     ).bind(newHandle, oldHandle),
-    c.env.DB.prepare("PRAGMA foreign_keys = ON"),
   ]);
-  const migratedCount = batchResults[2]?.meta?.changes || 0;
+  const migratedCount = batchResults[1]?.meta?.changes || 0;
 
   // Insert into basename_aliases with is_primary=1
   if (basenames) {

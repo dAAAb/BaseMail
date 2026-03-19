@@ -185,9 +185,10 @@ settingsRoutes.put('/primary', async (c) => {
     return c.json({ error: 'Handle already taken by another wallet' }, 409);
   }
 
-  // Batch update: switch primary（更新所有 FK 子表，D1 不支援 defer_foreign_keys）
+  // Batch update: switch primary（更新所有 FK 子表）
+  // SQLite: PRAGMA defer_foreign_keys must be set BEFORE the transaction starts.
+  await c.env.DB.prepare("PRAGMA defer_foreign_keys = ON").run();
   await c.env.DB.batch([
-    c.env.DB.prepare("PRAGMA foreign_keys = OFF"),
     // Update account handle
     c.env.DB.prepare('UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?')
       .bind(newHandle, alias.basename, auth.wallet),
@@ -224,7 +225,6 @@ settingsRoutes.put('/primary', async (c) => {
     // Set new primary
     c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 1 WHERE handle = ? AND wallet = ?')
       .bind(newHandle, auth.wallet),
-    c.env.DB.prepare("PRAGMA foreign_keys = ON"),
   ]);
 
   // Issue new token
