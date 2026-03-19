@@ -319,7 +319,20 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     'INSERT INTO accounts (handle, wallet, basename, webhook_url, created_at, tx_hash) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(newHandle, tempWallet, basenames, oldAccount.webhook_url, oldAccount.created_at, oldAccount.tx_hash).run();
 
-  // Step 3: Migrate all child tables (newHandle now exists in accounts, so FK is satisfied)
+  // Step 3: Ensure optional tables exist before migrating
+  await c.env.DB.batch([
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (
+      token_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL,
+      last_used_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
+      key_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      name TEXT, scopes TEXT NOT NULL DEFAULT 'send,inbox',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), last_used_at INTEGER,
+      revoked_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+  ]);
+
+  // Step 4: Migrate all child tables (newHandle now exists in accounts, so FK is satisfied)
   // Then delete old account and fix wallet on new account.
   const batchResults = await c.env.DB.batch([
     // Migrate child tables

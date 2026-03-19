@@ -201,6 +201,19 @@ settingsRoutes.put('/primary', async (c) => {
     'INSERT INTO accounts (handle, wallet, basename, webhook_url, created_at, tx_hash) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(newHandle, tempWallet, alias.basename, oldAccount.webhook_url, oldAccount.created_at, oldAccount.tx_hash).run();
 
+  // Ensure optional tables exist before migrating
+  await c.env.DB.batch([
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (
+      token_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL,
+      last_used_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
+      key_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      name TEXT, scopes TEXT NOT NULL DEFAULT 'send,inbox',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), last_used_at INTEGER,
+      revoked_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+  ]);
+
   // Migrate children, delete old, fix wallet — all in one atomic batch
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
