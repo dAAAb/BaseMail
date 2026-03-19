@@ -185,14 +185,38 @@ settingsRoutes.put('/primary', async (c) => {
     return c.json({ error: 'Handle already taken by another wallet' }, 409);
   }
 
-  // Batch update: switch primary
+  // Batch update: switch primary（更新所有 FK 子表，D1 不支援 defer_foreign_keys）
   await c.env.DB.batch([
-    c.env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
+    c.env.DB.prepare("PRAGMA foreign_keys = OFF"),
     // Update account handle
     c.env.DB.prepare('UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?')
       .bind(newHandle, alias.basename, auth.wallet),
-    // Migrate emails
+    // Migrate all child tables with FK on accounts(handle)
     c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE refresh_tokens SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE api_keys SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_config SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?')
+      .bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?')
       .bind(newHandle, oldHandle),
     // Reset all is_primary flags for this wallet
     c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 0 WHERE wallet = ?')
@@ -200,6 +224,7 @@ settingsRoutes.put('/primary', async (c) => {
     // Set new primary
     c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 1 WHERE handle = ? AND wallet = ?')
       .bind(newHandle, auth.wallet),
+    c.env.DB.prepare("PRAGMA foreign_keys = ON"),
   ]);
 
   // Issue new token

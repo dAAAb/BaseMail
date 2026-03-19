@@ -301,15 +301,54 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     return c.json({ error: 'This Basename handle is already registered by another wallet' }, 409);
   }
 
-  // 更新帳號 handle + 遷移信件（batch 以延遲 FK 檢查）
+  // 更新帳號 handle + 遷移所有 FK 子表（D1 不支援 PRAGMA defer_foreign_keys）
   const batchResults = await c.env.DB.batch([
-    c.env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
+    c.env.DB.prepare("PRAGMA foreign_keys = OFF"),
+    // 1. 更新主表
     c.env.DB.prepare(
       'UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?'
     ).bind(newHandle, basenames, auth.wallet),
+    // 2. 遷移所有有 FK(handle) REFERENCES accounts(handle) 的子表
     c.env.DB.prepare(
       'UPDATE emails SET handle = ? WHERE handle = ?'
     ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE refresh_tokens SET handle = ? WHERE handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE api_keys SET handle = ? WHERE handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE attention_config SET handle = ? WHERE handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE qaf_scores SET handle = ? WHERE handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE world_id_verifications SET handle = ? WHERE handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare(
+      'UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?'
+    ).bind(newHandle, oldHandle),
+    c.env.DB.prepare("PRAGMA foreign_keys = ON"),
   ]);
   const migratedCount = batchResults[2]?.meta?.changes || 0;
 
