@@ -302,56 +302,46 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   }
 
   // 更新帳號 handle + 遷移所有 FK 子表
-  // SQLite: PRAGMA defer_foreign_keys must be set BEFORE the transaction starts.
-  // D1 batch() is an implicit transaction, so PRAGMA goes before it.
-  await c.env.DB.prepare("PRAGMA defer_foreign_keys = ON").run();
+  // Strategy: Insert new handle first → migrate children → delete old handle.
+  // This avoids any PRAGMA hacks (D1 doesn't support FK deferral reliably).
+  // Step 1: Get old account data for copying
+  const oldAccount = await c.env.DB.prepare(
+    'SELECT handle, wallet, basename, webhook_url, created_at, tx_hash FROM accounts WHERE wallet = ?'
+  ).bind(auth.wallet).first<{ handle: string; wallet: string; basename: string | null; webhook_url: string | null; created_at: number; tx_hash: string | null }>();
+
+  if (!oldAccount) {
+    return c.json({ error: 'Account not found during upgrade' }, 500);
+  }
+
+  // Step 2: Insert new account with new handle (use temp wallet to avoid UNIQUE conflict)
+  const tempWallet = `UPGRADE_${Date.now()}`;
+  await c.env.DB.prepare(
+    'INSERT INTO accounts (handle, wallet, basename, webhook_url, created_at, tx_hash) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(newHandle, tempWallet, basenames, oldAccount.webhook_url, oldAccount.created_at, oldAccount.tx_hash).run();
+
+  // Step 3: Migrate all child tables (newHandle now exists in accounts, so FK is satisfied)
+  // Then delete old account and fix wallet on new account.
   const batchResults = await c.env.DB.batch([
-    // 1. 更新主表
-    c.env.DB.prepare(
-      'UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?'
-    ).bind(newHandle, basenames, auth.wallet),
-    // 2. 遷移所有有 FK(handle) REFERENCES accounts(handle) 的子表
-    c.env.DB.prepare(
-      'UPDATE emails SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE refresh_tokens SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE api_keys SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE attention_config SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE qaf_scores SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE world_id_verifications SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?'
-    ).bind(newHandle, oldHandle),
-    c.env.DB.prepare(
-      'UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?'
-    ).bind(newHandle, oldHandle),
+    // Migrate child tables
+    c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE refresh_tokens SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE api_keys SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_config SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?').bind(newHandle, oldHandle),
+    // Delete old account (no children reference it anymore)
+    c.env.DB.prepare('DELETE FROM accounts WHERE handle = ?').bind(oldHandle),
+    // Fix wallet on new account (now unique since old row is deleted)
+    c.env.DB.prepare('UPDATE accounts SET wallet = ? WHERE handle = ?').bind(auth.wallet, newHandle),
   ]);
-  const migratedCount = batchResults[1]?.meta?.changes || 0;
+  const migratedCount = batchResults[0]?.meta?.changes || 0;
 
   // Insert into basename_aliases with is_primary=1
   if (basenames) {
