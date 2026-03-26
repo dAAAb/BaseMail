@@ -9,6 +9,9 @@ import { normalize } from 'viem/ens';
 
 export const registerRoutes = new Hono<AppBindings>();
 
+// Maximum price the platform will auto-pay for a Basename (blocks 4-char and shorter names)
+const MAX_AUTO_BASENAME_PRICE = 2000000000000000n; // 0.002 ETH (~$5)
+
 /**
  * POST /api/register
  * Register a @basemail.ai email address.
@@ -75,6 +78,20 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
     const name = body.basename_name;
     if (!name || !isValidBasename(name)) {
       return c.json({ error: 'basename_name is required (3-32 chars, a-z, 0-9, -)' }, 400);
+    }
+    // Price cap: reject names that cost more than MAX_AUTO_BASENAME_PRICE
+    try {
+      const priceWei = await getBasenamePrice(name);
+      if (priceWei > MAX_AUTO_BASENAME_PRICE) {
+        return c.json({
+          error: `Name "${name}" costs ${formatEther(priceWei)} ETH, which exceeds the auto-purchase limit of ${formatEther(MAX_AUTO_BASENAME_PRICE)} ETH. Please choose a longer name (5+ characters).`,
+          price_eth: formatEther(priceWei),
+          max_price_eth: formatEther(MAX_AUTO_BASENAME_PRICE),
+          hint: 'Names with 5+ characters cost ~0.001 ETH. Names with 10+ characters cost ~0.0001 ETH.',
+        }, 400);
+      }
+    } catch (e: any) {
+      return c.json({ error: `Price check failed: ${e.message}` }, 500);
     }
     try {
       const result = await registerBasename(
@@ -256,6 +273,20 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     }
 
     if (!basenames) {
+      // Price cap: reject names that cost more than MAX_AUTO_BASENAME_PRICE
+      try {
+        const priceWei = await getBasenamePrice(name);
+        if (priceWei > MAX_AUTO_BASENAME_PRICE) {
+          return c.json({
+            error: `Name "${name}" costs ${formatEther(priceWei)} ETH, which exceeds the auto-purchase limit of ${formatEther(MAX_AUTO_BASENAME_PRICE)} ETH. Please choose a longer name (5+ characters).`,
+            price_eth: formatEther(priceWei),
+            max_price_eth: formatEther(MAX_AUTO_BASENAME_PRICE),
+            hint: 'Names with 5+ characters cost ~0.001 ETH. Names with 10+ characters cost ~0.0001 ETH.',
+          }, 400);
+        }
+      } catch (e: any) {
+        return c.json({ error: `Price check failed: ${e.message}` }, 500);
+      }
       // Only purchase if we didn't already resolve ownership above
       try {
         const result = await registerBasename(
