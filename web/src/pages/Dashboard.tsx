@@ -707,10 +707,10 @@ export default function Dashboard() {
           <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-700/40 rounded-xl p-5 mb-6">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">🎁</span>
-              <h3 className="font-bold text-lg text-green-300">Get a Free Basename</h3>
+              <h3 className="font-bold text-lg text-green-300">Limited-Time: Free 1-Year Basename</h3>
             </div>
             <p className="text-gray-400 text-sm mb-4">
-              Upgrade your email from <span className="font-mono text-gray-500 text-xs">{a.handle!.slice(0, 10)}...@basemail.ai</span> to a human-readable <span className="text-base-blue font-medium">yourname@basemail.ai</span> — free and instant!
+              Upgrade from <span className="font-mono text-gray-500 text-xs">{a.handle!.slice(0, 10)}...@basemail.ai</span> to <span className="text-base-blue font-medium">yourname@basemail.ai</span> — <span className="text-yellow-400">1 year free, limited-time offer!</span> Renew on your own after expiry.
             </p>
             <div className="flex gap-3">
               <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-3">
@@ -2736,10 +2736,10 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
               <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-700/40 rounded-lg p-4 mt-2">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-lg">🎁</span>
-                  <span className="text-green-300 text-xs font-bold">Get a Free Basename</span>
+                  <span className="text-green-300 text-xs font-bold">Limited-Time: Free 1-Year Basename</span>
                 </div>
                 <p className="text-gray-400 text-xs mb-3">
-                  Choose a name and we'll register <span className="text-base-blue font-medium">yourname.base.eth</span> for you — free, instant, no wallet signing needed.
+                  Choose a name and we'll register <span className="text-base-blue font-medium">yourname.base.eth</span> for you — <span className="text-yellow-400">1 year free</span>, no wallet signing needed. Renew on your own after expiry.
                 </p>
                 <div className="flex gap-2 mb-2">
                   <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">

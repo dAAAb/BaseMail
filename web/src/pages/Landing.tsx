@@ -719,7 +719,7 @@ export default function Landing() {
               </li>
               <li className="flex gap-3">
                 <span className="bg-blue-900/30 text-blue-400 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
-                <span className="text-gray-300">Pick a name — <span className="text-green-400 font-medium">free Basename, we pay gas!</span></span>
+                <span className="text-gray-300">Pick a name — <span className="text-green-400 font-medium">1-year free Basename!</span></span>
               </li>
               <li className="flex gap-3">
                 <span className="bg-blue-900/30 text-blue-400 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
@@ -743,7 +743,7 @@ export default function Landing() {
               </li>
               <li className="flex gap-3">
                 <span className="bg-purple-900/30 text-purple-400 rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
-                <span className="text-gray-300">Get a free Basename in Dashboard — <span className="text-green-400">we pay gas!</span></span>
+                <span className="text-gray-300">Get a free 1-year Basename in Dashboard</span>
               </li>
             </ol>
             <a href="https://clawhub.com/skills/base-wallet" target="_blank" rel="noopener noreferrer" className="mt-6 inline-block bg-purple-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-purple-500 transition">Create Wallet</a>
@@ -805,10 +805,10 @@ export default function Landing() {
         <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
           <FAQItem q="Why can't my agent just use Gmail?" a="Gmail blocks automated signups — CAPTCHAs, phone verification, rate limits. Even if you succeed, Google can ban the account anytime. Sharing your personal email with an agent is worse: one prompt injection and your agent is reading your bank statements. BaseMail is built for AI from day one." />
           <FAQItem q="How is BaseMail different from AgentMail?" a="AgentMail is email infrastructure (like SendGrid for agents): API keys, inboxes, webhooks. BaseMail is an identity protocol: your wallet IS your account (no API keys to leak), ERC-8004 on-chain identity, Lens social graph, and $ATTN attention economy. They're plumbing — we're the identity layer." />
-          <FAQItem q="Do I need a Basename to use BaseMail?" a="No! Start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). After signing in, you'll see a 'Get a Free Basename' banner right in the Dashboard — just type your desired name and click. We register it on-chain for you, no wallet signing needed. Your email upgrades to name@basemail.ai instantly." />
+          <FAQItem q="Do I need a Basename to use BaseMail?" a="No! Start immediately with your 0x wallet address (e.g. 0x4Bbd...@basemail.ai). After signing in, you'll see a 'Free Basename' banner in the Dashboard — type your desired name and click. We register 1 year on-chain for you for free (limited-time offer). After the year, you renew on your own. Your email upgrades to name@basemail.ai instantly." />
           <FAQItem q="What is $ATTN?" a="$ATTN is BaseMail's attention token. Every account gets 50 on signup + 10/day free drip. When you email someone, you stake ATTN (3 for cold emails, 1 for reply threads). If they read it → refund. If they reply → both earn +2 bonus. If they ignore/reject → they keep your tokens as compensation. It's all positive: good emails are free, spam pays the recipient." />
           <FAQItem q="Is internal email free?" a="Yes! Emails between @basemail.ai addresses are completely free and unlimited. External emails (to Gmail, Outlook, etc.) cost 1 credit each to cover delivery infrastructure." />
-          <FAQItem q="Is Basename registration free?" a="Yes! BaseMail covers both the registration fee AND gas for your first Basename. Just sign in to the Dashboard, type your desired name, and click 'Get Free Name'. It's registered on-chain to your wallet instantly." />
+          <FAQItem q="Is Basename registration free?" a="For a limited time, BaseMail covers both the registration fee AND gas for a 1-year Basename. Sign in to the Dashboard, type your desired name, and click 'Get Free Name'. After the year, you'll need to renew the Basename yourself — if you don't renew within the 90-day grace period, your handle reverts to 0x...@basemail.ai." />
           <FAQItem q="What happens if my Basename expires?" a="Your handle reverts to 0x...@basemail.ai after the 90-day grace period. Email history is preserved under your wallet. Renew anytime to reclaim your handle." />
         </div>
       </section>
