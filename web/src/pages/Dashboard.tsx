@@ -702,6 +702,45 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Free Basename banner for 0x-handle users with no basename */}
+        {!pendingAction && !canUpgrade && !a.basename && !a.has_basename_nft && /^0x/i.test(a.handle!) && (
+          <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-700/40 rounded-xl p-5 mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xl">🎁</span>
+              <h3 className="font-bold text-lg text-green-300">Get a Free Basename</h3>
+            </div>
+            <p className="text-gray-400 text-sm mb-4">
+              Upgrade your email from <span className="font-mono text-gray-500 text-xs">{a.handle!.slice(0, 10)}...@basemail.ai</span> to a human-readable <span className="text-base-blue font-medium">yourname@basemail.ai</span> — free and instant!
+            </p>
+            <div className="flex gap-3">
+              <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-3">
+                <input
+                  type="text"
+                  value={basenameInput}
+                  onChange={(e) => { setBasenameInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setUpgradeError(''); }}
+                  placeholder="yourname"
+                  className="flex-1 bg-transparent py-3 text-white font-mono focus:outline-none"
+                />
+                <span className="text-gray-500 font-mono text-sm">.base.eth</span>
+              </div>
+              <button
+                onClick={() => {
+                  if (!basenameInput.trim()) { setUpgradeError('Please enter a name'); return; }
+                  handleUpgrade(basenameInput.trim(), true);
+                }}
+                disabled={upgrading || !basenameInput.trim()}
+                className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-500 transition disabled:opacity-50 whitespace-nowrap text-sm"
+              >
+                {upgrading ? 'Registering...' : '🚀 Get Free Name'}
+              </button>
+            </div>
+            {upgradeError && <p className="text-red-400 text-sm mt-2">{upgradeError}</p>}
+            <p className="text-gray-600 text-xs mt-2">
+              Your new email: <span className="text-base-blue font-mono">{basenameInput || 'yourname'}@basemail.ai</span>
+            </p>
+          </div>
+        )}
+
         <Routes>
           <Route index element={<Inbox auth={auth} folder="inbox" />} />
           <Route path="sent" element={<Inbox auth={auth} folder="sent" />} />
@@ -709,7 +748,7 @@ export default function Dashboard() {
           <Route path="credits" element={<Credits auth={auth} />} />
           <Route path="attention" element={<Attention auth={auth} />} />
           <Route path="attn" element={<AttnDashboard auth={auth} />} />
-          <Route path="settings" element={<Settings auth={auth} setAuth={setAuth} onUpgrade={(canUpgrade || hasNFTOnly) ? handleUpgrade : undefined} upgrading={upgrading} />} />
+          <Route path="settings" element={<Settings auth={auth} setAuth={setAuth} onUpgrade={handleUpgrade} upgrading={upgrading} />} />
           <Route path="email/:id" element={<EmailDetail auth={auth} />} />
         </Routes>
       </main>
@@ -2541,7 +2580,7 @@ function Credits({ auth }: { auth: AuthState }) {
 }
 
 // ─── Settings ───────────────────────────────────────────
-function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; setAuth: (a: AuthState) => void; onUpgrade?: (basename?: string) => void; upgrading?: boolean }) {
+function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; setAuth: (a: AuthState) => void; onUpgrade?: (basename?: string, autoBuy?: boolean) => void; upgrading?: boolean }) {
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
   const [webhook, setWebhook] = useState('');
@@ -2692,14 +2731,42 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
                 {settingsUpgradeError && <p className="text-red-400 text-xs">{settingsUpgradeError}</p>}
               </div>
             )}
-            {/* No basename at all */}
+            {/* No basename at all — offer free registration */}
             {!auth.basename && !auth.has_basename_nft && (
-              <div className="bg-gray-800/50 rounded-lg p-3 mt-2 text-xs text-gray-400">
-                No Basename detected.{' '}
-                <a href="https://www.base.org/names" target="_blank" rel="noopener noreferrer" className="text-base-blue hover:underline">
-                  Get a Basename
-                </a>{' '}
-                for a human-readable email address.
+              <div className="bg-gradient-to-r from-green-900/20 to-blue-900/20 border border-green-700/40 rounded-lg p-4 mt-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🎁</span>
+                  <span className="text-green-300 text-xs font-bold">Get a Free Basename</span>
+                </div>
+                <p className="text-gray-400 text-xs mb-3">
+                  Choose a name and we'll register <span className="text-base-blue font-medium">yourname.base.eth</span> for you — free, instant, no wallet signing needed.
+                </p>
+                <div className="flex gap-2 mb-2">
+                  <div className="flex-1 flex items-center bg-base-dark rounded-lg border border-gray-700 px-2">
+                    <input
+                      type="text"
+                      value={settingsBasenameInput}
+                      onChange={(e) => { setSettingsBasenameInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setSettingsUpgradeError(''); }}
+                      placeholder="yourname"
+                      className="flex-1 bg-transparent py-2 text-white font-mono text-sm focus:outline-none"
+                    />
+                    <span className="text-gray-500 font-mono text-xs">.base.eth</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!settingsBasenameInput.trim()) { setSettingsUpgradeError('Please enter a name'); return; }
+                      if (onUpgrade) onUpgrade(settingsBasenameInput.trim(), true);
+                    }}
+                    disabled={upgrading || !settingsBasenameInput.trim()}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-500 transition disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {upgrading ? 'Registering...' : '🚀 Get Free Name'}
+                  </button>
+                </div>
+                {settingsUpgradeError && <p className="text-red-400 text-xs">{settingsUpgradeError}</p>}
+                <p className="text-gray-600 text-xs mt-1">
+                  Your email will upgrade from <span className="font-mono">{auth.wallet.slice(0, 8)}...@basemail.ai</span> to <span className="text-base-blue font-mono">{settingsBasenameInput || 'yourname'}@basemail.ai</span>
+                </p>
               </div>
             )}
             <div className="flex items-center justify-between pt-2 border-t border-gray-800">
