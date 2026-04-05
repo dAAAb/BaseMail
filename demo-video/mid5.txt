@@ -1,6 +1,0 @@
-file 'n_seg_01-inbox.mp4'
-file 'n_seg_02-compose-diplomat.mp4'
-file 'n_seg_04-compose-full.mp4'
-file 'n_seg_05-sent.mp4'
-file 'n_seg_06-attn.mp4'
-file 'remotion-18s.mp4'

@@ -26,3 +26,6 @@ worker/test-*.mjs
 contracts/build-info.json
 contracts/standard-json-input.json
 test-attention-bond.js
+
+# Demo video assets
+demo-video/

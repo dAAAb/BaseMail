@@ -1,3 +1,0 @@
-file 'norm_intro-v2.mp4'
-file 'norm_middle-remotion.mp4'
-file 'norm_outro-v2.mp4'

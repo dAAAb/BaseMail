@@ -1,2 +1,0 @@
-file 'screenshots-30s.mp4'
-file 'remotion-tail.mp4'
