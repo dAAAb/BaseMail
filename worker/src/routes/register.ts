@@ -9,6 +9,9 @@ import { normalize } from 'viem/ens';
 
 export const registerRoutes = new Hono<AppBindings>();
 
+// Maximum price the platform will auto-pay for a Basename (blocks 4-char and shorter names)
+const MAX_AUTO_BASENAME_PRICE = 2000000000000000n; // 0.002 ETH (~$5)
+
 /**
  * POST /api/register
  * Register a @basemail.ai email address.
@@ -75,6 +78,20 @@ registerRoutes.post('/', authMiddleware(), async (c) => {
     const name = body.basename_name;
     if (!name || !isValidBasename(name)) {
       return c.json({ error: 'basename_name is required (3-32 chars, a-z, 0-9, -)' }, 400);
+    }
+    // Price cap: reject names that cost more than MAX_AUTO_BASENAME_PRICE
+    try {
+      const priceWei = await getBasenamePrice(name);
+      if (priceWei > MAX_AUTO_BASENAME_PRICE) {
+        return c.json({
+          error: `Name "${name}" costs ${formatEther(priceWei)} ETH, which exceeds the auto-purchase limit of ${formatEther(MAX_AUTO_BASENAME_PRICE)} ETH. Please choose a longer name (5+ characters).`,
+          price_eth: formatEther(priceWei),
+          max_price_eth: formatEther(MAX_AUTO_BASENAME_PRICE),
+          hint: 'Names with 5+ characters cost ~0.001 ETH. Names with 10+ characters cost ~0.0001 ETH.',
+        }, 400);
+      }
+    } catch (e: any) {
+      return c.json({ error: `Price check failed: ${e.message}` }, 500);
     }
     try {
       const result = await registerBasename(
@@ -256,6 +273,20 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     }
 
     if (!basenames) {
+      // Price cap: reject names that cost more than MAX_AUTO_BASENAME_PRICE
+      try {
+        const priceWei = await getBasenamePrice(name);
+        if (priceWei > MAX_AUTO_BASENAME_PRICE) {
+          return c.json({
+            error: `Name "${name}" costs ${formatEther(priceWei)} ETH, which exceeds the auto-purchase limit of ${formatEther(MAX_AUTO_BASENAME_PRICE)} ETH. Please choose a longer name (5+ characters).`,
+            price_eth: formatEther(priceWei),
+            max_price_eth: formatEther(MAX_AUTO_BASENAME_PRICE),
+            hint: 'Names with 5+ characters cost ~0.001 ETH. Names with 10+ characters cost ~0.0001 ETH.',
+          }, 400);
+        }
+      } catch (e: any) {
+        return c.json({ error: `Price check failed: ${e.message}` }, 500);
+      }
       // Only purchase if we didn't already resolve ownership above
       try {
         const result = await registerBasename(
@@ -301,17 +332,60 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     return c.json({ error: 'This Basename handle is already registered by another wallet' }, 409);
   }
 
-  // 更新帳號 handle + 遷移信件（batch 以延遲 FK 檢查）
-  const batchResults = await c.env.DB.batch([
-    c.env.DB.prepare("PRAGMA defer_foreign_keys = ON"),
-    c.env.DB.prepare(
-      'UPDATE accounts SET handle = ?, basename = ? WHERE wallet = ?'
-    ).bind(newHandle, basenames, auth.wallet),
-    c.env.DB.prepare(
-      'UPDATE emails SET handle = ? WHERE handle = ?'
-    ).bind(newHandle, oldHandle),
+  // 更新帳號 handle + 遷移所有 FK 子表
+  // Strategy: Insert new handle first → migrate children → delete old handle.
+  // This avoids any PRAGMA hacks (D1 doesn't support FK deferral reliably).
+  // Step 1: Get old account data for copying
+  const oldAccount = await c.env.DB.prepare(
+    'SELECT handle, wallet, basename, webhook_url, created_at, tx_hash FROM accounts WHERE wallet = ?'
+  ).bind(auth.wallet).first<{ handle: string; wallet: string; basename: string | null; webhook_url: string | null; created_at: number; tx_hash: string | null }>();
+
+  if (!oldAccount) {
+    return c.json({ error: 'Account not found during upgrade' }, 500);
+  }
+
+  // Step 2: Insert new account with new handle (use temp wallet to avoid UNIQUE conflict)
+  const tempWallet = `UPGRADE_${Date.now()}`;
+  await c.env.DB.prepare(
+    'INSERT INTO accounts (handle, wallet, basename, webhook_url, created_at, tx_hash) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(newHandle, tempWallet, basenames, oldAccount.webhook_url, oldAccount.created_at, oldAccount.tx_hash).run();
+
+  // Step 3: Ensure optional tables exist before migrating
+  await c.env.DB.batch([
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (
+      token_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL,
+      last_used_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
+    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
+      key_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
+      name TEXT, scopes TEXT NOT NULL DEFAULT 'send,inbox',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()), last_used_at INTEGER,
+      revoked_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
   ]);
-  const migratedCount = batchResults[2]?.meta?.changes || 0;
+
+  // Step 4: Migrate all child tables (newHandle now exists in accounts, so FK is satisfied)
+  // Then delete old account and fix wallet on new account.
+  const batchResults = await c.env.DB.batch([
+    // Migrate child tables
+    c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE refresh_tokens SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE api_keys SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_config SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?').bind(newHandle, oldHandle),
+    // Delete old account (no children reference it anymore)
+    c.env.DB.prepare('DELETE FROM accounts WHERE handle = ?').bind(oldHandle),
+    // Fix wallet on new account (now unique since old row is deleted)
+    c.env.DB.prepare('UPDATE accounts SET wallet = ? WHERE handle = ?').bind(auth.wallet, newHandle),
+  ]);
+  const migratedCount = batchResults[0]?.meta?.changes || 0;
 
   // Insert into basename_aliases with is_primary=1
   if (basenames) {

@@ -186,6 +186,23 @@ CREATE TABLE IF NOT EXISTS escrow_claims (
 CREATE INDEX IF NOT EXISTS idx_escrow_sender ON escrow_claims(sender_handle);
 CREATE INDEX IF NOT EXISTS idx_escrow_status ON escrow_claims(status, expires_at);
 
+-- ═══════════════════════════════════════════════════
+-- Webhooks (per-account, for real-time notifications)
+-- ═══════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS webhooks (
+  id TEXT PRIMARY KEY,
+  handle TEXT NOT NULL,
+  url TEXT NOT NULL,
+  events TEXT NOT NULL DEFAULT 'message.received',
+  secret TEXT NOT NULL,
+  active INTEGER DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  last_triggered_at INTEGER,
+  FOREIGN KEY (handle) REFERENCES accounts(handle)
+);
+CREATE INDEX IF NOT EXISTS idx_webhooks_handle ON webhooks(handle);
+
 -- ── QAF Scores (cached per recipient) ──
 CREATE TABLE IF NOT EXISTS qaf_scores (
     handle          TEXT PRIMARY KEY,
