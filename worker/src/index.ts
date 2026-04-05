@@ -37,7 +37,8 @@ const app = new Hono<AppBindings>();
 app.use('/*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Payment', 'Payment-Method'],
+  exposeHeaders: ['Payment-Receipt', 'WWW-Authenticate'],
 }));
 
 // 健康檢查
@@ -55,6 +56,15 @@ app.get('/.well-known/agent-registration.json', (c) => {
     agentDirectory: 'https://api.basemail.ai/api/agent/{handle}/registration.json',
     active: true,
     supportedTrust: ['reputation', 'crypto-economic'],
+    payment: {
+      protocol: 'MPP',
+      methods: ['tempo'],
+      currency: 'PathUSD',
+      endpoints: {
+        'POST /api/register': { amount: '1000000', description: 'Register email inbox ($1.00)' },
+        'POST /api/send': { amount: '10000', description: 'Send email ($0.01)' },
+      },
+    },
   });
 });
 
@@ -321,8 +331,9 @@ app.get('/api/docs', (c) => {
 
       // — Registration —
       'POST /api/register': {
-        auth: 'Bearer token',
-        description: 'Register a @basemail.ai email. Pass "basename" to claim an existing Basename, or "auto_basename" to buy one.',
+        auth: 'Bearer token or MPP Payment ($1.00)',
+        description: 'Register a @basemail.ai email. Pass "basename" to claim an existing Basename, or "auto_basename" to buy one. Supports MPP: pay $1.00 via Tempo to register without SIWE.',
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '1000000', currency: 'PathUSD' },
         body: '{ basename?: "yourname.base.eth", auto_basename?: boolean, basename_name?: "desiredname" }',
         response: '{ success, email, handle, wallet, basename, source, token, upgrade_hint? }',
         note: 'If no basename provided, defaults to 0x address handle. Response includes upgrade_hint with instructions to upgrade later.',
@@ -345,8 +356,9 @@ app.get('/api/docs', (c) => {
 
       // — Email (token required) —
       'POST /api/send': {
-        auth: 'Bearer token',
-        description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Optionally attach a verified USDC payment (Base Sepolia testnet).',
+        auth: 'Bearer token or MPP Payment ($0.01)',
+        description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Supports MPP: pay $0.01 via Tempo to send without SIWE.',
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '10000', currency: 'PathUSD' },
         body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
         response: '{ success, email_id, from, to, usdc_payment? }',
         note: 'If usdc_payment is provided, the USDC transfer is verified on-chain (Base Sepolia). See labs.usdc_hackathon for full flow.',

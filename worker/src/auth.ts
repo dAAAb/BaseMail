@@ -131,6 +131,15 @@ export async function verifyToken(token: string, secret: string): Promise<AuthCo
  */
 export function authMiddleware() {
   return async (c: Context<AppBindings>, next: Next) => {
+    // If MPP middleware already set auth, skip JWT/API-key check
+    try {
+      const existing = c.get('auth');
+      if (existing?.wallet && existing?.handle) {
+        await next();
+        return;
+      }
+    } catch {}
+
     const authHeader = c.req.header('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return c.json({ error: 'Missing authorization token' }, 401);
