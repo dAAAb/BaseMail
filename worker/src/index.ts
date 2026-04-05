@@ -77,6 +77,11 @@ app.get('/', (c) => {
   });
 });
 
+// Favicon
+import { faviconBytes } from './favicon';
+app.get('/favicon.ico', (c) => new Response(faviconBytes(), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } }));
+app.get('/favicon.png', (c) => new Response(faviconBytes(), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } }));
+
 // Redirect /openapi.json → /api/openapi.json for MPP discovery
 app.get('/openapi.json', (c) => c.redirect('/api/openapi.json', 301));
 
