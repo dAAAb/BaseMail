@@ -77,7 +77,10 @@ app.get('/', (c) => {
   });
 });
 
-// OpenAPI 3.0 spec for AI agent discovery (referenced by ai-plugin.json)
+// Redirect /openapi.json → /api/openapi.json for MPP discovery
+app.get('/openapi.json', (c) => c.redirect('/api/openapi.json', 301));
+
+// OpenAPI 3.1 spec for AI agent + MPP discovery
 app.get('/api/openapi.json', (c) => {
   const BASE = `https://api.${c.env.DOMAIN}`;
   return c.json({
