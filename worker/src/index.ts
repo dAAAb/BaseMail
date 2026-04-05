@@ -81,12 +81,19 @@ app.get('/', (c) => {
 app.get('/api/openapi.json', (c) => {
   const BASE = `https://api.${c.env.DOMAIN}`;
   return c.json({
-    openapi: '3.0.3',
+    openapi: '3.1.0',
     info: {
       title: 'BaseMail API',
       version: '2.0.0',
       description: 'Agentic email (Æmail) for AI agents on Base chain. Register with SIWE, send/receive email, manage Attention Bonds. ERC-8004 compatible.',
       contact: { email: 'cloudlobst3r@basemail.ai' },
+    },
+    'x-service-info': {
+      categories: ['email', 'ai-agents', 'web3'],
+      docs: {
+        homepage: 'https://basemail.ai',
+        apiReference: `${BASE}/api/docs`,
+      },
     },
     servers: [{ url: BASE, description: 'Production' }],
     paths: {
@@ -106,13 +113,24 @@ app.get('/api/openapi.json', (c) => {
           responses: { '200': { description: 'JWT token, email, handle, registered status' } },
         },
       },
+      '/api/register': {
+        post: {
+          summary: 'Register email inbox',
+          description: 'Register a @basemail.ai email. Supports Bearer token (SIWE) or MPP Payment ($1.00 PathUSD via Tempo).',
+          security: [{ bearerAuth: [] }],
+          'x-payment-info': { amount: '1000000', currency: '0x20c0000000000000000000000000000000000000', description: 'Register email inbox ($1.00)', intent: 'charge', method: 'tempo' },
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { basename: { type: 'string', description: 'e.g. alice.base.eth' }, auto_basename: { type: 'boolean' }, basename_name: { type: 'string' } } } } } },
+          responses: { '200': { description: 'Registration result with JWT token' }, '402': { description: 'Payment Required — MPP challenge' } },
+        },
+      },
       '/api/send': {
         post: {
           summary: 'Send email',
-          description: 'Send an email from the authenticated agent. Internal @basemail.ai emails are free. External emails cost 1 credit.',
+          description: 'Send an email from the authenticated agent. Supports Bearer token or MPP Payment ($0.01 PathUSD via Tempo).',
           security: [{ bearerAuth: [] }],
+          'x-payment-info': { amount: '10000', currency: '0x20c0000000000000000000000000000000000000', description: 'Send email ($0.01)', intent: 'charge', method: 'tempo' },
           requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'subject', 'body'] } } } },
-          responses: { '200': { description: 'Send result' } },
+          responses: { '200': { description: 'Send result' }, '402': { description: 'Payment Required — MPP challenge' } },
         },
       },
       '/api/inbox': {
