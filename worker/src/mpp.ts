@@ -15,6 +15,7 @@
  */
 import { Context, Next } from 'hono';
 import { Mppx, tempo } from 'mppx/server';
+import { privateKeyToAccount } from 'viem/accounts';
 import { AppBindings } from './types';
 
 // PathUSD on Tempo chain (6 decimals)
@@ -25,25 +26,24 @@ const PATHUSD = '0x20c0000000000000000000000000000000000000';
 let _mppxInstance: any = null;
 let _lastConfig: string | null = null;
 
-function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string }): any {
-  const recipient = env.WALLET_ADDRESS;
+function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string; MPP_PRIVATE_KEY?: string }): any {
   const secretKey = env.MPP_SECRET_KEY;
-  if (!recipient) throw new Error('WALLET_ADDRESS required for MPP');
+  const privateKey = env.MPP_PRIVATE_KEY;
   if (!secretKey) throw new Error('MPP_SECRET_KEY required for MPP');
+  if (!privateKey) throw new Error('MPP_PRIVATE_KEY required for MPP');
 
-  const configKey = `${recipient}:${secretKey}`;
+  const configKey = `${secretKey}:${privateKey}`;
   if (_mppxInstance && _lastConfig === configKey) return _mppxInstance;
+
+  const account = privateKeyToAccount(privateKey as `0x${string}`);
 
   _mppxInstance = Mppx.create({
     secretKey,
     methods: [
       tempo({
         currency: PATHUSD as `0x${string}`,
-        recipient: recipient as `0x${string}`,
-        // push mode: client pays gas, server just verifies tx hash
-        // (simpler for CF Workers — no need for feePayer signing account)
+        account,
         mode: 'push',
-        // Optimistic: don't wait for on-chain confirmation (faster for users)
         waitForConfirmation: false,
       }),
     ],
@@ -65,7 +65,9 @@ function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string }): any
 export function mppCharge(amount: string) {
   return async (c: Context<AppBindings>, next: Next) => {
     // Feature flag: skip MPP if not enabled
-    if ((c.env as any).MPP_ENABLED !== 'true') {
+    const mppEnabled = (c.env as any).MPP_ENABLED;
+    console.log('[MPP] MPP_ENABLED =', mppEnabled);
+    if (mppEnabled !== 'true') {
       return next();
     }
 
@@ -83,6 +85,7 @@ export function mppCharge(amount: string) {
       mppx = getMppx(c.env);
     } catch (_e: any) {
       // MPP not configured — fall through to normal auth (will 401)
+      console.error('[MPP] getMppx failed:', _e?.message || _e);
       return next();
     }
 

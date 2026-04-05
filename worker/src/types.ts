@@ -22,6 +22,7 @@ export interface Env {
   // MPP (Merchant Payment Protocol)
   MPP_ENABLED?: string;            // 'true' to enable MPP dual-track auth
   MPP_SECRET_KEY?: string;         // Secret key for mppx (signing receipts)
+  MPP_PRIVATE_KEY?: string;        // Private key for Tempo settlement (same as WALLET_PRIVATE_KEY)
 }
 
 export interface Account {
