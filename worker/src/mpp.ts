@@ -37,7 +37,6 @@ function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string; MPP_PR
     secretKey,
     methods: [
       tempo({
-        testnet: true,
         currency: PATHUSD as `0x${string}`,
         account,
         mode: 'push',
