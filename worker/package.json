@@ -14,11 +14,12 @@
     "@worldcoin/idkit-server": "^1.0.0",
     "hono": "^4.7.0",
     "mimetext": "^3.0.24",
+    "mppx": "^0.5.5",
     "postal-mime": "^2.4.1",
     "viem": "^2.21.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260218.0",
+    "@cloudflare/workers-types": "^4.20260405.1",
     "@types/node": "^22.13.1",
     "typescript": "^5.7.0",
     "wrangler": "^3.99.0"

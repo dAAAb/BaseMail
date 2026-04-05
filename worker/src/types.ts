@@ -18,6 +18,10 @@ export interface Env {
   WORLD_ID_ACTION?: string;        // World ID action name (default: verify-human)
   WORLD_ID_RP_ID?: string;         // World ID rp_id
   WORLD_ID_SIGNING_KEY?: string;   // World ID RP signing key (SECRET - never expose)
+
+  // MPP (Merchant Payment Protocol)
+  MPP_ENABLED?: string;            // 'true' to enable MPP dual-track auth
+  MPP_SECRET_KEY?: string;         // Secret key for mppx (signing receipts)
 }
 
 export interface Account {

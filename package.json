@@ -21,6 +21,7 @@
     "vite": "^6.4.1"
   },
   "dependencies": {
+    "@cloudflare/workers-types": "^4.20260405.1",
     "mime-db": "^1.54.0"
   }
 }
