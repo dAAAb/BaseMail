@@ -76,7 +76,7 @@ function md2html(md: string): string {
 export const sendRoutes = new Hono<AppBindings>();
 
 // MPP: charge $0.01 for send (if enabled; Bearer tokens skip to normal auth)
-sendRoutes.use('/*', mppCharge('10000'));  // 10000 = $0.01 in PathUSD (6 decimals)
+sendRoutes.use('/*', mppCharge('0.01'));
 sendRoutes.use('/*', authMiddleware());
 
 // Auto-migrate: add usdc columns if missing

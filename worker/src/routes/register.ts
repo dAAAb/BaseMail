@@ -26,7 +26,7 @@ const MAX_AUTO_BASENAME_PRICE = 2000000000000000n; // 0.002 ETH (~$5)
  * Auth: Bearer JWT (from SIWE verify)
  */
 // MPP: charge $1.00 for registration (if enabled; Bearer tokens skip to normal auth)
-registerRoutes.post('/', mppCharge('1000000'), authMiddleware(), async (c) => {
+registerRoutes.post('/', mppCharge('1.00'), authMiddleware(), async (c) => {
   const auth = c.get('auth');
   let body: {
     basename?: string; // e.g. "littl3lobst3r.base.eth"

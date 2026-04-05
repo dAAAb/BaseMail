@@ -61,8 +61,8 @@ app.get('/.well-known/agent-registration.json', (c) => {
       methods: ['tempo'],
       currency: 'PathUSD',
       endpoints: {
-        'POST /api/register': { amount: '1000000', description: 'Register email inbox ($1.00)' },
-        'POST /api/send': { amount: '10000', description: 'Send email ($0.01)' },
+        'POST /api/register': { amount: '1.00', description: 'Register email inbox ($1.00)' },
+        'POST /api/send': { amount: '0.01', description: 'Send email ($0.01)' },
       },
     },
   });
@@ -333,7 +333,7 @@ app.get('/api/docs', (c) => {
       'POST /api/register': {
         auth: 'Bearer token or MPP Payment ($1.00)',
         description: 'Register a @basemail.ai email. Pass "basename" to claim an existing Basename, or "auto_basename" to buy one. Supports MPP: pay $1.00 via Tempo to register without SIWE.',
-        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '1000000', currency: 'PathUSD' },
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '1.00', currency: 'PathUSD' },
         body: '{ basename?: "yourname.base.eth", auto_basename?: boolean, basename_name?: "desiredname" }',
         response: '{ success, email, handle, wallet, basename, source, token, upgrade_hint? }',
         note: 'If no basename provided, defaults to 0x address handle. Response includes upgrade_hint with instructions to upgrade later.',
@@ -358,7 +358,7 @@ app.get('/api/docs', (c) => {
       'POST /api/send': {
         auth: 'Bearer token or MPP Payment ($0.01)',
         description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Supports MPP: pay $0.01 via Tempo to send without SIWE.',
-        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '10000', currency: 'PathUSD' },
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '0.01', currency: 'PathUSD' },
         body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
         response: '{ success, email_id, from, to, usdc_payment? }',
         note: 'If usdc_payment is provided, the USDC transfer is verified on-chain (Base Sepolia). See labs.usdc_hackathon for full flow.',
