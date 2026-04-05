@@ -14,8 +14,8 @@ import { Mppx, tempo } from 'mppx/server';
 import { privateKeyToAccount } from 'viem/accounts';
 import { AppBindings } from './types';
 
-// PathUSD on Tempo chain (6 decimals)
-const PATHUSD = '0x20c0000000000000000000000000000000000000';
+// USDC.e on Tempo chain (6 decimals)
+const USDC_E = '0x20c000000000000000000000b9537d11c60e8b50';
 
 // Cache the Mppx instance per isolate (avoid re-creating on every request)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +37,7 @@ function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string; MPP_PR
     secretKey,
     methods: [
       tempo({
-        currency: PATHUSD as `0x${string}`,
+        currency: USDC_E as `0x${string}`,
         account,
         mode: 'push',
         waitForConfirmation: false,

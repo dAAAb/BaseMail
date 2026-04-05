@@ -59,7 +59,7 @@ app.get('/.well-known/agent-registration.json', (c) => {
     payment: {
       protocol: 'MPP',
       methods: ['tempo'],
-      currency: 'PathUSD',
+      currency: 'USDC.e',
       endpoints: {
         'POST /api/register': { amount: '1.00', description: 'Register email inbox ($1.00)' },
         'POST /api/send': { amount: '0.01', description: 'Send email ($0.01)' },
@@ -124,9 +124,9 @@ app.get('/api/openapi.json', (c) => {
       '/api/register': {
         post: {
           summary: 'Register email inbox',
-          description: 'Register a @basemail.ai email. Supports Bearer token (SIWE) or MPP Payment ($1.00 PathUSD via Tempo).',
+          description: 'Register a @basemail.ai email. Supports Bearer token (SIWE) or MPP Payment ($1.00 USDC.e via Tempo).',
           security: [{ bearerAuth: [] }],
-          'x-payment-info': { amount: '1000000', currency: '0x20c0000000000000000000000000000000000000', description: 'Register email inbox ($1.00)', intent: 'charge', method: 'tempo' },
+          'x-payment-info': { amount: '1000000', currency: '0x20c000000000000000000000b9537d11c60e8b50', description: 'Register email inbox ($1.00)', intent: 'charge', method: 'tempo' },
           requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { basename: { type: 'string', description: 'e.g. alice.base.eth' }, auto_basename: { type: 'boolean' }, basename_name: { type: 'string' } } } } } },
           responses: { '200': { description: 'Registration result with JWT token' }, '402': { description: 'Payment Required — MPP challenge' } },
         },
@@ -134,9 +134,9 @@ app.get('/api/openapi.json', (c) => {
       '/api/send': {
         post: {
           summary: 'Send email',
-          description: 'Send an email from the authenticated agent. Supports Bearer token or MPP Payment ($0.01 PathUSD via Tempo).',
+          description: 'Send an email from the authenticated agent. Supports Bearer token or MPP Payment ($0.01 USDC.e via Tempo).',
           security: [{ bearerAuth: [] }],
-          'x-payment-info': { amount: '10000', currency: '0x20c0000000000000000000000000000000000000', description: 'Send email ($0.01)', intent: 'charge', method: 'tempo' },
+          'x-payment-info': { amount: '10000', currency: '0x20c000000000000000000000b9537d11c60e8b50', description: 'Send email ($0.01)', intent: 'charge', method: 'tempo' },
           requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'subject', 'body'] } } } },
           responses: { '200': { description: 'Send result' }, '402': { description: 'Payment Required — MPP challenge' } },
         },
@@ -359,7 +359,7 @@ app.get('/api/docs', (c) => {
       'POST /api/register': {
         auth: 'Bearer token or MPP Payment ($1.00)',
         description: 'Register a @basemail.ai email. Pass "basename" to claim an existing Basename, or "auto_basename" to buy one. Supports MPP: pay $1.00 via Tempo to register without SIWE.',
-        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '1.00', currency: 'PathUSD' },
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '1.00', currency: 'USDC.e' },
         body: '{ basename?: "yourname.base.eth", auto_basename?: boolean, basename_name?: "desiredname" }',
         response: '{ success, email, handle, wallet, basename, source, token, upgrade_hint? }',
         note: 'If no basename provided, defaults to 0x address handle. Response includes upgrade_hint with instructions to upgrade later.',
@@ -384,7 +384,7 @@ app.get('/api/docs', (c) => {
       'POST /api/send': {
         auth: 'Bearer token or MPP Payment ($0.01)',
         description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Supports MPP: pay $0.01 via Tempo to send without SIWE.',
-        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '0.01', currency: 'PathUSD' },
+        'x-payment-info': { method: 'tempo', intent: 'charge', amount: '0.01', currency: 'USDC.e' },
         body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
         response: '{ success, email_id, from, to, usdc_payment? }',
         note: 'If usdc_payment is provided, the USDC transfer is verified on-chain (Base Sepolia). See labs.usdc_hackathon for full flow.',
