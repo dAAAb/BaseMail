@@ -8,10 +8,6 @@
  * MPP users get auto-created accounts using their Tempo wallet address.
  *
  * Reference: https://mpp.dev/quickstart/server
- * Pattern:
- *   const response = await mppx.charge({ amount: '0.1' })(request)
- *   if (response.status === 402) return response.challenge
- *   return response.withReceipt(Response.json({ data: '...' }))
  */
 import { Context, Next } from 'hono';
 import { Mppx, tempo } from 'mppx/server';
@@ -41,6 +37,7 @@ function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string; MPP_PR
     secretKey,
     methods: [
       tempo({
+        testnet: true,
         currency: PATHUSD as `0x${string}`,
         account,
         mode: 'push',
@@ -64,10 +61,7 @@ function getMppx(env: { WALLET_ADDRESS?: string; MPP_SECRET_KEY?: string; MPP_PR
  */
 export function mppCharge(amount: string) {
   return async (c: Context<AppBindings>, next: Next) => {
-    // Feature flag: skip MPP if not enabled
-    const mppEnabled = (c.env as any).MPP_ENABLED;
-    console.log('[MPP] MPP_ENABLED =', mppEnabled);
-    if (mppEnabled !== 'true') {
+    if ((c.env as any).MPP_ENABLED !== 'true') {
       return next();
     }
 
@@ -83,9 +77,7 @@ export function mppCharge(amount: string) {
     let mppx: any;
     try {
       mppx = getMppx(c.env);
-    } catch (_e: any) {
-      // MPP not configured — fall through to normal auth (will 401)
-      console.error('[MPP] getMppx failed:', _e?.message || _e);
+    } catch {
       return next();
     }
 
@@ -98,22 +90,24 @@ export function mppCharge(amount: string) {
       return response.challenge;
     }
 
-    // Payment verified → extract payer info and auto-create account
-    // The response has .withReceipt() to attach receipt to our actual response
-    // We store the response object to call .withReceipt() later
-
-    // Try to get payer wallet from the credential/receipt
+    // Payment verified → extract payer wallet from credential
+    // The credential is base64-encoded JSON with "source": "did:pkh:eip155:<chainId>:<address>"
     let payerWallet: string | null = null;
     try {
-      // In push mode, the credential contains the tx hash from the payer
-      // The payer's address can be extracted from the verified credential
-      const body = await response.clone().json();
-      payerWallet = body?.receipt?.payer || body?.identity?.address || body?.payer || null;
-    } catch {
-      // If we can't parse body, try headers
+      const credPayload = authHeader.replace(/^Payment\s+/i, '');
+      if (credPayload) {
+        const decoded = JSON.parse(atob(credPayload));
+        const source = decoded?.source || '';
+        const addrMatch = source.match(/0x[0-9a-fA-F]{40}/);
+        if (addrMatch) payerWallet = addrMatch[0];
+      }
+    } catch {}
+
+    // Fallback: try response object
+    if (!payerWallet) {
       try {
-        const payerHeader = response.headers?.get?.('X-MPP-Payer');
-        if (payerHeader) payerWallet = payerHeader;
+        const body = typeof response.json === 'function' ? await response.json() : response;
+        payerWallet = body?.receipt?.payer || body?.identity?.address || body?.payer || null;
       } catch {}
     }
 
@@ -133,7 +127,6 @@ export function mppCharge(amount: string) {
         if (existing) {
           handle = existing.handle;
         } else {
-          // Auto-create account with wallet-derived handle
           handle = wallet.slice(0, 10); // 0x + first 8 hex chars
           const now = Math.floor(Date.now() / 1000);
           await c.env.DB.prepare(
@@ -145,7 +138,6 @@ export function mppCharge(amount: string) {
         handle = wallet.slice(0, 10);
       }
 
-      // Set auth context so downstream handlers work
       c.set('auth', { wallet, handle: handle || wallet.slice(0, 10) });
     }
 
@@ -164,7 +156,6 @@ export function mppReceiptMiddleware() {
     const mppResponse = (c as any)._mppResponse;
     if (mppResponse && typeof mppResponse.withReceipt === 'function') {
       try {
-        // Wrap the actual response with the Payment-Receipt header
         const receiptResponse = mppResponse.withReceipt(c.res);
         c.res = receiptResponse;
       } catch {

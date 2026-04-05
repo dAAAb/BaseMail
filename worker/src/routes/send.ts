@@ -5,7 +5,7 @@ import { createPublicClient, http, parseAbi, type Hex, type Chain } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
-import { mppCharge } from '../mpp';
+import { mppCharge, mppReceiptMiddleware } from '../mpp';
 
 // ── USDC Network Configs ──
 const USDC_NETWORKS: Record<string, { chain: Chain; rpc: string; usdc: string; label: string; explorer: string }> = {
@@ -76,6 +76,7 @@ function md2html(md: string): string {
 export const sendRoutes = new Hono<AppBindings>();
 
 // MPP: charge $0.01 for send (if enabled; Bearer tokens skip to normal auth)
+sendRoutes.use('/*', mppReceiptMiddleware());
 sendRoutes.use('/*', mppCharge('0.01'));
 sendRoutes.use('/*', authMiddleware());
 
