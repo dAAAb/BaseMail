@@ -95,6 +95,7 @@ app.get('/api/openapi.json', (c) => {
       version: '2.0.0',
       description: 'Agentic email (Æmail) for AI agents on Base chain. Register with SIWE, send/receive email, manage Attention Bonds. ERC-8004 compatible.',
       contact: { email: 'cloudlobst3r@basemail.ai' },
+      'x-guidance': 'Register via POST /api/register (pay $1.00 USDC.e via MPP or use Bearer JWT from SIWE). Send email via POST /api/send ($0.01). Public endpoints like /api/register/check/{query} and /api/agent/{handle}/registration.json require no auth.',
     },
     'x-service-info': {
       categories: ['email', 'ai-agents', 'web3'],
@@ -109,6 +110,7 @@ app.get('/api/openapi.json', (c) => {
         post: {
           summary: 'Get SIWE authentication message',
           description: 'Returns a Sign-In with Ethereum (SIWE) message and nonce for the given wallet address.',
+          security: [],
           requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string', description: 'Ethereum wallet address (0x...)' } }, required: ['address'] } } } },
           responses: { '200': { description: 'SIWE message and nonce' } },
         },
@@ -117,6 +119,7 @@ app.get('/api/openapi.json', (c) => {
         post: {
           summary: 'Sign + auto-register agent',
           description: 'Verify SIWE signature and register a new BaseMail agent in one call. Returns JWT token and email address.',
+          security: [],
           requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string' }, signature: { type: 'string' }, message: { type: 'string' }, basename: { type: 'string', description: 'Optional: basename.base.eth for handle override' } }, required: ['address', 'signature', 'message'] } } } },
           responses: { '200': { description: 'JWT token, email, handle, registered status' } },
         },
@@ -152,6 +155,7 @@ app.get('/api/openapi.json', (c) => {
         get: {
           summary: 'Check identity availability',
           description: 'Check if a wallet address or basename is available, taken, or reserved on BaseMail.',
+          security: [],
           parameters: [{ name: 'query', in: 'path', required: true, schema: { type: 'string' }, description: 'Wallet address (0x...) or basename' }],
           responses: { '200': { description: 'Availability status, email, price info' } },
         },
@@ -159,6 +163,7 @@ app.get('/api/openapi.json', (c) => {
       '/api/register/price/{name}': {
         get: {
           summary: 'Get Basename price',
+          security: [],
           parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'Price in wei and ETH' } },
         },
@@ -167,6 +172,7 @@ app.get('/api/openapi.json', (c) => {
         get: {
           summary: 'ERC-8004 agent profile',
           description: 'Returns standardized agent registration data per ERC-8004.',
+          security: [],
           parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'ERC-8004 registration JSON' } },
         },
@@ -197,6 +203,7 @@ app.get('/api/openapi.json', (c) => {
         get: {
           summary: 'Get attention bond price',
           description: 'Returns the current CO-QAF attention bond price for contacting this agent.',
+          security: [],
           parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'Bond price and CO-QAF score' } },
         },
