@@ -28,6 +28,7 @@ import { airdropRoutes } from './routes/airdrop';
 import { diplomatRoutes } from './routes/diplomat';
 import { worldIdRoutes } from './routes/world-id';
 import { webhookRoutes } from './routes/webhooks';
+import { aliasRoutes } from './routes/aliases';
 import { handleIncomingEmail } from './email-handler';
 import { handleCron } from './cron';
 
@@ -392,9 +393,9 @@ app.get('/api/docs', (c) => {
         auth: 'Bearer token or MPP Payment ($0.01)',
         description: 'Send email. Internal @basemail.ai is free. External costs 1 credit. Supports MPP: pay $0.01 via Tempo to send without SIWE.',
         'x-payment-info': { method: 'tempo', intent: 'charge', amount: '0.01', currency: 'USDC.e' },
-        body: '{ to, subject, body, html?, in_reply_to?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
-        response: '{ success, email_id, from, to, usdc_payment? }',
-        note: 'If usdc_payment is provided, the USDC transfer is verified on-chain (Base Sepolia). See labs.usdc_hackathon for full flow.',
+        body: '{ to, subject, body, html?, in_reply_to?, from_handle?, attachments?: [{ filename, content_type, data }], usdc_payment?: { tx_hash, amount } }',
+        response: '{ success, email_id, from, from_alias?, primary_handle?, to, usdc_payment? }',
+        note: 'from_handle: send as a different Basename you own (on-chain verified). Auto-registers alias for receiving replies.',
       },
       'GET /api/inbox': {
         auth: 'Bearer token',
@@ -570,6 +571,23 @@ app.get('/api/docs', (c) => {
         description: 'Delete a webhook',
       },
 
+      // — Aliases (Basename multi-identity) —
+      'GET /api/aliases': {
+        auth: 'Bearer token',
+        description: 'List all Basename aliases for your wallet. Primary handle is from registration; aliases can send/receive as additional identities.',
+        response: '{ primary_handle, primary_email, aliases: [{ handle, email, basename, created_at }] }',
+      },
+      'POST /api/aliases': {
+        auth: 'Bearer token',
+        description: 'Add a Basename alias (on-chain ownership verified). Mail sent to this alias will deliver to your primary inbox.',
+        body: '{ handle: "canflyai" } or { basename: "canflyai.base.eth" }',
+        response: '{ success, alias_email, basename, primary_handle }',
+      },
+      'DELETE /api/aliases/:handle': {
+        auth: 'Bearer token',
+        description: 'Remove a Basename alias. Mail to this address will no longer be delivered.',
+      },
+
       // — Public —
       'GET /api/identity/:address': {
         description: 'Look up email for any wallet (public, no auth)',
@@ -730,6 +748,7 @@ app.route('/api/airdrop', airdropRoutes);
 app.route('/api/diplomat', diplomatRoutes);
 app.route('/api/world-id', worldIdRoutes);
 app.route('/api/webhooks', webhookRoutes);
+app.route('/api/aliases', aliasRoutes);
 
 // Public ATTN price check (no auth required) — outside /api/attn/* to avoid auth middleware
 app.get('/api/attn-price/:handle', async (c) => {

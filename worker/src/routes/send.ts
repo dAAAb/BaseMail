@@ -6,6 +6,7 @@ import { base, baseSepolia } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 import { mppCharge, mppReceiptMiddleware } from '../mpp';
+import { verifyBasenameOwnership } from '../basename-lookup';
 
 // ── USDC Network Configs ──
 const USDC_NETWORKS: Record<string, { chain: Chain; rpc: string; usdc: string; label: string; explorer: string }> = {
@@ -133,12 +134,13 @@ sendRoutes.post('/', async (c) => {
     return c.json({ error: 'No email registered for this wallet or API key' }, 403);
   }
 
-  const { to, subject, body, html, in_reply_to, attachments, usdc_payment, escrow_claim } = await c.req.json<{
+  const { to, subject, body, html, in_reply_to, attachments, usdc_payment, escrow_claim, from_handle } = await c.req.json<{
     to: string;
     subject: string;
     body: string;
     html?: string;
     in_reply_to?: string;
+    from_handle?: string;    // Send as a different Basename you own (on-chain verified)
     attachments?: Attachment[];
     usdc_payment?: UsdcPayment;
     escrow_claim?: {
@@ -230,7 +232,47 @@ sendRoutes.post('/', async (c) => {
     }
   }
 
-  const fromAddr = `${auth.handle}@${c.env.DOMAIN}`;
+  // ── from_handle: send as a different Basename you own ──
+  let effectiveHandle = auth.handle;
+  if (from_handle && from_handle !== auth.handle) {
+    // Resolve wallet for on-chain verification
+    let senderWallet = auth.wallet;
+    if (!senderWallet) {
+      const acct = await c.env.DB.prepare('SELECT wallet FROM accounts WHERE handle = ?')
+        .bind(auth.handle).first<{ wallet: string }>();
+      senderWallet = acct?.wallet || '';
+    }
+    if (!senderWallet) {
+      return c.json({ error: 'Cannot verify basename ownership: wallet not found' }, 400);
+    }
+
+    // On-chain verify: does this wallet own from_handle.base.eth?
+    const basename = `${from_handle}.base.eth`;
+    const verification = await verifyBasenameOwnership(basename, senderWallet);
+    if (!verification.valid) {
+      return c.json({ error: `Cannot send as ${from_handle}: ${verification.error}` }, 400);
+    }
+
+    effectiveHandle = from_handle;
+
+    // Auto-register alias so replies to this address are delivered
+    try {
+      await c.env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS basename_aliases (
+          handle TEXT PRIMARY KEY,
+          wallet TEXT NOT NULL,
+          primary_handle TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        )`
+      ).run();
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO basename_aliases (handle, wallet, primary_handle, created_at)
+         VALUES (?, ?, ?, ?)`
+      ).bind(from_handle, senderWallet.toLowerCase(), auth.handle, Math.floor(Date.now() / 1000)).run();
+    } catch { /* alias table write failed — non-blocking */ }
+  }
+
+  const fromAddr = `${effectiveHandle}@${c.env.DOMAIN}`;
   const emailId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
@@ -657,6 +699,7 @@ sendRoutes.post('/', async (c) => {
     success: true,
     email_id: emailId,
     from: fromAddr,
+    ...(effectiveHandle !== auth.handle ? { from_alias: effectiveHandle, primary_handle: auth.handle } : {}),
     to,
     subject,
     internal: isInternal,

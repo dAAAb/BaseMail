@@ -49,9 +49,74 @@ registerRoutes.post('/', mppReceiptMiddleware(), mppCharge('1.00'), authMiddlewa
   ).bind(auth.wallet).first();
 
   if (walletAccount) {
+    const existingHandle = (walletAccount as { handle: string }).handle;
+
+    // If a basename is provided, add it as an alias instead of rejecting
+    if (body.basename && body.basename.endsWith('.base.eth')) {
+      const aliasName = body.basename.replace(/\.base\.eth$/, '');
+
+      // Don't alias to yourself
+      if (aliasName === existingHandle) {
+        return c.json({
+          error: 'This wallet already has a registered email',
+          existing_handle: existingHandle,
+        }, 409);
+      }
+
+      // Verify on-chain ownership
+      const ownership = await verifyBasenameOwnership(body.basename, auth.wallet);
+      if (!ownership.valid) {
+        return c.json({ error: ownership.error }, 403);
+      }
+
+      // Check alias isn't taken by another wallet
+      const existingAlias = await c.env.DB.prepare(
+        'SELECT wallet FROM basename_aliases WHERE handle = ?'
+      ).bind(aliasName).first<{ wallet: string }>();
+      if (existingAlias && existingAlias.wallet.toLowerCase() !== auth.wallet.toLowerCase()) {
+        return c.json({ error: `${aliasName} is already registered as an alias by another wallet` }, 409);
+      }
+
+      // Check it's not another account's primary handle
+      const existingPrimary = await c.env.DB.prepare(
+        'SELECT wallet FROM accounts WHERE handle = ?'
+      ).bind(aliasName).first<{ wallet: string }>();
+      if (existingPrimary && existingPrimary.wallet.toLowerCase() !== auth.wallet.toLowerCase()) {
+        return c.json({ error: `${aliasName} is already registered by another wallet` }, 409);
+      }
+
+      // Create aliases table if needed + insert
+      try {
+        await c.env.DB.prepare(
+          `CREATE TABLE IF NOT EXISTS basename_aliases (
+            handle TEXT PRIMARY KEY,
+            wallet TEXT NOT NULL,
+            primary_handle TEXT NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch())
+          )`
+        ).run();
+        await c.env.DB.prepare(
+          `INSERT OR REPLACE INTO basename_aliases (handle, wallet, primary_handle, created_at)
+           VALUES (?, ?, ?, ?)`
+        ).bind(aliasName, auth.wallet.toLowerCase(), existingHandle, Math.floor(Date.now() / 1000)).run();
+      } catch (e: any) {
+        return c.json({ error: `Failed to add alias: ${e.message}` }, 500);
+      }
+
+      return c.json({
+        success: true,
+        action: 'alias_added',
+        primary_email: `${existingHandle}@basemail.ai`,
+        alias_email: `${aliasName}@basemail.ai`,
+        basename: body.basename,
+        message: `Added as alias — mail to ${aliasName}@basemail.ai will deliver to your inbox`,
+      });
+    }
+
     return c.json({
       error: 'This wallet already has a registered email',
-      existing_handle: (walletAccount as { handle: string }).handle,
+      existing_handle: existingHandle,
+      hint: 'To add another Basename as an alias, pass { "basename": "yourname.base.eth" }',
     }, 409);
   }
 
