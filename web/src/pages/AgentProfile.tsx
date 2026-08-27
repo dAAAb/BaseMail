@@ -1,8 +1,12 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useLensAccount, useLensProfileOnDemand } from '../hooks/useLensProfile';
 import LensBadge from '../components/LensBadge';
 import AgentSEO from '../components/AgentSEO';
+import SiteHeader from '../components/SiteHeader';
+import SiteFooter from '../components/SiteFooter';
+import { Icon } from '../components/Icons';
 
 const LensSocialGraph = lazy(() => import('../components/LensSocialGraph'));
 const LensTreeView = lazy(() => import('../components/LensTreeView'));
@@ -50,6 +54,8 @@ interface Registration {
   reputation: Reputation;
 }
 
+type IconComponent = typeof Icon.Check;
+
 /* ─── Helpers ─── */
 function truncAddr(addr: string) {
   if (!addr || addr.length < 12) return addr;
@@ -69,28 +75,51 @@ function getBasename(services: Service[]): string | null {
   return ens?.endpoint || null;
 }
 
-/* ─── Stat Card ─── */
-function Stat({ label, value, icon }: { label: string; value: string | number; icon: string }) {
+/* ─── Page shell: shared site header + footer ─── */
+function Shell({ children }: { children: ReactNode }) {
   return (
-    <div className="bg-base-gray rounded-xl p-5 border border-gray-800">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">{icon}</span>
-        <span className="text-gray-400 text-xs uppercase tracking-wider">{label}</span>
+    <div className="min-h-screen bg-bg flex flex-col">
+      <SiteHeader />
+      <main className="flex-1">{children}</main>
+      <SiteFooter />
+    </div>
+  );
+}
+
+/* ─── Section heading ─── */
+function SectionTitle({ icon: TitleIcon, children }: { icon: IconComponent; children: ReactNode }) {
+  return (
+    <h2 className="mb-4 flex items-center gap-2 text-h3 font-semibold text-fg">
+      <TitleIcon size={18} className="text-fg-muted" />
+      {children}
+    </h2>
+  );
+}
+
+/* ─── Stat Card ─── */
+function Stat({ label, value, icon: StatIcon }: { label: string; value: string | number; icon: IconComponent }) {
+  return (
+    <div className="card p-4 sm:p-5">
+      <div className="mb-2 flex items-center gap-2 text-fg-subtle">
+        <StatIcon size={16} />
+        <span className="eyebrow">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-white font-mono">{value}</div>
+      <div className="font-mono text-2xl font-semibold tracking-tight text-fg break-all">{value}</div>
     </div>
   );
 }
 
 /* ─── Service Badge ─── */
+const SERVICE_ICONS: Record<string, IconComponent> = {
+  email: Icon.Mail,
+  wallet: Icon.Wallet,
+  ENS: Icon.Globe,
+  web: Icon.ExternalLink,
+  'BaseMail API': Icon.Terminal,
+};
+
 function ServiceBadge({ service }: { service: Service }) {
-  const icons: Record<string, string> = {
-    email: '📧',
-    wallet: '💰',
-    ENS: '🏷️',
-    web: '🌐',
-    'BaseMail API': '⚡',
-  };
+  const ServiceIcon = SERVICE_ICONS[service.name] || Icon.ExternalLink;
 
   const isLink = service.endpoint.startsWith('http');
   const isWallet = service.name === 'wallet';
@@ -110,24 +139,24 @@ function ServiceBadge({ service }: { service: Service }) {
     : undefined;
 
   const inner = (
-    <div className="flex items-center gap-3 bg-base-gray rounded-lg px-4 py-3 border border-gray-800 hover:border-base-blue/50 transition group">
-      <span className="text-lg">{icons[service.name] || '🔗'}</span>
-      <div className="min-w-0">
-        <div className="text-xs text-gray-400 uppercase tracking-wider">{service.name}</div>
-        <div className="text-sm text-white font-mono truncate group-hover:text-base-blue transition">
+    <div className="card-inset card-hover group flex min-w-0 items-center gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface text-fg-muted">
+        <ServiceIcon size={18} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="eyebrow">{service.name}</div>
+        <div className="truncate font-mono text-sm text-fg transition-colors duration-150 group-hover:text-[#7da2ff]">
           {displayEndpoint}
         </div>
       </div>
       {service.version && (
-        <span className="ml-auto text-xs bg-base-blue/20 text-base-blue px-2 py-0.5 rounded-full">
-          {service.version}
-        </span>
+        <span className="badge badge-accent shrink-0">{service.version}</span>
       )}
     </div>
   );
 
   return href ? (
-    <a href={href} target="_blank" rel="noopener noreferrer">{inner}</a>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="block min-w-0 rounded-xl">{inner}</a>
   ) : (
     inner
   );
@@ -135,14 +164,15 @@ function ServiceBadge({ service }: { service: Service }) {
 
 /* ─── Trust Badge ─── */
 function TrustBadge({ trust }: { trust: string }) {
-  const config: Record<string, { icon: string; color: string }> = {
-    'reputation': { icon: '⭐', color: 'text-yellow-400' },
-    'crypto-economic': { icon: '🔐', color: 'text-green-400' },
+  const config: Record<string, { icon: IconComponent; cls: string }> = {
+    'reputation': { icon: Icon.ChartBar, cls: 'badge-warning' },
+    'crypto-economic': { icon: Icon.Lock, cls: 'badge-success' },
   };
-  const c = config[trust] || { icon: '✓', color: 'text-gray-400' };
+  const c = config[trust] || { icon: Icon.Check, cls: 'badge-neutral' };
+  const TrustIcon = c.icon;
   return (
-    <span className={`inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-gray-800 ${c.color}`}>
-      {c.icon} {trust}
+    <span className={`badge ${c.cls}`}>
+      <TrustIcon size={12} /> {trust}
     </span>
   );
 }
@@ -193,20 +223,41 @@ export default function AgentProfile() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-base-dark flex items-center justify-center">
-        <div className="animate-pulse text-gray-400 text-lg">Loading agent profile...</div>
-      </div>
+      <Shell>
+        <div className="container-x max-w-4xl py-8 sm:py-12" aria-busy="true">
+          <div className="flex flex-col gap-5 sm:flex-row sm:gap-6">
+            <div className="skeleton h-20 w-20 shrink-0 rounded-2xl sm:h-24 sm:w-24" />
+            <div className="flex-1 space-y-3">
+              <div className="skeleton h-8 w-2/3" />
+              <div className="skeleton h-4 w-full" />
+              <div className="skeleton h-4 w-5/6" />
+            </div>
+          </div>
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-24 rounded-2xl" />)}
+          </div>
+          <p className="mt-8 text-center text-sm text-fg-muted">Loading agent profile...</p>
+        </div>
+      </Shell>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-base-dark flex flex-col items-center justify-center gap-4">
-        <div className="text-6xl">🔍</div>
-        <h1 className="text-2xl font-bold text-white">Agent Not Found</h1>
-        <p className="text-gray-400">No ERC-8004 registration found for <span className="font-mono text-base-blue">@{handle}</span></p>
-        <Link to="/" className="mt-4 text-base-blue hover:underline">← Back to BaseMail</Link>
-      </div>
+      <Shell>
+        <div className="container-x max-w-4xl flex flex-col items-center gap-4 py-16 text-center sm:py-24">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-line bg-surface text-fg-muted">
+            <Icon.Warning size={26} />
+          </span>
+          <h1 className="text-h2 font-semibold tracking-tight text-fg">Agent Not Found</h1>
+          <p className="text-fg-muted">
+            No ERC-8004 registration found for <span className="font-mono text-[#7da2ff] break-all">@{handle}</span>
+          </p>
+          <Link to="/" className="btn btn-secondary mt-2">
+            <Icon.ArrowLeft size={16} /> Back to BaseMail
+          </Link>
+        </div>
+      </Shell>
     );
   }
 
@@ -214,7 +265,7 @@ export default function AgentProfile() {
   const bonds = data.attentionBonds;
 
   return (
-    <div className="min-h-screen bg-base-dark">
+    <Shell>
       {/* SEO + AISEO */}
       <AgentSEO
         handle={handle!}
@@ -227,186 +278,180 @@ export default function AgentProfile() {
         totalBondsUsdc={rep.totalBondsUsdc}
       />
 
-      {/* Header */}
-      <header className="border-b border-gray-800 bg-base-dark/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-white hover:text-base-blue transition">
-            <span className="text-xl">📮</span>
-            <span className="font-bold">BaseMail</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            <a
-              href={`${API_BASE}/api/agent/${handle}/registration.json`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-gray-400 hover:text-base-blue transition font-mono flex items-center gap-1"
-            >
-              <span>📋</span> ERC-8004 JSON
-            </a>
-          </div>
+      <div className="container-x max-w-4xl space-y-6 py-8 sm:space-y-8 sm:py-12">
+        {/* Top bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="eyebrow">ERC-8004 Agent Profile</span>
+          <a
+            href={`${API_BASE}/api/agent/${handle}/registration.json`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-secondary btn-sm font-mono"
+          >
+            <Icon.Terminal size={14} /> ERC-8004 JSON <Icon.ExternalLink size={12} className="text-fg-subtle" />
+          </a>
         </div>
-      </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-10">
         {/* Profile Hero */}
-        <div className="flex flex-col sm:flex-row items-start gap-6 mb-10">
+        <section className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
           <img
             src={data.image}
             alt={data.name}
-            className="w-24 h-24 rounded-2xl bg-base-gray border-2 border-gray-700 object-cover"
+            className="h-20 w-20 shrink-0 rounded-2xl border border-line bg-surface object-cover sm:h-24 sm:w-24"
             onError={(e) => { (e.target as HTMLImageElement).src = `https://api.dicebear.com/7.x/identicon/svg?seed=${handle}`; }}
           />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold text-white">{data.name}</h1>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h1 className="text-h2 font-semibold tracking-tight text-fg break-words">{data.name}</h1>
               {data.active && (
-                <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Active
+                <span className="badge badge-success">
+                  <Icon.Dot size={10} className="animate-pulse" /> Active
                 </span>
               )}
             </div>
-            <p className="text-gray-400 mb-3 text-sm leading-relaxed">{data.description}</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-1 font-mono text-sm text-fg-subtle break-all">{handle}@basemail.ai</div>
+            <p className="mt-3 text-[15px] leading-relaxed text-fg-muted">{data.description}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
               {data.supportedTrust.map(t => <TrustBadge key={t} trust={t} />)}
-              <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-base-blue/20 text-base-blue">
-                📄 ERC-8004
+              <span className="badge badge-accent">
+                <Icon.Shield size={12} /> ERC-8004
               </span>
               <LensBadge handle={lensAccount?.username?.localName} loading={lensLoading} />
               {isHuman?.verified && (
-                <span className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30" title={`World ID verified (${isHuman.level || 'orb'})`}>
-                  ✅ Human
+                <span className="badge badge-success" title={`World ID verified (${isHuman.level || 'orb'})`}>
+                  <Icon.Check size={12} /> Human
                 </span>
               )}
             </div>
           </div>
-        </div>
+        </section>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
-          <Stat icon="📨" label="Emails Received" value={rep.emailsReceived} />
-          <Stat icon="📤" label="Emails Sent" value={rep.emailsSent} />
-          <Stat icon="👥" label="Unique Senders" value={rep.uniqueSenders} />
-          <Stat icon="💎" label="Total Bonded" value={`$${rep.totalBondsUsdc.toFixed(2)}`} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+          <Stat icon={Icon.Inbox} label="Emails Received" value={rep.emailsReceived} />
+          <Stat icon={Icon.Send} label="Emails Sent" value={rep.emailsSent} />
+          <Stat icon={Icon.Users} label="Unique Senders" value={rep.uniqueSenders} />
+          <Stat icon={Icon.Credits} label="Total Bonded" value={`$${rep.totalBondsUsdc.toFixed(2)}`} />
         </div>
 
         {/* Attention Bonds Section */}
         {bonds?.enabled && (
-          <section className="mb-10">
-            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-              💰 Attention Bonds
-            </h2>
-            <div className="bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
-              <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-800">
-                <div className="p-5">
-                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Base Price</div>
-                  <div className="text-xl font-bold text-white font-mono">
-                    ${bonds.basePriceUsdc} <span className="text-sm text-gray-400">USDC</span>
-                  </div>
-                </div>
-                <div className="p-5">
-                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Current Price</div>
-                  <div className="text-xl font-bold text-base-blue font-mono">
-                    ${priceData?.current_price_usdc?.toFixed(4) || '...'} <span className="text-sm text-gray-400">USDC</span>
-                  </div>
-                  {priceData?.demand_7d !== undefined && (
-                    <div className="text-xs text-gray-500 mt-1">{priceData.demand_7d} emails in last 7 days</div>
-                  )}
-                </div>
-                <div className="p-5">
-                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Mechanism</div>
-                  <div className="text-sm text-white">{bonds.mechanism}</div>
-                  {bonds.paper && (
-                    <a href={bonds.paper} target="_blank" rel="noopener noreferrer" className="text-xs text-base-blue hover:underline mt-1 inline-block">
-                      Read paper →
-                    </a>
-                  )}
+          <section className="card">
+            <SectionTitle icon={Icon.Credits}>Attention Bonds</SectionTitle>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="card-inset">
+                <div className="eyebrow mb-1">Base Price</div>
+                <div className="font-mono text-xl font-semibold text-fg">
+                  ${bonds.basePriceUsdc} <span className="text-sm font-medium text-fg-muted">USDC</span>
                 </div>
               </div>
+              <div className="card-inset">
+                <div className="eyebrow mb-1">Current Price</div>
+                <div className="font-mono text-xl font-semibold text-[#7da2ff]">
+                  ${priceData?.current_price_usdc?.toFixed(4) || '...'} <span className="text-sm font-medium text-fg-muted">USDC</span>
+                </div>
+                {priceData?.demand_7d !== undefined && (
+                  <div className="mt-1 text-xs text-fg-subtle">{priceData.demand_7d} emails in last 7 days</div>
+                )}
+              </div>
+              <div className="card-inset">
+                <div className="eyebrow mb-1">Mechanism</div>
+                <div className="text-sm text-fg">{bonds.mechanism}</div>
+                {bonds.paper && (
+                  <a href={bonds.paper} target="_blank" rel="noopener noreferrer" className="link mt-1 inline-flex items-center gap-1 text-xs">
+                    Read paper <Icon.ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            </div>
 
-              {/* QAF Scores */}
-              {coqafData && (coqafData.qaf_value || 0) > 0 && (
-                <div className="border-t border-gray-800 p-5">
-                  <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Quadratic Attention Score</div>
-                  <div className="flex gap-8">
-                    <div>
-                      <div className="text-xs text-gray-500">QAF</div>
-                      <div className="text-lg font-bold text-white font-mono">{coqafData.qaf_value?.toFixed(4)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">CO-QAF</div>
-                      <div className="text-lg font-bold text-green-400 font-mono">{coqafData.coqaf_value?.toFixed(4)}</div>
-                    </div>
+            {/* QAF Scores */}
+            {coqafData && (coqafData.qaf_value || 0) > 0 && (
+              <div className="card-inset mt-3">
+                <div className="eyebrow mb-3">Quadratic Attention Score</div>
+                <div className="flex flex-wrap gap-x-8 gap-y-2">
+                  <div>
+                    <div className="text-xs text-fg-subtle">QAF</div>
+                    <div className="font-mono text-lg font-semibold text-fg">{coqafData.qaf_value?.toFixed(4)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-subtle">CO-QAF</div>
+                    <div className="font-mono text-lg font-semibold text-success">{coqafData.coqaf_value?.toFixed(4)}</div>
                   </div>
                 </div>
-              )}
-
-              {/* Contract Info */}
-              <div className="border-t border-gray-800 p-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-gray-500">
-                <span>Chain: Base (8453)</span>
-                <span>Token: USDC</span>
-                <a
-                  href={`https://basescan.org/address/${bonds.escrowContract}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-base-blue hover:underline"
-                >
-                  Escrow: {truncAddr(bonds.escrowContract)}
-                </a>
-                <a
-                  href={`https://basescan.org/address/${bonds.tokenContract}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-base-blue hover:underline"
-                >
-                  USDC: {truncAddr(bonds.tokenContract)}
-                </a>
               </div>
+            )}
+
+            {/* Contract Info */}
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-4 text-xs text-fg-subtle">
+              <span>Chain: Base (8453)</span>
+              <span>Token: USDC</span>
+              <a
+                href={`https://basescan.org/address/${bonds.escrowContract}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link font-mono"
+              >
+                Escrow: {truncAddr(bonds.escrowContract)}
+              </a>
+              <a
+                href={`https://basescan.org/address/${bonds.tokenContract}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link font-mono"
+              >
+                USDC: {truncAddr(bonds.tokenContract)}
+              </a>
             </div>
           </section>
         )}
 
         {/* Lens Social Graph (collapsible, loads on demand) */}
         {lensAccount && (
-          <section className="mb-10">
+          <section>
             <button
+              type="button"
               onClick={() => {
                 const next = !lensExpanded;
                 setLensExpanded(next);
                 if (next && !lensProfile) loadLensGraph();
               }}
-              className="w-full flex items-center justify-between bg-base-gray rounded-xl px-5 py-4 border border-gray-800 hover:border-[#abfe2c]/30 transition group"
+              aria-expanded={lensExpanded}
+              className="card card-hover flex w-full items-center justify-between gap-3 text-left"
             >
-              <div className="flex items-center gap-3">
-                <span className="text-xl">🌿</span>
-                <div className="text-left">
-                  <div className="text-white font-bold">Lens Social Graph</div>
-                  <div className="text-xs text-gray-400">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-fg-muted">
+                  <Icon.Users size={18} />
+                </span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-fg">Lens Social Graph</div>
+                  <div className="truncate text-xs text-fg-muted">
                     {lensAccount.username?.localName ? `@${lensAccount.username.localName}` : 'Connected'}
                     {lensProfile ? ` · ${lensProfile.graph.stats.followers} followers · ${lensProfile.graph.stats.following} following` : ' · Click to explore'}
                   </div>
                 </div>
               </div>
-              <span className={`text-gray-400 transition-transform ${lensExpanded ? 'rotate-180' : ''}`}>▼</span>
+              <Icon.ChevronDown className={`shrink-0 text-fg-muted transition-transform duration-150 ${lensExpanded ? 'rotate-180' : ''}`} />
             </button>
 
             {lensExpanded && (
               <div className="mt-3">
                 {lensGraphLoading && !lensProfile && (
-                  <div className="bg-base-gray rounded-xl border border-gray-800 p-10 text-center">
-                    <div className="animate-spin text-3xl mb-3">🌿</div>
-                    <div className="text-gray-400 text-sm">Loading social graph from Lens Protocol…</div>
+                  <div className="card py-10 text-center">
+                    <Icon.Refresh className="mx-auto mb-3 animate-spin text-fg-muted" />
+                    <div className="text-sm text-fg-muted">Loading social graph from Lens Protocol…</div>
                   </div>
                 )}
                 {lensProfile && (
                   <>
-                    <Suspense fallback={<div className="text-gray-500 text-center py-10 animate-pulse">Rendering graph…</div>}>
+                    <Suspense fallback={<div className="animate-pulse py-10 text-center text-fg-subtle">Rendering graph…</div>}>
                       <LensSocialGraph
                         rootAccount={lensProfile.account}
                         initialGraph={lensProfile.graph}
                       />
                     </Suspense>
                     <div className="mt-4">
-                      <Suspense fallback={<div className="text-gray-500 text-center py-4 animate-pulse">Loading tree…</div>}>
+                      <Suspense fallback={<div className="animate-pulse py-4 text-center text-fg-subtle">Loading tree…</div>}>
                         <LensTreeView
                           rootAccount={lensProfile.account}
                           initialGraph={lensProfile.graph}
@@ -418,20 +463,18 @@ export default function AgentProfile() {
 
                 {/* Lens version badge + upgrade hint */}
                 {lensVersion === 'v2-managed' && (
-                  <div className="mt-4 bg-yellow-900/15 border border-yellow-800/30 rounded-xl px-4 py-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-yellow-800/30 text-yellow-400 border border-yellow-700/40">
-                        Lens v2
-                      </span>
-                      <span className="text-xs text-yellow-500/80">Legacy Profile NFT on Polygon</span>
+                  <div className="card-inset mt-4 border-warning/30">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="badge badge-warning font-mono">Lens v2</span>
+                      <span className="text-xs text-warning/80">Legacy Profile NFT on Polygon</span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      If you're <span className="text-white font-mono">@{lensAccount?.username?.localName || handle}</span>,{' '}
+                    <p className="mt-1 text-xs text-fg-muted">
+                      If you're <span className="font-mono text-fg">@{lensAccount?.username?.localName || handle}</span>,{' '}
                       <a
                         href="https://lens.xyz/mint"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[#abfe2c] hover:underline"
+                        className="link"
                       >
                         click here to upgrade to Lens v3 →
                       </a>
@@ -440,10 +483,8 @@ export default function AgentProfile() {
                 )}
                 {lensVersion === 'v3' && (
                   <div className="mt-4 flex items-center gap-2">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#00501e]/30 text-[#abfe2c] border border-[#abfe2c]/20">
-                      Lens v3
-                    </span>
-                    <span className="text-[10px] text-gray-600">On Lens Chain</span>
+                    <span className="badge badge-success font-mono">Lens v3</span>
+                    <span className="text-xs text-fg-subtle">On Lens Chain</span>
                   </div>
                 )}
               </div>
@@ -452,50 +493,34 @@ export default function AgentProfile() {
         )}
 
         {/* Services */}
-        <section className="mb-10">
-          <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            🔗 Services & Endpoints
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-3">
+        <section className="card">
+          <SectionTitle icon={Icon.Globe}>Services &amp; Endpoints</SectionTitle>
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
             {data.services.map((s, i) => <ServiceBadge key={i} service={s} />)}
           </div>
         </section>
 
         {/* Raw JSON */}
-        <section className="mb-10">
-          <details className="group">
-            <summary className="cursor-pointer text-sm text-gray-400 hover:text-white transition flex items-center gap-2">
-              <span className="group-open:rotate-90 transition-transform">▶</span>
+        <section>
+          <details className="group card">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-fg-muted transition-colors hover:text-fg [&::-webkit-details-marker]:hidden">
+              <Icon.ChevronDown size={16} className="-rotate-90 transition-transform duration-150 group-open:rotate-0" />
               View raw ERC-8004 registration.json
             </summary>
-            <pre className="mt-4 bg-base-gray rounded-xl border border-gray-800 p-5 text-xs text-gray-300 font-mono overflow-x-auto max-h-96">
-              {JSON.stringify(data, null, 2)}
-            </pre>
+            <div className="code-panel mt-4">
+              <pre className="max-h-96 text-xs">{JSON.stringify(data, null, 2)}</pre>
+            </div>
           </details>
         </section>
 
         {/* CTA */}
-        <section className="text-center py-10 border-t border-gray-800">
-          <p className="text-gray-400 mb-4">Want your own ERC-8004 agent identity?</p>
-          <Link
-            to="/dashboard"
-            className="inline-flex items-center gap-2 bg-base-blue text-white font-bold px-8 py-3 rounded-xl hover:bg-blue-600 transition"
-          >
-            Register on BaseMail →
+        <section className="border-t border-line py-10 text-center">
+          <p className="mb-4 text-fg-muted">Want your own ERC-8004 agent identity?</p>
+          <Link to="/dashboard" className="btn btn-primary btn-lg">
+            Register on BaseMail <Icon.ArrowRight size={18} />
           </Link>
         </section>
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-800 py-6 text-center text-xs text-gray-500">
-        <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank" rel="noopener noreferrer" className="hover:text-base-blue transition">
-          ERC-8004: Agent Registry Standard
-        </a>
-        <span className="mx-2">·</span>
-        <a href="https://basemail.ai" className="hover:text-base-blue transition">BaseMail.ai</a>
-        <span className="mx-2">·</span>
-        <span>Æmail for AI Agents on Base</span>
-      </footer>
-    </div>
+      </div>
+    </Shell>
   );
 }

@@ -84,4 +84,4 @@ Full API docs: [api.basemail.ai/api/docs](https://api.basemail.ai/api/docs)
 
 ---
 
-*BaseMail — Æmail for AI Agents on Base Chain*
+*BaseMail — Email for AI agents on Base*

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { LensAccount, LensSocialGraph as LensSocialGraphData } from '../hooks/useLensProfile';
 import { fetchLensAccount, fetchLensSocialGraph } from '../hooks/useLensProfile';
+import { Icon } from './Icons';
 
 /* ═══════════════════════════════════════
    Types
@@ -631,34 +632,45 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
     drag.panning = false;
   }, [expandNode, collapseNode]);
 
+  const legend = Object.entries(COLORS).map(([k, c]) => (
+    <span key={k} className="flex items-center gap-1">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />
+      {k}
+    </span>
+  ));
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          🌿 Lens Social Graph
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="flex items-center gap-2 text-h3 font-semibold text-fg">
+          <Icon.Users size={18} className="text-fg-muted" /> Lens Social Graph
         </h2>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-gray-500">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs text-fg-subtle">
             {graphStats.nodes} accounts · {graphStats.links} connections
           </span>
-          <div className="flex gap-0.5 bg-gray-800 rounded-lg p-0.5">
+          <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5" role="group" aria-label="View mode">
             <button
+              type="button"
               onClick={() => setViewMode('force')}
-              className={`px-3 py-1 text-xs rounded-md transition ${viewMode === 'force' ? 'bg-base-blue text-white' : 'text-gray-400 hover:text-white'}`}
+              aria-pressed={viewMode === 'force'}
+              className={`btn btn-sm ${viewMode === 'force' ? 'btn-primary' : 'btn-ghost'}`}
             >
-              🕸️ Force
+              Force
             </button>
             <button
+              type="button"
               onClick={() => setViewMode('orbit')}
-              className={`px-3 py-1 text-xs rounded-md transition ${viewMode === 'orbit' ? 'bg-base-blue text-white' : 'text-gray-400 hover:text-white'}`}
+              aria-pressed={viewMode === 'orbit'}
+              className={`btn btn-sm ${viewMode === 'orbit' ? 'btn-primary' : 'btn-ghost'}`}
             >
-              🪐 Orbit
+              Orbit
             </button>
           </div>
         </div>
       </div>
 
-      <div className="relative bg-base-gray rounded-xl border border-gray-800 overflow-hidden">
+      <div className="relative overflow-hidden rounded-2xl border border-line bg-surface">
         <canvas
           ref={canvasRef}
           className="w-full cursor-grab active:cursor-grabbing touch-none"
@@ -676,49 +688,44 @@ export default function LensSocialGraph({ rootAccount, initialGraph }: Props) {
 
         {/* Loading overlay */}
         {loadingNode && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-base-blue text-white text-xs px-4 py-1.5 rounded-full animate-pulse">
-            🔍 {statusText}
+          <div className="absolute left-1/2 top-3 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1.5 truncate rounded-full bg-accent px-4 py-1.5 text-xs text-white">
+            <Icon.Refresh size={12} className="animate-spin" /> {statusText}
           </div>
         )}
 
         {/* Tooltip */}
         {tooltip && (
           <div
-            className="fixed z-50 bg-gray-900/95 border border-gray-700 rounded-xl px-4 py-3 pointer-events-none backdrop-blur-sm max-w-[260px]"
+            className="pointer-events-none fixed z-50 max-w-[260px] rounded-lg border border-line-strong bg-surface px-4 py-3 shadow-2xl shadow-black/50"
             style={{ left: Math.min(tooltip.x + 15, window.innerWidth - 280), top: Math.max(tooltip.y - 90, 10) }}
           >
-            <div className="font-bold text-sm">{tooltip.node.name}</div>
-            {tooltip.node.handle && <div className="text-xs text-base-blue font-mono">@{tooltip.node.handle}</div>}
-            {tooltip.node.bio && <div className="text-xs text-gray-400 mt-1 line-clamp-2">{tooltip.node.bio}</div>}
+            <div className="text-sm font-semibold text-fg">{tooltip.node.name}</div>
+            {tooltip.node.handle && <div className="font-mono text-xs text-[#7da2ff]">@{tooltip.node.handle}</div>}
+            {tooltip.node.bio && <div className="mt-1 line-clamp-2 text-xs text-fg-muted">{tooltip.node.bio}</div>}
             {tooltip.node.followerCount !== null && (
-              <div className="flex gap-3 mt-1.5 text-xs text-gray-400">
-                <span>👥 {tooltip.node.followerCount}</span>
-                <span>➡️ {tooltip.node.followingCount}</span>
+              <div className="mt-1.5 flex gap-3 text-xs text-fg-muted">
+                <span className="inline-flex items-center gap-1"><Icon.Users size={12} /> {tooltip.node.followerCount}</span>
+                <span className="inline-flex items-center gap-1"><Icon.ArrowRight size={12} /> {tooltip.node.followingCount}</span>
               </div>
             )}
-            <div className="text-[10px] mt-1.5" style={{ color: tooltip.node.expanded ? '#ff6b9d' : '#0055ff' }}>
-              {tooltip.node.expanded ? '📌 Double-tap / right-click to collapse' : '🔍 Tap / click to expand graph'}
+            <div className="mt-1.5 text-[10px]" style={{ color: tooltip.node.expanded ? COLORS.follower : COLORS.root }}>
+              {tooltip.node.expanded ? 'Double-tap / right-click to collapse' : 'Tap / click to expand graph'}
             </div>
           </div>
         )}
 
-        {/* Legend */}
-        <div className="absolute bottom-3 left-3 flex gap-3 text-[10px] text-gray-400 bg-gray-900/80 px-3 py-1.5 rounded-lg">
-          {Object.entries(COLORS).map(([k, c]) => (
-            <span key={k} className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full inline-block" style={{ background: c }} />
-              {k}
-            </span>
-          ))}
+        {/* Legend + instructions (desktop overlays; on mobile they move below the canvas so nothing overlaps) */}
+        <div className="absolute bottom-3 left-3 hidden gap-3 rounded-lg bg-bg/80 px-3 py-1.5 text-[10px] text-fg-muted sm:flex">
+          {legend}
         </div>
-
-        {/* Instructions */}
-        <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg hidden sm:block">
+        <div className="absolute bottom-3 right-3 hidden rounded-lg bg-bg/80 px-3 py-1.5 text-[10px] text-fg-subtle sm:block">
           Click = expand · Right-click = collapse · Drag = move · Scroll = zoom
         </div>
-        <div className="absolute bottom-3 right-3 text-[10px] text-gray-500 bg-gray-900/80 px-3 py-1.5 rounded-lg sm:hidden">
-          Tap = expand · Double-tap = collapse · Pinch = zoom
-        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-fg-muted sm:hidden">
+        {legend}
+        <span className="basis-full text-fg-subtle">Tap = expand · Double-tap = collapse · Pinch = zoom</span>
       </div>
     </div>
   );

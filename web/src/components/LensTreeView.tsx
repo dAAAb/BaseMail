@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { LensAccount, LensSocialGraph } from '../hooks/useLensProfile';
 import { fetchLensSocialGraph } from '../hooks/useLensProfile';
+import { Icon } from './Icons';
 
 /* ─── Types ─── */
 interface TreeNode {
@@ -11,15 +12,18 @@ interface TreeNode {
   stats?: { followers: number; following: number };
 }
 
-const TYPE_ICONS: Record<string, string> = {
-  root: '🌿',
-  mutual: '🤝',
-  following: '➡️',
-  follower: '👤',
+type IconComponent = typeof Icon.Check;
+
+const TYPE_ICONS: Record<string, IconComponent> = {
+  root: Icon.Globe,
+  mutual: Icon.Users,
+  following: Icon.ArrowRight,
+  follower: Icon.ArrowLeft,
 };
 
+// Colours mirror the legend in LensSocialGraph (root = accent, mutual/following/follower tints)
 const TYPE_COLORS: Record<string, string> = {
-  root: 'text-[#abfe2c]',
+  root: 'text-[#7da2ff]',
   mutual: 'text-emerald-400',
   following: 'text-violet-400',
   follower: 'text-pink-400',
@@ -45,6 +49,7 @@ function TreeNodeRow({
   const name = node.account.metadata?.name;
   const bio = node.account.metadata?.bio;
   const displayName = name || handle || node.account.address.slice(0, 10) + '…';
+  const TypeIcon = TYPE_ICONS[node.type];
 
   const toggleOrExpand = () => {
     if (node.children || node.type === 'root') {
@@ -58,35 +63,36 @@ function TreeNodeRow({
   return (
     <>
       <div
-        className={`py-1.5 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition text-sm ${
+        className={`py-1.5 px-2 rounded-lg hover:bg-surface-2 cursor-pointer transition-colors duration-150 text-sm ${
           depth === 0 ? 'text-base' : ''
         }`}
         style={{ paddingLeft: Math.max(8, depth * 20) }}
         onClick={toggleOrExpand}
       >
         {/* Main row */}
-        <div className="flex items-center gap-1.5 font-mono">
+        <div className="flex items-center gap-1.5 font-mono min-w-0">
           {/* Tree connector */}
           {depth > 0 && (
-            <span className="text-gray-600 select-none flex-shrink-0">├─</span>
+            <span className="text-fg-subtle select-none flex-shrink-0">├─</span>
           )}
 
           {/* Expand/collapse icon */}
-          <span className="w-4 text-center flex-shrink-0 select-none">
+          <span className="w-4 flex items-center justify-center flex-shrink-0 select-none">
             {node.loading ? (
-              <span className="animate-spin inline-block">⏳</span>
+              <Icon.Refresh size={12} className="animate-spin text-fg-subtle" />
             ) : hasChildren || canExpand ? (
-              <span className={`text-gray-500 transition-transform inline-block ${open && hasChildren ? 'rotate-90' : ''}`}>
-                ▶
-              </span>
+              <Icon.ChevronDown
+                size={14}
+                className={`text-fg-subtle transition-transform duration-150 ${open && hasChildren ? '' : '-rotate-90'}`}
+              />
             ) : (
-              <span className="text-gray-700">·</span>
+              <span className="text-fg-subtle">·</span>
             )}
           </span>
 
           {/* Icon + name */}
-          <span className="flex-shrink-0">{TYPE_ICONS[node.type]}</span>
-          <span className={`font-bold ${TYPE_COLORS[node.type]} truncate`}>
+          <TypeIcon size={14} className={`flex-shrink-0 ${TYPE_COLORS[node.type]}`} />
+          <span className={`font-semibold ${TYPE_COLORS[node.type]} truncate min-w-0`}>
             {displayName}
           </span>
 
@@ -96,7 +102,7 @@ function TreeNodeRow({
               href={`https://hey.xyz/u/${handle}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-500 hover:text-base-blue transition flex-shrink-0"
+              className="text-fg-subtle hover:text-accent transition-colors flex-shrink-0"
               onClick={e => e.stopPropagation()}
             >
               @{handle}
@@ -105,7 +111,7 @@ function TreeNodeRow({
 
           {/* Stats badge */}
           {node.stats && (
-            <span className="text-gray-600 text-xs ml-auto flex-shrink-0">
+            <span className="text-fg-subtle text-xs ml-auto flex-shrink-0">
               {node.stats.followers}↓ {node.stats.following}↑
             </span>
           )}
@@ -114,7 +120,7 @@ function TreeNodeRow({
         {/* Bio on second line — full width, no truncation issues */}
         {bio && (
           <div
-            className="text-gray-500 text-xs mt-0.5 leading-relaxed"
+            className="text-fg-subtle text-xs mt-0.5 leading-relaxed"
             style={{ paddingLeft: depth > 0 ? 52 : 28 }}
           >
             {bio}
@@ -127,7 +133,8 @@ function TreeNodeRow({
         <div>
           {node.children.mutuals.length > 0 && (
             <FolderGroup
-              label={`🤝 Mutual (${node.children.mutuals.length})`}
+              label={`Mutual (${node.children.mutuals.length})`}
+              icon={Icon.Users}
               nodes={node.children.mutuals}
               depth={depth + 1}
               onExpand={onExpand}
@@ -137,7 +144,8 @@ function TreeNodeRow({
           )}
           {node.children.following.length > 0 && (
             <FolderGroup
-              label={`➡️ Following (${node.children.following.length})`}
+              label={`Following (${node.children.following.length})`}
+              icon={Icon.ArrowRight}
               nodes={node.children.following}
               depth={depth + 1}
               onExpand={onExpand}
@@ -147,7 +155,8 @@ function TreeNodeRow({
           )}
           {node.children.followers.length > 0 && (
             <FolderGroup
-              label={`👤 Followers (${node.children.followers.length})`}
+              label={`Followers (${node.children.followers.length})`}
+              icon={Icon.ArrowLeft}
               nodes={node.children.followers}
               depth={depth + 1}
               onExpand={onExpand}
@@ -164,6 +173,7 @@ function TreeNodeRow({
 /* ─── Folder group (Mutual / Following / Followers) ─── */
 function FolderGroup({
   label,
+  icon: GroupIcon,
   nodes,
   depth,
   onExpand,
@@ -171,6 +181,7 @@ function FolderGroup({
   color,
 }: {
   label: string;
+  icon: IconComponent;
   nodes: TreeNode[];
   depth: number;
   onExpand: (node: TreeNode) => void;
@@ -182,15 +193,16 @@ function FolderGroup({
   return (
     <>
       <div
-        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-800/50 cursor-pointer transition font-mono text-sm"
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg hover:bg-surface-2 cursor-pointer transition-colors duration-150 font-mono text-sm min-w-0"
         style={{ paddingLeft: Math.max(8, depth * 20) }}
         onClick={() => setOpen(!open)}
       >
-        {depth > 0 && <span className="text-gray-600 select-none flex-shrink-0">├─</span>}
-        <span className="w-4 text-center flex-shrink-0 select-none">
-          <span className={`text-gray-500 transition-transform inline-block ${open ? 'rotate-90' : ''}`}>▶</span>
+        {depth > 0 && <span className="text-fg-subtle select-none flex-shrink-0">├─</span>}
+        <span className="w-4 flex items-center justify-center flex-shrink-0 select-none">
+          <Icon.ChevronDown size={14} className={`text-fg-subtle transition-transform duration-150 ${open ? '' : '-rotate-90'}`} />
         </span>
-        <span className={`font-semibold ${color}`}>📁 {label}</span>
+        <GroupIcon size={14} className={`flex-shrink-0 ${color}`} />
+        <span className={`font-semibold ${color} truncate`}>{label}</span>
       </div>
       {open && nodes.map((n, i) => (
         <TreeNodeRow key={n.account.address + i} node={n} depth={depth + 1} onExpand={onExpand} />
@@ -245,12 +257,12 @@ export default function LensTreeView({ rootAccount, initialGraph }: Props) {
   }, []);
 
   return (
-    <div className="bg-base-gray rounded-xl border border-gray-800 p-4 overflow-x-auto">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          📂 Tree View
+    <div className="card overflow-x-auto">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+          <Icon.Users size={16} className="text-fg-muted" /> Tree View
         </h3>
-        <span className="text-[10px] text-gray-500">Click ▶ to expand · Recursive</span>
+        <span className="text-[10px] text-fg-subtle">Click a row to expand · Recursive</span>
       </div>
       <div className="min-w-0">
         <TreeNodeRow node={tree} depth={0} onExpand={handleExpand} />

@@ -22,7 +22,7 @@ export default function AgentSEO({
     // Meta tags
     const metas: Record<string, string> = {
       description: `${name} is an AI agent on BaseMail with ERC-8004 identity. ${description}${lensHandle ? ` Connected to Lens Protocol (@${lensHandle}).` : ''} Attention Bonds powered by Quadratic Funding.`,
-      keywords: `${handle}, ${name}, AI agent, ERC-8004, agent profile, BaseMail, Lens Protocol, attention bonds, quadratic funding, Base chain, onchain identity, agentic email, Æmail${lensHandle ? `, ${lensHandle}, Lens social graph` : ''}`,
+      keywords: `${handle}, ${name}, AI agent, ERC-8004, agent profile, BaseMail, Lens Protocol, attention bonds, quadratic funding, Base chain, onchain identity, agentic email${lensHandle ? `, ${lensHandle}, Lens social graph` : ''}`,
       robots: 'index, follow',
 
       // OpenGraph
@@ -31,7 +31,7 @@ export default function AgentSEO({
       'og:image': image,
       'og:url': `https://basemail.ai/agent/${handle}`,
       'og:type': 'profile',
-      'og:site_name': 'BaseMail — Æmail for AI Agents',
+      'og:site_name': 'BaseMail',
 
       // Twitter Card
       'twitter:card': 'summary',
@@ -107,7 +107,7 @@ export default function AgentSEO({
       cleanup.forEach(el => el.remove());
       script.remove();
       if (createdCanonical && canonical) canonical.remove();
-      document.title = 'BaseMail — Æmail for AI Agents on Base';
+      document.title = 'BaseMail — Email for AI Agents on Base';
     };
   }, [handle, name, description, image, wallet, lensHandle, emailsReceived, totalBondsUsdc]);
 
@@ -119,7 +119,7 @@ export default function AgentSEO({
       <p>Email: {handle}@basemail.ai | Standard: ERC-8004 | Chain: Base</p>
       {lensHandle && <p>Lens Protocol: @{lensHandle} — Decentralized social graph on Lens Chain</p>}
       <p>Attention Bonds: Quadratic Funding mechanism for agent email priority</p>
-      <p>Keywords: AI agent identity, ERC-8004, onchain agent registry, BaseMail, Æmail, agentic email, Base chain, Lens Protocol, social graph, attention bonds, quadratic funding, CO-QAF</p>
+      <p>Keywords: AI agent identity, ERC-8004, onchain agent registry, BaseMail, agentic email, Base chain, Lens Protocol, social graph, attention bonds, quadratic funding, CO-QAF</p>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { IDKitRequestWidget, orbLegacy } from '@worldcoin/idkit';
 import type { IDKitResult, RpContext } from '@worldcoin/idkit';
+import { Icon } from './Icons';
 
 const API_BASE = (typeof window !== 'undefined' && window.location.hostname === 'localhost') ? '' : 'https://api.basemail.ai';
 const WORLD_ID_APP_ID = 'app_7099aeba034f8327d91420254b4b660e';
@@ -14,6 +15,15 @@ interface Props {
   token: string;
   handle: string;
   wallet: string;
+}
+
+function Heading() {
+  return (
+    <h3 className="mb-4 flex items-center gap-2 font-semibold text-fg">
+      <Icon.Globe size={18} className="text-fg-muted" />
+      World ID — Human Verification
+    </h3>
+  );
 }
 
 export default function WorldIdVerify({ token, handle, wallet }: Props) {
@@ -115,52 +125,55 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
 
   if (status === 'loading') {
     return (
-      <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
-        <h3 className="font-bold mb-4">🌍 World ID — Human Verification</h3>
-        <p className="text-gray-400 text-sm">Loading...</p>
+      <div className="card">
+        <Heading />
+        <p className="text-sm text-fg-muted">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-base-gray rounded-xl p-6 border border-gray-800">
-      <h3 className="font-bold mb-4">🌍 World ID — Human Verification</h3>
+    <div className="card">
+      <Heading />
 
       {status === 'verified' ? (
         <div>
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">✅</span>
-            <div>
-              <p className="text-green-400 font-bold">Verified Human</p>
-              <p className="text-gray-400 text-xs">
-                Level: {verificationLevel === 'orb' ? '🔮 Orb (biometric)' : '📱 Device'}
+          <div className="mb-3 flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
+              <Icon.Check size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-success">Verified Human</p>
+              <p className="text-xs text-fg-muted">
+                Level: {verificationLevel === 'orb' ? 'Orb (biometric)' : 'Device'}
                 {verifiedAt && ` · Verified ${new Date(verifiedAt * 1000).toLocaleDateString()}`}
               </p>
             </div>
           </div>
-          <p className="text-gray-500 text-xs">
+          <p className="text-xs text-fg-subtle">
             Your account is verified as a unique human via World ID. This badge is visible on your public profile.
           </p>
         </div>
       ) : (
         <div>
-          <p className="text-gray-400 text-sm mb-4">
-            Prove you're a unique human using World ID. Verified accounts get a ✅ badge on their profile,
+          <p className="mb-4 text-sm text-fg-muted">
+            Prove you're a unique human using World ID. Verified accounts get a Human badge on their profile,
             increasing trust for email recipients.
           </p>
 
           <button
+            type="button"
             onClick={handleOpenWidget}
             disabled={status === 'verifying'}
-            className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-xl text-sm font-bold hover:from-purple-500 hover:to-blue-500 transition disabled:opacity-50 flex items-center gap-2"
+            className="btn btn-primary w-full sm:w-auto"
           >
             {status === 'verifying' ? (
               <>
-                <span className="animate-spin">⏳</span> Verifying...
+                <Icon.Refresh size={16} className="animate-spin" /> Verifying...
               </>
             ) : (
               <>
-                🌍 Verify with World ID
+                <Icon.Globe size={16} /> Verify with World ID
               </>
             )}
           </button>
@@ -184,7 +197,7 @@ export default function WorldIdVerify({ token, handle, wallet }: Props) {
           )}
 
           {error && (
-            <p className="text-red-400 text-sm mt-3">{error}</p>
+            <p className="mt-3 text-sm text-danger break-words">{error}</p>
           )}
         </div>
       )}

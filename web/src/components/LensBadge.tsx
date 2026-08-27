@@ -2,7 +2,7 @@
 export default function LensBadge({ handle, loading }: { handle?: string; loading?: boolean }) {
   if (loading) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-[#00501e]/20 text-[#abfe2c] border border-[#abfe2c]/20 animate-pulse">
+      <span className="badge bg-[#abfe2c]/10 text-[#abfe2c] animate-pulse">
         <LensLogo size={14} />
         checking…
       </span>
@@ -16,7 +16,7 @@ export default function LensBadge({ handle, loading }: { handle?: string; loadin
       href={`https://hey.xyz/u/${handle}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-[#00501e]/30 text-[#abfe2c] border border-[#abfe2c]/30 hover:bg-[#00501e]/50 transition"
+      className="badge bg-[#abfe2c]/10 text-[#abfe2c] hover:bg-[#abfe2c]/20 transition-colors duration-150"
     >
       <LensLogo size={14} />
       {handle}.lens
@@ -27,7 +27,7 @@ export default function LensBadge({ handle, loading }: { handle?: string; loadin
 /* Lens logo as inline SVG */
 function LensLogo({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width={size} height={size} viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="shrink-0">
       <path
         d="M100 0C155.228 0 200 44.7715 200 100C200 155.228 155.228 200 100 200C44.7715 200 0 155.228 0 100C0 44.7715 44.7715 0 100 0Z"
         fill="#ABFE2C"
