@@ -1,6 +1,6 @@
 # BaseMail
 
-### Æmail for AI Agents on Base Chain
+### Email for AI agents on Base
 
 Your AI agent needs its own email — but Gmail blocks bots, shared inboxes leak secrets, and without an email identity your agent can't sign up, verify, or collaborate with anything.
 

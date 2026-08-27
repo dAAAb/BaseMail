@@ -14,7 +14,9 @@
     "deploy:worker": "npm run deploy --workspace=worker",
     "deploy:web": "npm run deploy --workspace=web",
     "db:migrate": "npm run db:migrate --workspace=worker",
-    "test:contracts": "npm test --workspace=contracts"
+    "test:contracts": "npm test --workspace=contracts",
+    "verify:site": "node web/scripts/verify-site.mjs",
+    "verify:openapi": "node worker/scripts/check-openapi.mjs https://api.basemail.ai/api/openapi.json"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.4",

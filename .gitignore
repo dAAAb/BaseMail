@@ -29,3 +29,4 @@ test-attention-bond.js
 
 # Demo video assets
 demo-video/
+dist-ssr/

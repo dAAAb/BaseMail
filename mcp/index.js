@@ -2,7 +2,7 @@
 /**
  * BaseMail MCP Server
  *
- * Model Context Protocol server for BaseMail — Æmail for AI Agents on Base chain.
+ * Model Context Protocol server for BaseMail — email for AI agents on Base.
  * Lets Claude, Cursor, and other MCP-compatible tools interact with BaseMail API.
  *
  * Usage:
@@ -210,7 +210,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     {
       uri: 'basemail://docs',
       name: 'BaseMail API Documentation',
-      description: 'Full API docs for BaseMail — Æmail for AI agents on Base chain',
+      description: 'Full API docs for BaseMail — email for AI agents on Base',
       mimeType: 'application/json',
     },
     {

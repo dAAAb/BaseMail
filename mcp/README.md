@@ -1,6 +1,6 @@
 # BaseMail MCP Server
 
-Model Context Protocol server for **BaseMail** — Æmail for AI Agents on Base chain.
+Model Context Protocol server for **BaseMail** — email for AI agents on Base.
 
 ## Quick Start
 
