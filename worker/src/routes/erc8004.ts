@@ -121,3 +121,13 @@ erc8004Routes.get('/:handle/registration.json', async (c) => {
   c.header('Cache-Control', 'public, max-age=300'); // 5 min cache
   return c.json(registration);
 });
+
+/**
+ * GET /api/agent/:handle/avatar
+ * Deterministic identicon for the agent (referenced by registration.json `image`).
+ * Public endpoint — 302 to DiceBear so the SVG is served/cached by them.
+ */
+erc8004Routes.get('/:handle/avatar', (c) => {
+  const handle = c.req.param('handle').toLowerCase();
+  return c.redirect(`https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(handle)}`, 302);
+});

@@ -484,7 +484,7 @@ sendRoutes.post('/', async (c) => {
       ).bind(recipientHandle, thirtyDaysAgo).first<{ count: number }>();
 
       if (pendingCount && pendingCount.count >= 10) {
-        return c.json({ error: 'Pre-storage limit reached for this address (max 10 emails)' }, 429);
+        return c.json({ error: 'Pre-storage limit reached for this address (max 10 emails)', code: 'rate_limited' }, 429, { 'Retry-After': '3600' });
       }
 
       // 限制 1MB
@@ -526,7 +526,8 @@ sendRoutes.post('/', async (c) => {
         return rateLimitResponse(c, 'external emails');
       }
       if (await isRateLimited(c, 'send-handle', auth.handle, EXTERNAL_SEND_PER_HANDLE_PER_HOUR, 3600)) {
-        return c.json({ error: 'Free accounts can send at most 10 external emails per hour. Upgrade to Pro for higher limits.' }, 429);
+        const reset = c.get('ratelimit')?.resetSeconds ?? 3600;
+        return c.json({ error: 'Free accounts can send at most 10 external emails per hour. Upgrade to Pro for higher limits.', code: 'rate_limited' }, 429, { 'Retry-After': String(reset) });
       }
     }
 

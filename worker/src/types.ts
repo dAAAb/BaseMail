@@ -62,10 +62,19 @@ export interface AuthContext {
   handle: string;
 }
 
+// Rate-limit window state recorded by isRateLimited() so the response
+// middleware can emit RateLimit-* headers.
+export interface RateLimitState {
+  limit: number;
+  remaining: number;
+  resetSeconds: number;
+}
+
 // Hono app types (so c.get('auth') is strongly typed)
 export type AppBindings = {
   Bindings: Env;
   Variables: {
     auth: AuthContext;
+    ratelimit?: RateLimitState;
   };
 };

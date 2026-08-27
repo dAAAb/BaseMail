@@ -6,7 +6,10 @@ globalThis.Buffer = Buffer;
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import { AppBindings } from './types';
+import { applyRateLimitHeaders } from './ratelimit';
+import { discoveryRoutes, API_VERSION, API_VERSION_HEADER } from './discovery';
 import { authRoutes } from './routes/auth';
 import { authRefreshRoutes } from './routes/auth-refresh';
 import { registerRoutes } from './routes/register';
@@ -31,6 +34,7 @@ import { webhookRoutes } from './routes/webhooks';
 import { aliasRoutes } from './routes/aliases';
 import { handleIncomingEmail } from './email-handler';
 import { handleCron } from './cron';
+import { buildOpenApiSpec } from './openapi';
 
 const app = new Hono<AppBindings>();
 
@@ -39,8 +43,109 @@ app.use('/*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'Payment', 'Payment-Method'],
-  exposeHeaders: ['Payment-Receipt', 'WWW-Authenticate'],
+  exposeHeaders: [
+    'Payment-Receipt', 'WWW-Authenticate',
+    'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After',
+    'X-API-Version', 'Deprecation', 'Sunset',
+  ],
 }));
+
+// ── Response headers: version, robots, cache policy, rate-limit state ──
+// Discoverable surface: indexable + cacheable for 5 min.
+const DISCOVERY_PATHS = new Set(['/', '/api/docs', '/api/openapi.json', '/openapi.json', '/llms.txt', '/robots.txt', '/api/versions', '/api/agents/list']);
+// Indexable: discovery files plus public ERC-8004 agent records (robots.txt allows them).
+const isDiscoveryPath = (path: string) =>
+  DISCOVERY_PATHS.has(path) || path.startsWith('/.well-known/') || /^\/api\/agent\/[^/]+\/registration\.json$/.test(path);
+const isDocsPath = (path: string) => path === '/api/docs' || path === '/api/openapi.json' || path.startsWith('/.well-known/');
+// Public, unauthenticated GETs that are safe to cache briefly.
+const PUBLIC_CACHEABLE = [
+  /^\/api\/register\/check\/.+/,
+  /^\/api\/register\/price\/.+/,
+  /^\/api\/identity\/.+/,
+  /^\/api\/agent\/[^/]+\/registration\.json$/,
+  /^\/api\/stats$/,
+  /^\/api\/attention\/price\/.+/,
+  /^\/api\/attn-price\/.+/,
+];
+const isPublicCacheable = (path: string) => PUBLIC_CACHEABLE.some((re) => re.test(path));
+
+app.use('/*', async (c, next) => {
+  await next();
+  const h = c.res.headers;
+  const path = c.req.path;
+  const method = c.req.method;
+  const authenticated = !!(c.req.header('Authorization') || c.req.header('Payment'));
+
+  h.set(API_VERSION_HEADER, API_VERSION);
+  if (!isDiscoveryPath(path)) h.set('X-Robots-Tag', 'noindex');
+  applyRateLimitHeaders(c);
+
+  if (!h.has('Cache-Control')) {
+    const isRead = method === 'GET' || method === 'HEAD';
+    if (!isRead || authenticated) {
+      h.set('Cache-Control', 'no-store');
+    } else if (!c.res.ok) {
+      // Never let a 4xx/5xx sit in a shared cache.
+      h.set('Cache-Control', 'no-store');
+    } else if (isDocsPath(path)) {
+      h.set('Cache-Control', 'public, max-age=300');
+    } else if (isPublicCacheable(path)) {
+      h.set('Cache-Control', 'public, max-age=60');
+    }
+  }
+});
+
+// ── Uniform error model ──
+/** True when the Accept header prefers text/markdown over text/html and application/json. */
+function prefersMarkdown(accept: string | undefined): boolean {
+  if (!accept) return false;
+  const q: Record<string, number> = {};
+  const listed: string[] = [];
+  for (const part of accept.split(',')) {
+    const [rawType, ...params] = part.trim().split(';');
+    const type = rawType.trim().toLowerCase();
+    if (!type) continue;
+    let qv = 1;
+    for (const prm of params) {
+      const [k, v] = prm.trim().split('=');
+      if (k?.trim().toLowerCase() === 'q') {
+        const n = parseFloat(v ?? '');
+        if (!Number.isNaN(n)) qv = n;
+      }
+    }
+    q[type] = Math.max(q[type] ?? 0, qv);
+    if (!listed.includes(type)) listed.push(type);
+  }
+  const md = q['text/markdown'];
+  if (md === undefined || md <= 0) return false;
+  if (listed.length === 1) return true;
+  // A literal text/markdown wins ties (same rule as the Pages Function).
+  return md >= (q['text/html'] ?? 0) && md >= (q['application/json'] ?? 0);
+}
+
+app.notFound((c) => {
+  const path = c.req.path;
+  const start_here = {
+    docs: 'https://api.basemail.ai/api/docs',
+    openapi: 'https://api.basemail.ai/api/openapi.json',
+    llms_txt: 'https://basemail.ai/llms.txt',
+    developers: 'https://basemail.ai/developers',
+    sitemap: 'https://basemail.ai/sitemap.xml',
+  };
+  if (prefersMarkdown(c.req.header('Accept'))) {
+    const md = `# 404 — Not found\n\n\`${path}\` is not an API route.\n\n- [API docs](${start_here.docs})\n- [OpenAPI](${start_here.openapi})\n- [llms.txt](${start_here.llms_txt})\n- [Developer portal](${start_here.developers})\n`;
+    return c.body(md, 404, { 'Content-Type': 'text/markdown; charset=utf-8', Vary: 'Accept', 'Cache-Control': 'no-store' });
+  }
+  return c.json({ error: 'Not found', code: 'not_found', path, hint: 'See https://api.basemail.ai/api/docs or https://basemail.ai/llms.txt', docs: start_here.docs, start_here }, 404, { Vary: 'Accept', 'Cache-Control': 'no-store' });
+});
+
+app.onError((err, c) => {
+  if (err instanceof HTTPException || typeof (err as { getResponse?: unknown }).getResponse === 'function') {
+    return (err as HTTPException).getResponse();
+  }
+  console.error(`[unhandled] ${c.req.method} ${c.req.path}`, err);
+  return c.json({ error: 'Internal server error', code: 'internal_error' }, 500);
+});
 
 // 健康檢查
 // ERC-8004: .well-known discovery endpoint
@@ -48,7 +153,7 @@ app.get('/.well-known/agent-registration.json', (c) => {
   return c.json({
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: 'BaseMail',
-    description: 'Agentic Email (Æmail) for AI Agents on Base chain. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).',
+    description: 'Email for AI agents on Base chain. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).',
     image: 'https://basemail.ai/logo.png',
     services: [
       { name: 'web', endpoint: 'https://basemail.ai/' },
@@ -66,17 +171,23 @@ app.get('/.well-known/agent-registration.json', (c) => {
         'POST /api/send': { amount: '0.01', description: 'Send email ($0.01)' },
       },
     },
-  });
+  }, 200, { 'Cache-Control': 'public, max-age=300' });
 });
 
 app.get('/', (c) => {
   return c.json({
     service: 'BaseMail',
-    version: '0.1.0',
+    version: API_VERSION,
     description: 'Email identity for AI Agents on Base chain',
     docs: `https://api.${c.env.DOMAIN}/api/docs`,
+    openapi: `https://api.${c.env.DOMAIN}/api/openapi.json`,
+    llms_txt: `https://api.${c.env.DOMAIN}/llms.txt`,
+    developers: 'https://basemail.ai/developers',
   });
 });
+
+// Discovery surface: /llms.txt, /robots.txt, /.well-known/{openapi,ai-plugin}.json, /api/versions
+app.route('/', discoveryRoutes);
 
 // Favicon
 import { faviconBytes } from './favicon';
@@ -87,138 +198,13 @@ app.get('/favicon.png', (c) => new Response(faviconBytes(), { headers: { 'Conten
 app.get('/openapi.json', (c) => c.redirect('/api/openapi.json', 301));
 
 // OpenAPI 3.1 spec for AI agent + MPP discovery
+// OpenAPI 3.1 spec — every operation has an operationId + typed schemas (src/openapi.ts).
+// Validate with: node scripts/check-openapi.mjs https://api.basemail.ai/api/openapi.json
 app.get('/api/openapi.json', (c) => {
   const BASE = `https://api.${c.env.DOMAIN}`;
-  return c.json({
-    openapi: '3.1.0',
-    info: {
-      title: 'BaseMail API',
-      version: '2.0.0',
-      description: 'Agentic email (Æmail) for AI agents on Base chain. Register with SIWE, send/receive email, manage Attention Bonds. ERC-8004 compatible.',
-      contact: { email: 'cloudlobst3r@basemail.ai' },
-      'x-guidance': 'Register via POST /api/register (pay $1.00 USDC.e via MPP or use Bearer JWT from SIWE). Send email via POST /api/send ($0.01). Public endpoints like /api/register/check/{query} and /api/agent/{handle}/registration.json require no auth.',
-    },
-    'x-service-info': {
-      categories: ['email', 'ai-agents', 'web3'],
-      docs: {
-        homepage: 'https://basemail.ai',
-        apiReference: `${BASE}/api/docs`,
-      },
-    },
-    servers: [{ url: BASE, description: 'Production' }],
-    paths: {
-      '/api/auth/start': {
-        post: {
-          summary: 'Get SIWE authentication message',
-          description: 'Returns a Sign-In with Ethereum (SIWE) message and nonce for the given wallet address.',
-          security: [],
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string', description: 'Ethereum wallet address (0x...)' } }, required: ['address'] } } } },
-          responses: { '200': { description: 'SIWE message and nonce' } },
-        },
-      },
-      '/api/auth/agent-register': {
-        post: {
-          summary: 'Sign + auto-register agent',
-          description: 'Verify SIWE signature and register a new BaseMail agent in one call. Returns JWT token and email address.',
-          security: [],
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { address: { type: 'string' }, signature: { type: 'string' }, message: { type: 'string' }, basename: { type: 'string', description: 'Optional: basename.base.eth for handle override' } }, required: ['address', 'signature', 'message'] } } } },
-          responses: { '200': { description: 'JWT token, email, handle, registered status' } },
-        },
-      },
-      '/api/register': {
-        post: {
-          summary: 'Register email inbox',
-          description: 'Register a @basemail.ai email. Supports Bearer token (SIWE) or MPP Payment ($1.00 USDC.e via Tempo).',
-          security: [{ bearerAuth: [] }],
-          'x-payment-info': { amount: '1000000', currency: '0x20c000000000000000000000b9537d11c60e8b50', description: 'Register email inbox ($1.00)', intent: 'charge', method: 'tempo' },
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { basename: { type: 'string', description: 'e.g. alice.base.eth' }, auto_basename: { type: 'boolean' }, basename_name: { type: 'string' } } } } } },
-          responses: { '200': { description: 'Registration result with JWT token' }, '402': { description: 'Payment Required — MPP challenge' } },
-        },
-      },
-      '/api/send': {
-        post: {
-          summary: 'Send email',
-          description: 'Send an email from the authenticated agent. Supports Bearer token or MPP Payment ($0.01 USDC.e via Tempo).',
-          security: [{ bearerAuth: [] }],
-          'x-payment-info': { amount: '10000', currency: '0x20c000000000000000000000b9537d11c60e8b50', description: 'Send email ($0.01)', intent: 'charge', method: 'tempo' },
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { to: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string' } }, required: ['to', 'subject', 'body'] } } } },
-          responses: { '200': { description: 'Send result' }, '402': { description: 'Payment Required — MPP challenge' } },
-        },
-      },
-      '/api/inbox': {
-        get: {
-          summary: 'List received emails',
-          security: [{ bearerAuth: [] }],
-          responses: { '200': { description: 'Array of received emails' } },
-        },
-      },
-      '/api/register/check/{query}': {
-        get: {
-          summary: 'Check identity availability',
-          description: 'Check if a wallet address or basename is available, taken, or reserved on BaseMail.',
-          security: [],
-          parameters: [{ name: 'query', in: 'path', required: true, schema: { type: 'string' }, description: 'Wallet address (0x...) or basename' }],
-          responses: { '200': { description: 'Availability status, email, price info' } },
-        },
-      },
-      '/api/register/price/{name}': {
-        get: {
-          summary: 'Get Basename price',
-          security: [],
-          parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Price in wei and ETH' } },
-        },
-      },
-      '/api/agent/{handle}/registration.json': {
-        get: {
-          summary: 'ERC-8004 agent profile',
-          description: 'Returns standardized agent registration data per ERC-8004.',
-          security: [],
-          parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'ERC-8004 registration JSON' } },
-        },
-      },
-      '/api/webhooks': {
-        post: {
-          summary: 'Create webhook',
-          description: 'Register a webhook URL to receive real-time notifications when events occur (e.g. new email received).',
-          security: [{ bearerAuth: [] }],
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { url: { type: 'string', description: 'HTTPS URL to receive webhook POST requests' }, events: { type: 'array', items: { type: 'string' }, description: 'Events to subscribe to (default: ["message.received"])' } }, required: ['url'] } } } },
-          responses: { '201': { description: 'Webhook created with secret for signature verification' } },
-        },
-        get: {
-          summary: 'List webhooks',
-          security: [{ bearerAuth: [] }],
-          responses: { '200': { description: 'Array of registered webhooks' } },
-        },
-      },
-      '/api/webhooks/{id}': {
-        delete: {
-          summary: 'Delete webhook',
-          security: [{ bearerAuth: [] }],
-          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Webhook deleted' } },
-        },
-      },
-      '/api/attention/price/{handle}': {
-        get: {
-          summary: 'Get attention bond price',
-          description: 'Returns the current CO-QAF attention bond price for contacting this agent.',
-          security: [],
-          parameters: [{ name: 'handle', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Bond price and CO-QAF score' } },
-        },
-      },
-    },
-    components: {
-      securitySchemes: {
-        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT from /api/auth/agent-register' },
-      },
-    },
-  });
+  return c.json(buildOpenApiSpec(BASE) as Record<string, unknown>);
 });
 
-// Agent list for sitemap
 app.get('/api/agents/list', async (c) => {
   try {
     const results = await c.env.DB.prepare(
