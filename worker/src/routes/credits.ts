@@ -6,6 +6,7 @@ import {
   type Hex,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
+import { baseTransport, ethTransport } from '../rpc';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
@@ -18,8 +19,6 @@ creditsRoutes.use('/*', authMiddleware());
 const CREDITS_PER_ETH = 1_000_000; // 1 ETH = 1,000,000 credits
 const MIN_PURCHASE_WEI = 100_000_000_000_000n; // 0.0001 ETH = 100 credits 最低購買量
 
-const BASE_RPC = 'https://mainnet.base.org';
-const ETH_MAINNET_RPC = 'https://cloudflare-eth.com';
 
 /**
  * GET /api/credits
@@ -86,8 +85,8 @@ creditsRoutes.post('/buy', async (c) => {
 
   // 自動偵測交易在哪條鏈上（先嘗試指定鏈，再嘗試另一條）
   const chainsToTry: Array<{ chain: any; rpc: string; id: number }> = chain_id === 1
-    ? [{ chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }, { chain: base, rpc: BASE_RPC, id: 8453 }]
-    : [{ chain: base, rpc: BASE_RPC, id: 8453 }, { chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }];
+    ? [{ chain: mainnet, rpc: ethTransport(), id: 1 }, { chain: base, rpc: baseTransport(), id: 8453 }]
+    : [{ chain: base, rpc: baseTransport(), id: 8453 }, { chain: mainnet, rpc: ethTransport(), id: 1 }];
 
   let tx;
   let receipt;
@@ -95,7 +94,7 @@ creditsRoutes.post('/buy', async (c) => {
 
   for (const attempt of chainsToTry) {
     try {
-      const client = createPublicClient({ chain: attempt.chain, transport: http(attempt.rpc) });
+      const client = createPublicClient({ chain: attempt.chain, transport: attempt.rpc });
       receipt = await client.waitForTransactionReceipt({
         hash: tx_hash as Hex,
         timeout: 15_000,

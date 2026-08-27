@@ -17,6 +17,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
+import { baseTransport } from './rpc';
 import { normalize } from 'viem/ens';
 
 // ── 合約地址（UpgradeableRegistrarController proxy） ──
@@ -88,14 +89,13 @@ const L2ResolverABI = [
   },
 ] as const;
 
-const BASE_RPC = 'https://mainnet.base.org';
 const ONE_YEAR = BigInt(365 * 24 * 60 * 60);
 
 /**
  * 檢查 Basename 是否可用
  */
 export async function isBasenameAvailable(name: string): Promise<boolean> {
-  const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+  const client = createPublicClient({ chain: base, transport: baseTransport() });
   return client.readContract({
     address: REGISTRAR_CONTROLLER,
     abi: RegistrarControllerABI,
@@ -108,7 +108,7 @@ export async function isBasenameAvailable(name: string): Promise<boolean> {
  * 查詢 Basename 註冊價格
  */
 export async function getBasenamePrice(name: string, years: number = 1): Promise<bigint> {
-  const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+  const client = createPublicClient({ chain: base, transport: baseTransport() });
   const duration = ONE_YEAR * BigInt(years);
   return client.readContract({
     address: REGISTRAR_CONTROLLER,
@@ -133,11 +133,11 @@ export async function registerBasename(
   privateKey: Hex,
   years: number = 1,
 ): Promise<{ txHash: Hex; fullName: string; price: string }> {
-  const publicClient = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+  const publicClient = createPublicClient({ chain: base, transport: baseTransport() });
   const account = privateKeyToAccount(privateKey);
   const walletClient = createWalletClient({
     chain: base,
-    transport: http(BASE_RPC),
+    transport: baseTransport(),
     account,
   });
 

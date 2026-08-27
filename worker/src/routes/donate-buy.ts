@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { createPublicClient, http, parseAbi, formatEther } from 'viem';
 import { base } from 'viem/chains';
+import { baseTransport } from '../rpc';
 import { AppBindings } from '../types';
 
 const DONATE_BUY = '0x8b10c4D29C99Eac19Edc59C4fac790518b815DE7';
@@ -23,7 +24,7 @@ donateBuyRoutes.get('/quote/:name', async (c) => {
   const years = parseInt(c.req.query('years') || '1');
   const duration = ONE_YEAR * BigInt(years);
 
-  const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') });
+  const client = createPublicClient({ chain: base, transport: baseTransport() });
 
   try {
     const [price, donation, total] = await client.readContract({

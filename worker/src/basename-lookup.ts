@@ -19,10 +19,10 @@ import {
   type Address,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
+import { baseTransport } from './rpc';
 
 const BASENAME_L2_RESOLVER = '0xC6d566A56A1aFf6508b41f6c90ff131615583BCD' as const;
 const BASENAME_REGISTRAR = '0x03c4738Ee98aE44591e1A4A4F3CaB6641d95DD9a' as const;
-const BASE_RPC = 'https://mainnet.base.org';
 
 const L2ResolverAbi = [
   {
@@ -68,7 +68,7 @@ export async function getBasenameForAddress(address: Address): Promise<string | 
   try {
     const client = createPublicClient({
       chain: base,
-      transport: http(BASE_RPC),
+      transport: baseTransport(),
     });
 
     const addressReverseNode = convertReverseNodeToBytes(address, base.id);
@@ -96,7 +96,7 @@ export async function getBasenameForAddress(address: Address): Promise<string | 
  */
 export async function hasBasenameNFT(address: Address): Promise<boolean> {
   try {
-    const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+    const client = createPublicClient({ chain: base, transport: baseTransport() });
     const balance = await client.readContract({
       abi: [{
         inputs: [{ name: 'owner', type: 'address' }],
@@ -125,7 +125,7 @@ export async function getBasenameExpiry(name: string): Promise<number> {
     const labelhash = keccak256(toBytes(label));
     const tokenId = BigInt(labelhash);
 
-    const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+    const client = createPublicClient({ chain: base, transport: baseTransport() });
     const expiry = await client.readContract({
       abi: [{
         inputs: [{ name: 'id', type: 'uint256' }],
@@ -209,7 +209,7 @@ export async function verifyBasenameOwnership(
   const labelhash = keccak256(toBytes(name));
   const tokenId = BigInt(labelhash);
 
-  const client = createPublicClient({ chain: base, transport: http(BASE_RPC) });
+  const client = createPublicClient({ chain: base, transport: baseTransport() });
   try {
     const owner = await client.readContract({
       abi: [{

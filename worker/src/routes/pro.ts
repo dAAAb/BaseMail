@@ -6,6 +6,7 @@ import {
   type Hex,
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
+import { baseTransport, ethTransport } from '../rpc';
 import { AppBindings } from '../types';
 import { authMiddleware, createToken } from '../auth';
 
@@ -17,8 +18,6 @@ proRoutes.use('/*', authMiddleware());
 const PRO_PRICE_WEI = 8_000_000_000_000_000n; // 0.008 ETH
 const PRO_PRICE_ETH = '0.008';
 
-const BASE_RPC = 'https://mainnet.base.org';
-const ETH_MAINNET_RPC = 'https://cloudflare-eth.com';
 
 /**
  * GET /api/pro/status
@@ -94,8 +93,8 @@ proRoutes.post('/buy', async (c) => {
 
   // Auto-detect chain
   const chainsToTry: Array<{ chain: any; rpc: string; id: number }> = chain_id === 1
-    ? [{ chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }, { chain: base, rpc: BASE_RPC, id: 8453 }]
-    : [{ chain: base, rpc: BASE_RPC, id: 8453 }, { chain: mainnet, rpc: ETH_MAINNET_RPC, id: 1 }];
+    ? [{ chain: mainnet, rpc: ethTransport(), id: 1 }, { chain: base, rpc: baseTransport(), id: 8453 }]
+    : [{ chain: base, rpc: baseTransport(), id: 8453 }, { chain: mainnet, rpc: ethTransport(), id: 1 }];
 
   let tx;
   let receipt;
@@ -103,7 +102,7 @@ proRoutes.post('/buy', async (c) => {
 
   for (const attempt of chainsToTry) {
     try {
-      const client = createPublicClient({ chain: attempt.chain, transport: http(attempt.rpc) });
+      const client = createPublicClient({ chain: attempt.chain, transport: attempt.rpc });
       receipt = await client.waitForTransactionReceipt({
         hash: tx_hash as Hex,
         timeout: 15_000,
