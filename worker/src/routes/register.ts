@@ -7,7 +7,7 @@ import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../base
 import type { Hex, Address } from 'viem';
 import { formatEther, encodeFunctionData, namehash } from 'viem';
 import { normalize } from 'viem/ens';
-import { isRateLimited, clientIp, rateLimitResponse, REGISTER_PER_IP_PER_HOUR } from '../ratelimit';
+import { isRateLimited, clientIp, rateLimitResponse, REGISTER_PER_IP_PER_HOUR, SPONSORED_BASENAME_PER_IP_PER_DAY } from '../ratelimit';
 
 export const registerRoutes = new Hono<AppBindings>();
 
@@ -143,6 +143,9 @@ registerRoutes.post('/', mppReceiptMiddleware(), mppCharge('1.00'), authMiddlewa
     source = 'basename';
   } else if (body.auto_basename) {
     // 購買新 Basename
+    if (await isRateLimited(c, 'sponsored-basename', clientIp(c), SPONSORED_BASENAME_PER_IP_PER_DAY, 86400)) {
+      return rateLimitResponse(c, 'sponsored Basename registrations');
+    }
     if (!c.env.WALLET_PRIVATE_KEY) {
       return c.json({ error: 'Basename auto-registration is not configured' }, 503);
     }
@@ -314,6 +317,9 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   let newHandle: string;
 
   if (body.auto_basename) {
+    if (await isRateLimited(c, 'sponsored-basename', clientIp(c), SPONSORED_BASENAME_PER_IP_PER_DAY, 86400)) {
+      return rateLimitResponse(c, 'sponsored Basename registrations');
+    }
     // ── Path A: Buy a Basename on-chain (for AI agents) ──
     if (!c.env.WALLET_PRIVATE_KEY) {
       return c.json({ error: 'Basename auto-registration is not configured' }, 503);

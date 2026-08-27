@@ -40,5 +40,6 @@ export function rateLimitResponse(c: Context<AppBindings>, what: string) {
 
 // Policy constants
 export const REGISTER_PER_IP_PER_HOUR = 5;
+export const SPONSORED_BASENAME_PER_IP_PER_DAY = 2; // worker pays ETH for these
 export const EXTERNAL_SEND_PER_IP_PER_HOUR = 30;   // free tier only
 export const EXTERNAL_SEND_PER_HANDLE_PER_HOUR = 10; // free tier only
