@@ -1273,6 +1273,7 @@ function RegisterEmail({
   const [claimed, setClaimed] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [claimedHandle, setClaimedHandle] = useState('');
+  const [claimedToken, setClaimedToken] = useState('');
 
   const suggestedEmail = auth.suggested_email || `${auth.wallet}@basemail.ai`;
   const isBasename = auth.suggested_source === 'basename';
@@ -1289,6 +1290,9 @@ function RegisterEmail({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Registration failed');
       setClaimedHandle(data.handle);
+      // /api/register issues a new JWT that carries the handle — the pre-register
+      // token has handle:'' and every authed endpoint (send/inbox) rejects it.
+      setClaimedToken(data.token || auth.token);
       setClaimed(true);
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
@@ -1329,7 +1333,7 @@ function RegisterEmail({
           )}
 
           <button
-            onClick={() => onRegistered(claimedHandle, auth.token)}
+            onClick={() => onRegistered(claimedHandle, claimedToken || auth.token)}
             className="w-full bg-base-blue text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition text-lg"
           >
             Enter Inbox &#8594;
