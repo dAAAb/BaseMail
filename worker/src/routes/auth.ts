@@ -4,6 +4,7 @@ import { generateNonce, verifySiwe, createToken, buildSiweMessage } from '../aut
 import type { SiweResult } from '../auth';
 import { issueRefreshToken } from '../refresh';
 import { resolveHandle, verifyBasenameOwnership } from '../basename-lookup';
+import { isRateLimited, clientIp, rateLimitResponse, REGISTER_PER_IP_PER_HOUR } from '../ratelimit';
 import type { Address } from 'viem';
 
 const SIWE_ERROR_MESSAGES: Record<string, string> = {
@@ -43,6 +44,9 @@ authRoutes.post('/start', async (c) => {
  * - 如果錢包未註冊：自動註冊 + 回傳新帳號
  */
 authRoutes.post('/agent-register', async (c) => {
+  if (await isRateLimited(c, 'register', clientIp(c), REGISTER_PER_IP_PER_HOUR, 3600)) {
+    return rateLimitResponse(c, 'registrations');
+  }
   const { address, signature, message, basename: requestedBasename } = await c.req.json<{
     address: string;
     signature: string;

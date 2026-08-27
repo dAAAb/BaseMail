@@ -1,3 +1,4 @@
+import { isRateLimited, clientIp, rateLimitResponse, EXTERNAL_SEND_PER_IP_PER_HOUR, EXTERNAL_SEND_PER_HANDLE_PER_HOUR } from '../ratelimit';
 import { Hono } from 'hono';
 import { EmailMessage } from 'cloudflare:email';
 import { createMimeMessage } from 'mimetext';
@@ -518,6 +519,16 @@ sendRoutes.post('/', async (c) => {
     const acct = await c.env.DB.prepare(
       'SELECT credits FROM accounts WHERE handle = ?'
     ).bind(auth.handle).first<{ credits: number }>();
+
+    // Free-tier velocity limits (spam / sybil defence). Pro accounts are exempt.
+    if (!isPro) {
+      if (await isRateLimited(c, 'send-ip', clientIp(c), EXTERNAL_SEND_PER_IP_PER_HOUR, 3600)) {
+        return rateLimitResponse(c, 'external emails');
+      }
+      if (await isRateLimited(c, 'send-handle', auth.handle, EXTERNAL_SEND_PER_HANDLE_PER_HOUR, 3600)) {
+        return c.json({ error: 'Free accounts can send at most 10 external emails per hour. Upgrade to Pro for higher limits.' }, 429);
+      }
+    }
 
     if (!acct || acct.credits < 1) {
       return c.json({

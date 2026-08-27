@@ -7,6 +7,7 @@ import { registerBasename, isBasenameAvailable, getBasenamePrice } from '../base
 import type { Hex, Address } from 'viem';
 import { formatEther, encodeFunctionData, namehash } from 'viem';
 import { normalize } from 'viem/ens';
+import { isRateLimited, clientIp, rateLimitResponse, REGISTER_PER_IP_PER_HOUR } from '../ratelimit';
 
 export const registerRoutes = new Hono<AppBindings>();
 
@@ -28,6 +29,9 @@ const MAX_AUTO_BASENAME_PRICE = 2000000000000000n; // 0.002 ETH (~$5)
 // MPP: charge $1.00 for registration (if enabled; Bearer tokens skip to normal auth)
 registerRoutes.post('/', mppReceiptMiddleware(), mppCharge('1.00'), authMiddleware(), async (c) => {
   const auth = c.get('auth');
+  if (await isRateLimited(c, 'register', clientIp(c), REGISTER_PER_IP_PER_HOUR, 3600)) {
+    return rateLimitResponse(c, 'registrations');
+  }
   let body: {
     basename?: string; // e.g. "littl3lobst3r.base.eth"
     auto_basename?: boolean;
