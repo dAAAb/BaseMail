@@ -1,4 +1,4 @@
-import { useState, useEffect, useId, useRef } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Link } from 'react-router-dom';
 import SiteHeader from '../components/SiteHeader';
 import SiteFooter from '../components/SiteFooter';
@@ -9,6 +9,7 @@ import HexField from '../components/HexField';
 import Reveal from '../components/Reveal';
 import MobileCta from '../components/MobileCta';
 import { track } from '../lib/track';
+import AgentQuickstart from '../components/AgentQuickstart';
 
 const API_BASE = import.meta.env.PROD ? 'https://api.basemail.ai' : '';
 
@@ -66,79 +67,6 @@ const ENDPOINTS = [
   { method: 'POST', path: '/api/inbox/:id/reject', desc: 'Reject an email and keep the stake' },
 ];
 
-const CODE = {
-  python: `from eth_account import Account
-from eth_account.messages import encode_defunct
-import requests
-
-wallet = Account.create()
-API = "https://api.basemail.ai"
-
-# 1. Get a SIWE message
-msg = requests.post(f"{API}/api/auth/start",
-    json={"address": wallet.address}).json()["message"]
-
-# 2. Sign it and register
-sig = wallet.sign_message(encode_defunct(text=msg))
-r = requests.post(f"{API}/api/auth/agent-register",
-    json={"address": wallet.address,
-          "signature": sig.signature.hex(),
-          "message": msg}).json()
-token, email = r["token"], r["email"]   # alice@basemail.ai
-
-# 3. Send
-requests.post(f"{API}/api/send",
-    headers={"Authorization": f"Bearer {token}"},
-    json={"to": "team@example.com",
-          "subject": "Hello from my agent",
-          "body": "Sent with BaseMail"})`,
-  typescript: `import { privateKeyToAccount } from "viem/accounts";
-
-const wallet = privateKeyToAccount("0x...");
-const API = "https://api.basemail.ai";
-const json = (r: Response) => r.json();
-
-// 1. Get a SIWE message
-const { message } = await fetch(\`\${API}/api/auth/start\`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ address: wallet.address }),
-}).then(json);
-
-// 2. Sign it and register
-const signature = await wallet.signMessage({ message });
-const { token, email } = await fetch(\`\${API}/api/auth/agent-register\`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ address: wallet.address, signature, message }),
-}).then(json);            // email → alice@basemail.ai
-
-// 3. Send
-await fetch(\`\${API}/api/send\`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json",
-             Authorization: \`Bearer \${token}\` },
-  body: JSON.stringify({ to: "team@example.com",
-    subject: "Hello from my agent", body: "Sent with BaseMail" }),
-});`,
-  curl: `# 1. Get a SIWE message
-curl -X POST https://api.basemail.ai/api/auth/start \\
-  -H "Content-Type: application/json" \\
-  -d '{"address":"0xYOUR_WALLET"}'
-
-# 2. Sign the message with your wallet, then register
-curl -X POST https://api.basemail.ai/api/auth/agent-register \\
-  -H "Content-Type: application/json" \\
-  -d '{"address":"0x...","signature":"0x...","message":"..."}'
-# → {"token":"eyJ...","email":"alice@basemail.ai"}
-
-# 3. Send
-curl -X POST https://api.basemail.ai/api/send \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"to":"team@example.com","subject":"Hello","body":"Sent with BaseMail"}'`,
-};
-
 /* ─────────────────────────────────────────────────────────────
  * Small building blocks
  * ──────────────────────────────────────────────────────────── */
@@ -188,74 +116,6 @@ function FAQItem({ q, a }: { q: string; a: string }) {
           <p className="pb-5 text-sm sm:text-[15px] text-fg-muted leading-relaxed">{a}</p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function CodeTabs() {
-  const [tab, setTab] = useState<keyof typeof CODE>('curl');
-  const [copied, setCopied] = useState(false);
-  const id = useId();
-  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const tabs: { k: keyof typeof CODE; label: string }[] = [
-    { k: 'curl', label: 'cURL' },
-    { k: 'python', label: 'Python' },
-    { k: 'typescript', label: 'TypeScript' },
-  ];
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const i = tabs.findIndex((t) => t.k === tab);
-    let next = i;
-    if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = tabs.length - 1;
-    else return;
-    e.preventDefault();
-    setTab(tabs[next].k);
-    tabRefs.current[tabs[next].k]?.focus();
-  };
-  return (
-    <div className="code-panel">
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-line bg-surface-2/60">
-        <span className="hidden sm:flex items-center gap-1.5 px-2 mr-2" aria-hidden="true">
-          <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
-          <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
-          <span className="w-2.5 h-2.5 rounded-full bg-white/10" />
-        </span>
-        <div role="tablist" aria-label="Code samples" className="flex items-center gap-1" onKeyDown={onKeyDown}>
-          {tabs.map((t) => (
-            <button
-              key={t.k}
-              type="button"
-              role="tab"
-              id={`${id}-tab-${t.k}`}
-              aria-selected={tab === t.k}
-              aria-controls={`${id}-panel`}
-              tabIndex={tab === t.k ? 0 : -1}
-              ref={(el) => { tabRefs.current[t.k] = el; }}
-              onClick={() => setTab(t.k)}
-              className={`btn btn-sm ${tab === t.k ? 'bg-surface text-fg border border-line' : 'btn-ghost'}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs text-fg-subtle font-mono hidden lg:inline whitespace-nowrap">3 calls · no API key</span>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm ml-auto lg:ml-2"
-          onClick={async () => {
-            try { await navigator.clipboard.writeText(CODE[tab]); setCopied(true); track('code_copy', { lang: tab }); setTimeout(() => setCopied(false), 1600); } catch {}
-          }}
-        >
-          {copied ? <Icon.Check size={14} /> : <Icon.Copy size={14} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-        <span role="status" aria-live="polite" className="sr-only">{copied ? 'Code copied to clipboard' : ''}</span>
-      </div>
-      <pre id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} tabIndex={0}>
-        <code className="font-mono whitespace-pre">{CODE[tab]}</code>
-      </pre>
     </div>
   );
 }
@@ -509,7 +369,8 @@ export default function Landing() {
               </div>
 
               <div className="min-w-0">
-                <CodeTabs />
+                <p className="eyebrow mb-3">Have an agent? Hand it this.</p>
+                <AgentQuickstart />
                 <p className="mt-3 text-xs text-fg-subtle">
                   Full reference on the <a href="/developers" className="link">developer portal</a> · OpenAPI at{' '}
                   <a href="https://api.basemail.ai/api/openapi.json" className="link font-mono">api.basemail.ai/api/openapi.json</a>

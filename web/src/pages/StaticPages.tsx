@@ -6,6 +6,7 @@
 import SiteHeader from '../components/SiteHeader';
 import SiteFooter, { EmailOff } from '../components/SiteFooter';
 import { Icon } from '../components/Icons';
+import AgentQuickstart from '../components/AgentQuickstart';
 
 export type PageMeta = {
   path: string;
@@ -281,6 +282,22 @@ export const DEVELOPERS_META: PageMeta = {
     'Everything needed to give an AI agent an email address with BaseMail: quickstart, authentication (SIWE and API keys), OpenAPI 3.1 spec, MCP server, webhooks, rate limits, error model, versioning policy and a Base Sepolia sandbox.',
 };
 
+const WALLET_SNIPPETS = `# viem (TypeScript)
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+const key = generatePrivateKey();               // save this
+const account = privateKeyToAccount(key);
+const signature = await account.signMessage({ message });
+
+# ethers (JavaScript)
+const wallet = ethers.Wallet.createRandom();     // wallet.privateKey — save this
+const signature = await wallet.signMessage(message);
+
+# eth_account (Python)
+from eth_account import Account
+from eth_account.messages import encode_defunct
+acct = Account.create()                           # acct.key.hex() — save this
+signature = Account.sign_message(encode_defunct(text=message), acct.key).signature.to_0x_hex()`;
+
 const QUICK = `# 1. Get a SIWE message
 curl -X POST https://api.basemail.ai/api/auth/start \\
   -H "Content-Type: application/json" \\
@@ -330,12 +347,20 @@ export function Developers() {
     >
       <div className="grid gap-12 lg:grid-cols-[1.1fr_1fr] items-start">
         <div className="space-y-12 min-w-0">
+          <section id="agent-prompt">
+            <h2 className="text-h3 font-semibold mb-2">Let your agent set itself up</h2>
+            <p className="text-sm text-fg-muted mb-4">Paste this into your agent. It reads <code className="font-mono text-fg">llms.txt</code>, creates or uses a Base wallet, registers, and reports its address back.</p>
+            <AgentQuickstart compact />
+          </section>
+
           <section id="quickstart">
-            <h2 className="text-h3 font-semibold mb-4">Quickstart</h2>
+            <h2 className="text-h3 font-semibold mb-4">Quickstart (by hand)</h2>
             <div className="code-panel"><pre tabIndex={0}><code className="font-mono whitespace-pre">{QUICK}</code></pre></div>
             <p className="mt-3 text-sm text-fg-muted">
               The response from step 2 includes <code className="font-mono text-fg">token</code> (a JWT valid for 24 hours) and your address.
-              Use <code className="font-mono text-fg">POST /api/auth/refresh</code> to renew, or create a long-lived API key below.
+              It also returns <code className="font-mono text-fg">refresh_token</code>: renew with{' '}
+              <code className="font-mono text-fg">POST /api/auth/refresh {'{ refresh_token }'}</code>, or simply repeat start + agent-register.
+              Long-running agents should create an API key below.
             </p>
           </section>
 
@@ -344,9 +369,21 @@ export function Developers() {
             <p>Two credentials work in the same <code>Authorization: Bearer …</code> header:</p>
             <ul>
               <li><strong>SIWE session token</strong> — obtained from <code>/api/auth/agent-register</code> (or <code>/api/auth/verify</code> for browser wallets). Expires after 24 hours; refresh with <code>/api/auth/refresh</code>.</li>
-              <li><strong>API key</strong> — create one with <code>POST /api/keys</code> while authenticated. Keys look like <code>bm_live_…</code>, never expire until revoked, and are the recommended credential for long-running agents.</li>
+              <li><strong>API key</strong> — create one with <code>POST /api/keys/create</code> while authenticated (list with <code>GET /api/keys/list</code>, revoke with <code>POST /api/keys/revoke</code>). Keys look like <code>bm_live_…</code>, never expire until revoked, and are the recommended credential for long-running agents.</li>
             </ul>
             <p>Public endpoints (identity lookups, prices, stats, ERC-8004 files) need no credential.</p>
+
+            <h2 id="wallet">Wallet and signing</h2>
+            <p>
+              Any EVM externally-owned account works; there is nothing to register on-chain. If the agent has no wallet, generate one and
+              <strong> keep the private key</strong> — it is the only credential for the address.
+            </p>
+            <pre><code>{WALLET_SNIPPETS}</code></pre>
+            <p>
+              Sign the exact <code>message</code> string from <code>/api/auth/start</code> with EIP-191 <code>personal_sign</code> and send the
+              0x-prefixed signature. The nonce is single-use and valid for 5 minutes. Without a Basename the address is{' '}
+              <code>0x&lt;your address&gt;@basemail.ai</code>; a readable handle can be added later.
+            </p>
 
             <h2 id="webhooks">Receiving email</h2>
             <p>
@@ -357,7 +394,7 @@ export function Developers() {
             <h2 id="pricing">Pricing and limits</h2>
             <ul>
               <li>Email between <code>@basemail.ai</code> addresses: free and unlimited.</li>
-              <li>External email: 1 credit per message. 10 free credits per account; more at roughly $0.002 each via <code>POST /api/credits/buy</code>.</li>
+              <li>External email: 1 credit per message. 10 free credits per account; 0.001 ETH buys about 1,000 credits via <code>POST /api/credits/buy</code> (≈ $0.002–0.003 each), or pay $0.01 per message with MPP.</li>
               <li>$ATTN: 50 on sign-up plus 10 per day. Cold email stakes 3, thread replies stake 1.</li>
               <li>Rate limits: 5 registrations per IP per hour; free accounts may send 30 external emails per IP per hour and 10 per address per hour. Limits are reported in <code>RateLimit-*</code> headers and a <code>429</code> carries <code>Retry-After</code>.</li>
             </ul>

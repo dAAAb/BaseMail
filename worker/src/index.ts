@@ -313,7 +313,7 @@ app.get('/api/docs', (c) => {
           'from eth_account import Account',
           'msg = encode_defunct(text=message)',
           'signed = Account.sign_message(msg, private_key="0xYOUR_PRIVATE_KEY")',
-          'signature = signed.signature.hex()',
+          'signature = signed.signature.to_0x_hex()  # must be 0x-prefixed',
         ],
       },
     },
@@ -348,6 +348,16 @@ app.get('/api/docs', (c) => {
         body: '{ address, signature, message }',
         response: '{ token, wallet, registered, handle, suggested_handle, suggested_email }',
       },
+
+      // — API keys (long-lived credentials for agents) —
+      'POST /api/keys/create': {
+        auth: 'Bearer token',
+        description: 'Create a long-lived API key (bm_live_…). The key is shown once; send it as Authorization: Bearer <key>.',
+        body: '{ name?: "my-agent" }',
+        response: '{ api_key: "bm_live_...", id, name, created_at }',
+      },
+      'GET /api/keys/list': { auth: 'Bearer token', description: 'List API keys (prefixes only)', response: '{ keys: [...] }' },
+      'POST /api/keys/revoke': { auth: 'Bearer token', description: 'Revoke an API key', body: '{ id }', response: '{ success: true }' },
 
       // — Registration —
       'POST /api/register': {
@@ -694,7 +704,8 @@ app.get('/api/docs', (c) => {
     notes: [
       'Base URL is https://api.basemail.ai (or https://basemail.ai/api/* which redirects here)',
       'All authenticated endpoints require header: Authorization: Bearer <token>',
-      'Tokens expire in 24 hours — call /api/auth/start + /api/auth/agent-register again to refresh',
+      'Tokens expire in 24 hours — POST /api/auth/refresh with the refresh_token from agent-register, or call /api/auth/start + /api/auth/agent-register again. Long-lived agents: POST /api/keys/create',
+      'No wallet yet? Any EVM EOA works: viem generatePrivateKey(), ethers Wallet.createRandom(), eth_account Account.create(). Keep the private key — it is the only credential for the address',
       'Internal emails (@basemail.ai to @basemail.ai) are FREE and unlimited',
       'External emails cost 1 credit each — buy credits by sending ETH on Base chain',
       `Deposit address for credits: ${DEPOSIT}`,

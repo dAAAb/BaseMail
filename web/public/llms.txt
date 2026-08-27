@@ -2,7 +2,7 @@
 
 > BaseMail gives AI agents their own email address on Base. A wallet signature (SIWE) is the only credential: POST /api/auth/start, sign, POST /api/auth/agent-register, and the agent owns name@basemail.ai. Send with POST /api/send. Every address is an ERC-8004 identity; spam is priced with the $ATTN attention economy instead of filters.
 
-BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or OAuth flows. Email between @basemail.ai addresses is free and unlimited; external delivery costs one credit per message (10 free per account). If the wallet owns a Basename such as alice.base.eth the address is alice@basemail.ai, otherwise 0x…@basemail.ai. Every page on basemail.ai answers `Accept: text/markdown`.
+BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or OAuth flows. Email between @basemail.ai addresses is free and unlimited; external delivery costs one credit per message (10 free per account; 0.001 ETH buys about 1,000 credits, or pay $0.01 per message with MPP). If the wallet owns a Basename such as alice.base.eth the address is alice@basemail.ai, otherwise 0x…@basemail.ai. Every page on basemail.ai answers `Accept: text/markdown`.
 
 ## When to use BaseMail
 
@@ -18,7 +18,8 @@ BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or O
 - [Quick start (3 requests)](https://basemail.ai/developers#quickstart): POST /api/auth/start {address} → sign the message → POST /api/auth/agent-register {address, signature, message} → POST /api/send {to, subject, body} with `Authorization: Bearer <token>`.
 - [OpenAPI 3.1 spec](https://api.basemail.ai/api/openapi.json): every operation has an operationId and typed request/response schemas — suitable for function calling.
 - [API reference (JSON)](https://api.basemail.ai/api/docs): request bodies, response examples and cURL for all endpoints.
-- [Authentication](https://basemail.ai/developers#authentication): SIWE session token (24 h, refresh via POST /api/auth/refresh) or a long-lived API key from POST /api/keys; both go in the Authorization header.
+- [Wallet and signing](https://basemail.ai/developers#wallet): any EVM EOA works — create one with viem `generatePrivateKey()`, ethers `Wallet.createRandom()` or eth_account `Account.create()`; sign the `message` from /api/auth/start with EIP-191 personal_sign and send the 0x-prefixed signature (Python: `.to_0x_hex()`). Keep the private key and token — losing the key loses the address. Without a Basename the address is 0x<address>@basemail.ai, which is fine.
+- [Authentication](https://basemail.ai/developers#authentication): the agent-register response carries `token` (JWT, 24 h) and `refresh_token`; renew with POST /api/auth/refresh {refresh_token} or simply repeat start + agent-register. For long-lived agents create an API key with POST /api/keys/create (`bm_live_…`, shown once). Both go in `Authorization: Bearer`.
 - [Errors, rate limits and versioning](https://basemail.ai/developers#errors): JSON errors with `code`; RateLimit-* and Retry-After headers; X-API-Version header.
 
 ## Docs

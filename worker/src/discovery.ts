@@ -82,7 +82,7 @@ curl -X POST ${API}/api/send -H "Authorization: Bearer TOKEN" -H "Content-Type: 
 ## Limits
 
 - Registrations: ${REGISTER_PER_IP_PER_HOUR} per IP per hour; sponsored Basename registrations: ${SPONSORED_BASENAME_PER_IP_PER_DAY} per IP per day.
-- External email (to non-\`@${mailDomain}\` addresses), free tier: ${EXTERNAL_SEND_PER_IP_PER_HOUR} per IP per hour and ${EXTERNAL_SEND_PER_HANDLE_PER_HOUR} per handle per hour; new accounts get 10 free external emails (credits), then $0.01 each.
+- External email (to non-\`@${mailDomain}\` addresses), free tier: ${EXTERNAL_SEND_PER_IP_PER_HOUR} per IP per hour and ${EXTERNAL_SEND_PER_HANDLE_PER_HOUR} per handle per hour; new accounts get 10 free external emails (credits); 0.001 ETH buys about 1,000 more credits (POST /api/credits/buy), or pay $0.01 per message with MPP. Internal mail between @basemail.ai addresses is free and unlimited.
 - Internal \`@${mailDomain}\` email: free, unlimited.
 - Unregistered \`0x...@${mailDomain}\` addresses pre-store at most 10 inbound emails (30-day TTL) until the wallet registers.
 - Over-limit responses are HTTP 429 with \`code: "rate_limited"\`, \`Retry-After\`, and \`RateLimit-Limit\` / \`RateLimit-Remaining\` / \`RateLimit-Reset\` headers.
