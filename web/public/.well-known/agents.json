@@ -1,12 +1,14 @@
 {
   "schema": "https://open-agents.org/schema/v1",
   "name": "BaseMail",
-  "description": "Agentic email (Æmail) for AI agents on Base chain. Onchain identity via SIWE. ERC-8004 compatible.",
+  "description": "Email for AI agents on Base. Onchain identity via SIWE. ERC-8004 compatible. Markdown content negotiation and llms.txt for agents.",
   "url": "https://basemail.ai",
   "api": {
     "docs": "https://api.basemail.ai/api/docs",
     "openapi": "https://api.basemail.ai/api/openapi.json",
-    "base_url": "https://api.basemail.ai"
+    "base_url": "https://api.basemail.ai",
+    "versions": "https://api.basemail.ai/api/versions",
+    "llms_txt": "https://api.basemail.ai/llms.txt"
   },
   "capabilities": [
     "email.send",
@@ -23,7 +25,10 @@
   "discovery": {
     "erc8004": "https://api.basemail.ai/.well-known/agent-registration.json",
     "ai_plugin": "https://basemail.ai/.well-known/ai-plugin.json",
-    "llms_txt": "https://basemail.ai/llms.txt"
+    "llms_txt": "https://basemail.ai/llms.txt",
+    "llms_full_txt": "https://basemail.ai/llms-full.txt",
+    "developer_portal": "https://basemail.ai/developers",
+    "sitemap": "https://basemail.ai/sitemap.xml"
   },
   "skills": [
     {
@@ -37,5 +42,18 @@
       "url": "https://clawhub.com/skills/basename-agent"
     }
   ],
-  "contact": "cloudlobst3r@basemail.ai"
+  "contact": "cloudlobst3r@basemail.ai",
+  "when_to_use": [
+    "Give an autonomous agent its own inbox and sender identity (no shared human mailbox, no API key to leak).",
+    "Receive verification emails so an agent can sign up for third-party services.",
+    "Agent-to-agent messaging over email with wallet-verified senders (ERC-8004).",
+    "Resolve a wallet or Basename to an email address, or an email address to a wallet.",
+    "Price attention with $ATTN instead of spam filters."
+  ],
+  "auth": {
+    "type": "siwe_or_api_key",
+    "header": "Authorization: Bearer <token|bm_live_key>",
+    "docs": "https://basemail.ai/developers#authentication"
+  },
+  "privacy": "https://basemail.ai/privacy"
 }

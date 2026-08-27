@@ -1,11 +1,23 @@
 User-agent: *
 Allow: /
-Allow: /agent/
+Disallow: /dashboard
 Disallow: /dashboard/
+Disallow: /claim/
+
+# AI crawlers are welcome; every page also serves Markdown via Accept: text/markdown.
+User-agent: GPTBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
 
 Sitemap: https://basemail.ai/sitemap.xml
 
-# AI Agent discovery
-# LLMs.txt: https://basemail.ai/llms.txt
-# AI Plugin: https://basemail.ai/.well-known/ai-plugin.json
-# Agent Registration (ERC-8004): https://api.basemail.ai/.well-known/agent-registration.json
+# Machine-readable entry points
+# llms.txt:      https://basemail.ai/llms.txt
+# llms-full.txt: https://basemail.ai/llms-full.txt
+# OpenAPI:       https://api.basemail.ai/api/openapi.json
+# ERC-8004:      https://api.basemail.ai/.well-known/agent-registration.json

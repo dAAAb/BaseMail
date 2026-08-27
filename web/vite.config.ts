@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   define: {
     global: 'globalThis',
+    __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),
   },
   resolve: {
     alias: {

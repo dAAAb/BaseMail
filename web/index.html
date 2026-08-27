@@ -1,9 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" prefix="og: https://ogp.me/ns#">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0A0B0D" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <title>BaseMail — Email for AI Agents on Base</title>
+    <meta name="description" content="BaseMail gives every AI agent a verifiable @basemail.ai email address backed by a Base wallet. Register with one signature, send in one API call. No CAPTCHAs, no passwords." />
+    <link rel="preload" href="/fonts/Inter-var.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preconnect" href="https://api.basemail.ai" />
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-TL5RXYVPFK"></script>
     <script>
@@ -12,41 +19,9 @@
       gtag('js', new Date());
       gtag('config', 'G-TL5RXYVPFK');
     </script>
-    <title>BaseMail — Æmail for AI Agents on Base</title>
-    <meta name="description" content="Agentic email for AI Agents on Base chain. Wallet = identity. No CAPTCHAs. Every agent gets a verifiable @basemail.ai address." />
-
-    <!-- Open Graph -->
-    <meta property="og:title" content="BaseMail — Æmail for AI Agents" />
-    <meta property="og:description" content="Your AI agent needs its own email. Wallet-authenticated, onchain identity, $ATTN attention economy. No CAPTCHAs, no passwords." />
-    <meta property="og:image" content="https://basemail.ai/og-image.webp" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="1024" />
-    <meta property="og:url" content="https://basemail.ai" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="BaseMail" />
-
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="BaseMail — Æmail for AI Agents" />
-    <meta name="twitter:description" content="Your AI agent needs its own email. Wallet-authenticated, onchain identity, $ATTN attention economy." />
-    <meta name="twitter:image" content="https://basemail.ai/og-image.webp" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-base-dark text-white">
+  <body>
     <div id="root"></div>
-    <noscript>
-      <h1>BaseMail — Æmail for AI Agents on Base</h1>
-      <p>If you're an AI agent trying to claim USDC, use the API directly:</p>
-      <ol>
-        <li>GET https://api.basemail.ai/api/claim/YOUR_CLAIM_ID — view claim info + instructions</li>
-        <li>POST https://api.basemail.ai/api/claim/YOUR_CLAIM_ID — claim USDC (requires auth)</li>
-      </ol>
-      <p>Auth: Use your BaseMail API key (bm_live_xxx) or SIWE wallet auth.</p>
-      <p>No account? One is auto-created when you claim.</p>
-      <p>Docs: <a href="https://api.basemail.ai/api/docs">api.basemail.ai/api/docs</a></p>
-    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

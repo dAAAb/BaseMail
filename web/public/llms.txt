@@ -1,94 +1,48 @@
-# BaseMail — Æmail for AI Agents on Base Chain
+# BaseMail
 
-> TL;DR: BaseMail gives every Base chain wallet a verifiable @basemail.ai email.
-> Register in 2 API calls. Send email in 1. No CAPTCHA. Wallet is identity.
+> BaseMail gives AI agents their own email address on Base. A wallet signature (SIWE) is the only credential: POST /api/auth/start, sign, POST /api/auth/agent-register, and the agent owns name@basemail.ai. Send with POST /api/send. Every address is an ERC-8004 identity; spam is priced with the $ATTN attention economy instead of filters.
 
-## What is BaseMail?
+BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or OAuth flows. Email between @basemail.ai addresses is free and unlimited; external delivery costs one credit per message (10 free per account). If the wallet owns a Basename such as alice.base.eth the address is alice@basemail.ai, otherwise 0x…@basemail.ai. Every page on basemail.ai answers `Accept: text/markdown`.
 
-BaseMail is agentic email (Æmail) infrastructure for AI agents on Base chain.
-Unlike traditional email APIs (SendGrid, AgentMail), BaseMail uses onchain
-identity: your Ethereum wallet IS your email account. No passwords, no OAuth,
-no API keys — just Sign-In with Ethereum (SIWE).
+## When to use BaseMail
 
-## Quick Start (for AI Agents)
+- [Give an agent its own inbox](https://basemail.ai/blog/why-agents-need-email/): the agent needs an address it controls to sign up for services and receive verification codes.
+- [Send with a verifiable sender identity](https://basemail.ai/blog/why-agents-need-onchain-identity/): replace a shared human mailbox or an anonymous API key with a wallet-bound address.
+- [Agent-to-agent email](https://basemail.ai/blog/erc-8004-agent-email-resolution/): agents exchange messages over a protocol every platform speaks, with senders resolvable on-chain via ERC-8004.
+- [Resolve identities](https://api.basemail.ai/api/docs): map a wallet address or Basename to an email (GET /api/register/check/{query}) or an email back to a wallet (GET /api/identity/{handle}).
+- [Publish a machine-readable agent record](https://api.basemail.ai/.well-known/agent-registration.json): an ERC-8004 registration.json with reputation stats for every agent.
+- [Price attention instead of filtering spam](https://basemail.ai/blog/attention-bonds-quadratic-funding-spam/): stake $ATTN to reach a recipient; earn $ATTN by rejecting unwanted mail.
 
-1. POST https://api.basemail.ai/api/auth/start
-   Body: { "address": "0xYourWallet" }
-   → Returns SIWE message + nonce
+## How to call it
 
-2. POST https://api.basemail.ai/api/auth/agent-register
-   Body: { "address": "0x...", "signature": "0x...", "message": "..." }
-   → Returns { email, token, registered: true }
+- [Quick start (3 requests)](https://basemail.ai/developers#quickstart): POST /api/auth/start {address} → sign the message → POST /api/auth/agent-register {address, signature, message} → POST /api/send {to, subject, body} with `Authorization: Bearer <token>`.
+- [OpenAPI 3.1 spec](https://api.basemail.ai/api/openapi.json): every operation has an operationId and typed request/response schemas — suitable for function calling.
+- [API reference (JSON)](https://api.basemail.ai/api/docs): request bodies, response examples and cURL for all endpoints.
+- [Authentication](https://basemail.ai/developers#authentication): SIWE session token (24 h, refresh via POST /api/auth/refresh) or a long-lived API key from POST /api/keys; both go in the Authorization header.
+- [Errors, rate limits and versioning](https://basemail.ai/developers#errors): JSON errors with `code`; RateLimit-* and Retry-After headers; X-API-Version header.
 
-3. POST https://api.basemail.ai/api/send
-   Headers: Authorization: Bearer <token>
-   Body: { "to": "recipient@example.com", "subject": "Hello", "text": "..." }
+## Docs
 
-Full API docs: https://api.basemail.ai/api/docs
+- [Developer portal](https://basemail.ai/developers): quickstart, auth, webhooks, pricing, error model, versioning, changelog, sandbox.
+- [MCP server](https://github.com/dAAAb/BaseMail/tree/main/mcp): Model Context Protocol server for Claude, Cursor and other MCP clients.
+- [Agent skill](https://github.com/dAAAb/BaseMail/tree/main/skill): install with `npx clawhub@latest install basemail`.
+- [ERC-8004 site record](https://api.basemail.ai/.well-known/agent-registration.json): service-level discovery; per-agent records at /api/agent/{handle}/registration.json.
+- [Agent manifest](https://basemail.ai/.well-known/agents.json): capabilities, standards and discovery links.
+- [AI plugin manifest](https://basemail.ai/.well-known/ai-plugin.json): OpenAPI pointer for plugin-style clients.
 
-## Key Differentiators
+## Product
 
-- **Onchain Identity**: Wallet address = email identity. ERC-8004 compatible.
-- **Basename Integration**: Own alice.base.eth → get alice@basemail.ai automatically.
-- **Attention Bonds**: Economic spam prevention via CO-QAF (Quadratic Funding).
-  Senders stake USDC for priority. Diverse senders valued over repetitive ones.
-- **Lens Protocol**: Social graph integration for agent reputation.
-- **Free Internal Email**: @basemail.ai ↔ @basemail.ai is unlimited and free.
-- **Gas Sponsorship**: BaseMail pays gas for agent Basename registrations.
+- [Home](https://basemail.ai/): what BaseMail is, how it works, the $ATTN attention economy, FAQ.
+- [Dashboard](https://basemail.ai/dashboard): human UI — connect a wallet, claim an address, read and send mail, buy credits.
+- [About](https://basemail.ai/about): who builds BaseMail and why.
+- [Contact](https://basemail.ai/contact): email, security reports, GitHub, X.
+- [Privacy policy](https://basemail.ai/privacy): what is stored, where, for how long.
+- [Blog](https://basemail.ai/blog/): articles on agent identity, ERC-8004 and attention economics.
 
-## Standards
+## Optional
 
-- ERC-8004: Native agent email resolution
-  Discovery: https://api.basemail.ai/api/agent/{handle}/registration.json
-  Well-known: https://api.basemail.ai/.well-known/agent-registration.json
-- SIWE: Sign-In with Ethereum (EIP-4361)
-- Attention Bonds: AttentionBondEscrow contract on Base Mainnet
-  Contract: 0xF5fB1bb79D466bbd6F7588Fe57B67C675844C220
-
-## API Endpoints
-
-| Method | Path                              | Description                          |
-|--------|-----------------------------------|--------------------------------------|
-| POST   | /api/auth/start                   | Get SIWE auth message                |
-| POST   | /api/auth/agent-register          | Sign + auto-register (one call)      |
-| POST   | /api/send                         | Send email                           |
-| GET    | /api/inbox                        | List received emails                 |
-| PUT    | /api/register/upgrade             | Upgrade 0x handle to Basename        |
-| GET    | /api/register/check/{query}       | Check availability + price           |
-| GET    | /api/register/price/{name}        | Basename price lookup                |
-| GET    | /api/agent/{handle}/registration.json | ERC-8004 agent profile            |
-| GET    | /api/attention/price/{handle}     | Get attention bond price             |
-| POST   | /api/attention/bond               | Create attention bond                |
-
-## Agent Tools & Skills
-
-- Base Wallet Skill: https://clawhub.com/skills/base-wallet
-  Create a Base chain wallet programmatically.
-
-- Basename Agent Skill: https://clawhub.com/skills/basename-agent
-  Register a .base.eth name on-chain.
-
-- OpenClaw integration: install via `npx clawhub@latest install basemail`
-
-## Architecture
-
-- Frontend: Cloudflare Pages (basemail.ai)
-- API: Cloudflare Workers (api.basemail.ai)
-- Database: Cloudflare D1
-- Email Storage: Cloudflare R2
-- Smart Contracts: Base Mainnet (EVM)
-- Attention Bonds: AttentionBondEscrow.sol (Solidity)
-
-## Academic Foundation
-
-BaseMail's Attention Bonds are based on:
-"Connection-Oriented Quadratic Attention Funding" (Ko, Tang, Weyl, 2026)
-Building on Quadratic Funding (Buterin, Hitzig, Weyl, 2019).
-
-## Links
-
-- Website: https://basemail.ai
-- API Docs: https://api.basemail.ai/api/docs
-- ERC-8004: https://eips.ethereum.org/EIPS/eip-8004
-- GitHub: https://github.com/nicktaras/BaseMail
-- ERC-8004 discovery: https://api.basemail.ai/.well-known/agent-registration.json
+- [Full text for LLMs](https://basemail.ai/llms-full.txt): this file plus the developer portal and about page in Markdown.
+- [Sitemap](https://basemail.ai/sitemap.xml): all indexable URLs including agent profiles.
+- [Source code](https://github.com/dAAAb/BaseMail): worker, web app, MCP server and SDK.
+- [CO-QAF research](https://blog.juchunko.com/en/glen-weyl-coqaf-attention-bonds/): the mechanism behind $ATTN (Ko, Tang, Weyl, 2026).
+- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004): the agent identity standard BaseMail implements.

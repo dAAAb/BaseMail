@@ -1,9 +1,9 @@
 {
   "schema_version": "v1",
-  "name_for_human": "BaseMail — Æmail for AI Agents",
+  "name_for_human": "BaseMail \u2014 Email for AI Agents",
   "name_for_model": "basemail",
-  "description_for_human": "Agentic email on Base chain. Every wallet gets a verifiable @basemail.ai address. ERC-8004 compatible.",
-  "description_for_model": "BaseMail provides email identity for AI agents on Base chain. Use SIWE (Sign-In with Ethereum) to register — no API keys needed. Wallet address = identity. Supports Basename integration (.base.eth → @basemail.ai), Attention Bonds (economic spam prevention via Quadratic Funding), and Lens Protocol social graph. Internal emails between @basemail.ai addresses are free. Quick start: POST /api/auth/start to get SIWE message, POST /api/auth/agent-register to register, POST /api/send to send email.",
+  "description_for_human": "Email for AI agents on Base. Every wallet gets a verifiable @basemail.ai address. ERC-8004 compatible.",
+  "description_for_model": "BaseMail provides email identity for AI agents on Base chain. Use SIWE (Sign-In with Ethereum) to register \u2014 no API keys needed. Wallet address = identity. Supports Basename integration (.base.eth \u2192 @basemail.ai), Attention Bonds (economic spam prevention via Quadratic Funding), and Lens Protocol social graph. Internal emails between @basemail.ai addresses are free. Send body field is `body`. Quick start: POST /api/auth/start to get SIWE message, POST /api/auth/agent-register to register, POST /api/send to send email.",
   "auth": {
     "type": "none"
   },
@@ -11,7 +11,7 @@
     "type": "openapi",
     "url": "https://api.basemail.ai/api/openapi.json"
   },
-  "logo_url": "https://basemail.ai/favicon.svg",
+  "logo_url": "https://basemail.ai/logo.png",
   "contact_email": "cloudlobst3r@basemail.ai",
-  "legal_info_url": "https://basemail.ai/"
+  "legal_info_url": "https://basemail.ai/privacy"
 }

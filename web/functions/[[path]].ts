@@ -1,371 +1,380 @@
 /**
- * Cloudflare Pages Function — SSR prerender for bots/crawlers.
+ * Cloudflare Pages Function — routing, content negotiation and real 404s.
  *
- * Intercepts requests from search engine bots, social media crawlers, and AI agents.
- * Returns fully-rendered HTML with proper meta tags, JSON-LD, and content.
- * Human visitors get the normal SPA (passthrough to static assets).
+ * Design:
+ * - Public pages (/, /about, /contact, /privacy, /developers, /blog/**) are prerendered at
+ *   build time, so every client (browser, crawler, agent) receives the same complete HTML.
+ *   No User-Agent sniffing.
+ * - `Accept: text/markdown` on those pages returns the Markdown variant that the build
+ *   emits next to each HTML file (index.md). Responses carry `Vary: Accept`.
+ * - App routes (/dashboard/**, /claim/:id) get the empty SPA shell (app.html).
+ * - /agent/:handle is server-rendered for everyone: the SPA shell plus head metadata and a
+ *   semantic HTML summary of the agent so it is indexable; unknown agents are a real 404.
+ * - Anything else is a real 404 (HTML, Markdown or JSON depending on Accept).
  */
-
-const BOT_UA = /googlebot|bingbot|yandex|baiduspider|duckduckbot|slurp|facebookexternalhit|twitterbot|linkedinbot|telegrambot|whatsapp|discordbot|applebot|chatgpt-user|gptbot|claudebot|anthropic|perplexity|cohere-ai|bytespider|semrush|ahref|mj12bot|ia_archiver|archive\.org/i;
-
-// Static file extensions — serve directly without interception
-const STATIC_EXT = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webmanifest)$/i;
-
-const API_BASE = 'https://api.basemail.ai';
 
 interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
 
-export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request } = context;
-  const ua = request.headers.get('user-agent') || '';
-  const url = new URL(request.url);
-  const path = url.pathname;
+const SITE = 'https://basemail.ai';
+const API_BASE = 'https://api.basemail.ai';
 
-  // Static assets: always passthrough
-  if (STATIC_EXT.test(path) || path.startsWith('/assets/')) {
-    return context.next();
-  }
-
-  // Well-known + discovery files: passthrough to static (in public/)
-  if (path === '/robots.txt' || path === '/llms.txt' ||
-      path.startsWith('/.well-known/') || path === '/favicon.svg') {
-    return context.next();
-  }
-
-  // Bot detection — serve SSR
-  const isBot = BOT_UA.test(ua);
-
-  if (isBot) {
-    if (path === '/' || path === '') {
-      return renderLanding(url);
-    }
-
-    const agentMatch = path.match(/^\/agent\/([a-zA-Z0-9_-]+)\/?$/);
-    if (agentMatch) {
-      return renderAgentProfile(agentMatch[1], url);
-    }
-  }
-
-  // Blog: serve static HTML (built by scripts/build-blog.mjs)
-  if (path.startsWith('/blog')) {
-    return context.next();
-  }
-
-  // SPA fallback for SPA routes
-  if (path.startsWith('/agent/') || path.startsWith('/dashboard')) {
-    try {
-      const res = await context.env.ASSETS.fetch(
-        new Request(new URL('/index.html', url.origin))
-      );
-      return new Response(res.body, {
-        status: 200,
-        headers: { 'content-type': 'text/html; charset=utf-8' },
-      });
-    } catch (e) {
-      // Last resort: redirect to / and let SPA handle it
-      return Response.redirect(url.origin + '/#' + path, 302);
-    }
-  }
-
-  // Everything else (including /): passthrough to static files
-  return context.next();
+const STATIC_EXT = /\.(js|mjs|css|png|jpg|jpeg|gif|svg|ico|webp|avif|woff|woff2|ttf|eot|map|webmanifest|txt|xml|json|md|pdf)$/i;
+const PRERENDERED = new Set(['/', '/about', '/contact', '/privacy', '/developers']);
+const REDIRECTS: Record<string, string> = {
+  '/docs': '/developers',
+  '/api-docs': '/developers',
+  '/developer': '/developers',
+  '/blog': '/blog/',
+  '/favicon.ico': '/logo.png',
+  '/openapi.json': `${API_BASE}/api/openapi.json`,
+  '/.well-known/openapi.json': `${API_BASE}/api/openapi.json`,
 };
 
-/* ═══ Landing Page SSR ═══ */
-function renderLanding(url: URL): Response {
-  const html = `<!DOCTYPE html>
-<html lang="en" prefix="og: https://ogp.me/ns#">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BaseMail — Æmail for AI Agents on Base</title>
-  <meta name="description" content="Agentic email for AI agents on Base chain. Every wallet gets a verifiable @basemail.ai address. Attention Bonds powered by Quadratic Funding. ERC-8004 compatible. No CAPTCHAs — wallet is identity." />
-  <meta name="keywords" content="BaseMail, Æmail, agentic email, AI agent email, ERC-8004, Base chain, onchain identity, Basename, attention bonds, quadratic funding, CO-QAF, SIWE, wallet identity, Lens Protocol, agent-to-agent communication" />
-  <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://basemail.ai/" />
+const SECURITY_HEADERS: Record<string, string> = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'x-frame-options': 'SAMEORIGIN',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+};
 
-  <!-- OpenGraph -->
-  <meta property="og:title" content="BaseMail — Æmail for AI Agents on Base" />
-  <meta property="og:description" content="Every Base wallet gets a verifiable @basemail.ai agentic email. Onchain identity + Attention Bonds. ERC-8004 compatible." />
-  <meta property="og:url" content="https://basemail.ai/" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="BaseMail" />
-  <meta property="og:image" content="https://basemail.ai/og-image.png" />
+/* ───────────── Accept negotiation (RFC 9110 §12.5.1) ───────────── */
 
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="BaseMail — Æmail for AI Agents" />
-  <meta name="twitter:description" content="Onchain email identity for AI agents. ERC-8004. Attention Bonds. Wallet is identity." />
-  <meta name="twitter:image" content="https://basemail.ai/og-image.png" />
+type Pref = { html: number; md: number; json: number; any: number; listed: boolean; mdExplicit: boolean };
 
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebApplication",
-    "name": "BaseMail",
-    "alternateName": "Æmail",
-    "description": "Agentic email (Æmail) for AI Agents on Base chain. Any wallet gets a verifiable @basemail.ai email address. Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).",
-    "url": "https://basemail.ai",
-    "applicationCategory": "CommunicationApplication",
-    "operatingSystem": "Any",
-    "offers": {
-      "@type": "Offer",
-      "description": "Internal @basemail.ai emails are free. External emails cost 1 credit each.",
-      "price": "0",
-      "priceCurrency": "USD"
-    },
-    "potentialAction": [
-      { "@type": "Action", "name": "Register Agent", "target": "https://api.basemail.ai/api/auth/agent-register" },
-      { "@type": "Action", "name": "Send Email", "target": "https://api.basemail.ai/api/send" },
-      { "@type": "Action", "name": "Check Identity", "target": "https://api.basemail.ai/api/register/check/{address}" }
-    ],
-    "sameAs": [
-      "https://github.com/nicktaras/BaseMail"
-    ]
+function parseAccept(header: string | null): Pref {
+  const pref: Pref = { html: -1, md: -1, json: -1, any: -1, listed: false, mdExplicit: false };
+  if (!header) return pref;
+  for (const part of header.split(',')) {
+    const [typeRaw, ...params] = part.trim().split(';');
+    const type = typeRaw.trim().toLowerCase();
+    if (!type) continue;
+    let q = 1;
+    for (const p of params) {
+      const m = p.trim().match(/^q=([0-9.]+)$/i);
+      if (m) q = Math.max(0, Math.min(1, parseFloat(m[1]) || 0));
+    }
+    pref.listed = true;
+    if (type === 'text/markdown' || type === 'text/x-markdown') { pref.md = Math.max(pref.md, q); if (q > 0) pref.mdExplicit = true; }
+    else if (type === 'text/html' || type === 'application/xhtml+xml') pref.html = Math.max(pref.html, q);
+    else if (type === 'application/json') pref.json = Math.max(pref.json, q);
+    else if (type === '*/*') pref.any = Math.max(pref.any, q);
+    else if (type === 'text/*') { pref.html = Math.max(pref.html, q); pref.md = Math.max(pref.md, q); }
+    else if (type === 'text/plain') pref.md = Math.max(pref.md, q); // Markdown is plain text
   }
-  </script>
-</head>
-<body>
-  <div id="root">
-    <header>
-      <h1>BaseMail — Æmail for AI Agents on Base</h1>
-      <p>Every Base wallet gets a verifiable <strong>@basemail.ai</strong> agentic email address.</p>
-    </header>
+  return pref;
+}
 
-    <main>
-      <section>
-        <h2>What is BaseMail?</h2>
-        <p>BaseMail gives every Base chain wallet a verifiable email identity. AI agents can register, send, and receive emails — all via API, no CAPTCHA, no browser needed. Your wallet is your identity.</p>
-        <p>Built on <a href="https://eips.ethereum.org/EIPS/eip-8004">ERC-8004</a> — the standard for native agent email resolution.</p>
-      </section>
+/** Which representation to serve for a page that exists as HTML and Markdown. */
+function choose(pref: Pref): 'html' | 'md' | 'json' | 'none' {
+  if (!pref.listed) return 'html';
+  const html = pref.html >= 0 ? pref.html : pref.any;
+  const md = pref.md >= 0 ? pref.md : pref.any;
+  const json = pref.json >= 0 ? pref.json : pref.any;
+  // Only a literal text/markdown wins ties; text/* and */* resolve to HTML.
+  if (pref.mdExplicit && pref.md >= html) return 'md';
+  if (html > 0) return 'html';
+  if (md > 0) return 'md';
+  if (json > 0) return 'json';
+  if (pref.any > 0) return 'html';
+  return 'none';
+}
 
-      <section>
-        <h2>Key Features</h2>
-        <ul>
-          <li><strong>Onchain Identity:</strong> SIWE (Sign-In with Ethereum) authentication. No passwords, no CAPTCHAs.</li>
-          <li><strong>Basename Integration:</strong> Own a .base.eth name → get name@basemail.ai automatically.</li>
-          <li><strong>ERC-8004 Compatible:</strong> Standardized agent email resolution via <code>/api/agent/{handle}/registration.json</code>.</li>
-          <li><strong>Attention Bonds:</strong> Economic spam prevention powered by Connection-Oriented Quadratic Attention Funding (CO-QAF).</li>
-          <li><strong>Lens Protocol:</strong> Social graph integration for agent identity and reputation.</li>
-          <li><strong>Free Internal Email:</strong> @basemail.ai to @basemail.ai emails are unlimited and free.</li>
-          <li><strong>Gas Sponsorship:</strong> BaseMail pays gas for AI agent Basename registrations.</li>
-        </ul>
-      </section>
+function withHeaders(res: Response, extra: Record<string, string>): Response {
+  const out = new Response(res.body, res);
+  for (const [k, v] of Object.entries({ ...SECURITY_HEADERS, ...extra })) out.headers.set(k, v);
+  return out;
+}
 
-      <section>
-        <h2>Quick Start — 2 API Calls</h2>
-        <ol>
-          <li>POST /api/auth/start — Get SIWE auth message</li>
-          <li>POST /api/auth/agent-register — Sign + auto-register</li>
-          <li>POST /api/send — Send email</li>
-        </ol>
-        <p>Full API docs: <a href="https://api.basemail.ai/api/docs">api.basemail.ai/api/docs</a></p>
-      </section>
+function mergeVary(res: Response, value: string) {
+  const cur = res.headers.get('vary');
+  const parts = new Set((cur ? cur.split(',') : []).map((s) => s.trim().toLowerCase()).filter(Boolean));
+  parts.add(value.toLowerCase());
+  res.headers.set('vary', Array.from(parts).map((p) => p.replace(/(^|-)(\w)/g, (_, d, c) => d + c.toUpperCase())).join(', '));
+}
 
-      <section>
-        <h2>Get Started</h2>
-        <h3>Path A: I have a Basename</h3>
-        <p>SIWE sign-in → Basename auto-detected → Claim name@basemail.ai</p>
+async function asset(env: Env, origin: string, path: string): Promise<Response | null> {
+  const res = await env.ASSETS.fetch(new Request(new URL(path, origin)));
+  return res.ok ? res : null;
+}
 
-        <h3>Path B: I have a wallet</h3>
-        <p>Sign in → Get 0x...@basemail.ai → Buy Basename later (we pay gas!)</p>
+/* ───────────── Pages ───────────── */
 
-        <h3>Path C: Starting fresh</h3>
-        <p>Create a Base wallet → Sign in → Upgrade with Basename later</p>
-      </section>
+async function servePage(env: Env, url: URL, request: Request, htmlPath: string, mdPath: string, status = 200): Promise<Response> {
+  const pref = parseAccept(request.headers.get('accept'));
+  const kind = choose(pref);
+  const cache = status === 200 ? 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400' : 'public, max-age=60';
 
-      <section>
-        <h2>Attention Bonds — Economic Spam Prevention</h2>
-        <p>Based on "Connection-Oriented Quadratic Attention Funding" (Ko, Tang, Weyl 2026). Senders stake USDC to get priority attention. Quadratic pricing means diverse senders are valued over repetitive ones.</p>
-      </section>
+  if (kind === 'none') {
+    return withHeaders(new Response(JSON.stringify({ error: 'Not acceptable', code: 'not_acceptable', available: ['text/html', 'text/markdown'] }), {
+      status: 406,
+      headers: { 'content-type': 'application/json; charset=utf-8', vary: 'Accept' },
+    }), {});
+  }
 
-      <section>
-        <h2>FAQ</h2>
-        <dl>
-          <dt>Do I need a Basename?</dt>
-          <dd>No. Start with your 0x wallet address. Upgrade to a human-readable email anytime.</dd>
-          <dt>Why do external emails need credits?</dt>
-          <dd>Emails between @basemail.ai addresses are free. External delivery (Gmail, Outlook) costs 1 credit per email.</dd>
-          <dt>Is Basename registration free?</dt>
-          <dd>BaseMail pays the gas. You only pay the Basename registration fee (starts at 0.002 ETH for 5+ char names).</dd>
-        </dl>
-      </section>
+  if (kind === 'json') {
+    // Pages exist as HTML and Markdown only; tell JSON-only clients what is available.
+    return withHeaders(new Response(JSON.stringify({ error: 'Not acceptable', code: 'not_acceptable', available: ['text/html', 'text/markdown'], markdown: `${SITE}${mdPath}`, api: `${API_BASE}/api/docs` }), {
+      status: 406,
+      headers: { 'content-type': 'application/json; charset=utf-8', vary: 'Accept' },
+    }), {});
+  }
 
-      <section>
-        <h2>AI Agent Tools</h2>
-        <ul>
-          <li><a href="https://clawhub.ai/skill/base-wallet">Base Wallet Skill</a> — Create a Base chain wallet</li>
-          <li><a href="https://clawhub.ai/skill/basename-agent">Basename Agent Skill</a> — Register a .base.eth name</li>
-          <li><a href="https://api.basemail.ai/api/docs">API Documentation</a></li>
-        </ul>
-      </section>
-    </main>
+  if (kind === 'md') {
+    const md = await asset(env, url.origin, mdPath);
+    if (md) {
+      const res = withHeaders(new Response(md.body, { status }), {
+        'content-type': 'text/markdown; charset=utf-8',
+        'cache-control': cache,
+        'content-location': mdPath,
+        'link': `<${SITE}${htmlPath === '/' ? '/' : htmlPath.startsWith('/blog/') ? htmlPath : htmlPath.replace(/\/$/, '')}>; rel="canonical"; type="text/html"`,
+        vary: 'Accept',
+      });
+      return res;
+    }
+  }
 
-    <footer>
-      <p>BaseMail.ai — Æmail for AI Agents on Base Chain. ERC-8004 compatible.</p>
-    </footer>
-  </div>
+  const html = await asset(env, url.origin, htmlPath);
+  if (!html) return notFound(env, url, request);
+  const res = withHeaders(new Response(html.body, { status }), {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': cache,
+  });
+  mergeVary(res, 'Accept');
+  return res;
+}
 
-  <script type="module" src="/src/main.tsx"></script>
-</body>
-</html>`;
-
-  return new Response(html, {
-    headers: {
-      'content-type': 'text/html;charset=UTF-8',
-      'cache-control': 'public, max-age=3600, s-maxage=86400',
-    },
+async function appShell(env: Env, url: URL, extraHead = '', bodyHtml = '', noindex = true): Promise<Response> {
+  const shell = await asset(env, url.origin, '/app');
+  if (!shell) return new Response('App shell missing', { status: 500 });
+  let html = await shell.text();
+  if (noindex) html = html.replace('<meta name="robots" content="noindex" />', '<meta name="robots" content="noindex" />');
+  else html = html.replace('<meta name="robots" content="noindex" />', '<meta name="robots" content="index, follow" />');
+  if (extraHead) {
+    if (/<title>/.test(extraHead)) html = html.replace(/<title>[^<]*<\/title>\s*/, '');
+    html = html.replace('</head>', () => `${extraHead}\n</head>`);
+  }
+  if (bodyHtml) html = html.replace('<div id="root"></div>', () => `<!--email_off--><div id="root">${bodyHtml}</div><!--/email_off-->`);
+  return withHeaders(new Response(html, { status: 200 }), {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    ...(noindex ? { 'x-robots-tag': 'noindex' } : {}),
   });
 }
 
-/* ═══ Agent Profile SSR ═══ */
-async function renderAgentProfile(handle: string, url: URL): Promise<Response> {
-  // Fetch agent data from API
+async function notFound(env: Env, url: URL, request: Request): Promise<Response> {
+  const pref = parseAccept(request.headers.get('accept'));
+  const kind = choose(pref);
+  const hint = {
+    error: 'Not found',
+    code: 'not_found',
+    path: url.pathname,
+    hint: 'This URL does not exist on basemail.ai.',
+    start_here: {
+      home: `${SITE}/`,
+      sitemap: `${SITE}/sitemap.xml`,
+      llms_txt: `${SITE}/llms.txt`,
+      developers: `${SITE}/developers`,
+      api_docs: `${API_BASE}/api/docs`,
+      openapi: `${API_BASE}/api/openapi.json`,
+    },
+  };
+  if (kind === 'json') {
+    return withHeaders(new Response(JSON.stringify(hint, null, 2), { status: 404, headers: { 'content-type': 'application/json; charset=utf-8', vary: 'Accept', 'cache-control': 'public, max-age=60' } }), {});
+  }
+  if (kind === 'md' || kind === 'none') {
+    const md = `# 404 — Not found\n\n\`${url.pathname}\` does not exist on basemail.ai.\n\nStart here instead:\n\n- [Home](${SITE}/)\n- [Sitemap](${SITE}/sitemap.xml)\n- [llms.txt](${SITE}/llms.txt) — machine-readable summary\n- [Developer portal](${SITE}/developers)\n- [API docs](${API_BASE}/api/docs) · [OpenAPI](${API_BASE}/api/openapi.json)\n`;
+    return withHeaders(new Response(md, { status: 404, headers: { 'content-type': 'text/markdown; charset=utf-8', vary: 'Accept', 'cache-control': 'public, max-age=60' } }), {});
+  }
+  const html = await asset(env, url.origin, '/404');
+  const res = withHeaders(new Response(html ? html.body : '<h1>404 — Not found</h1>', { status: 404 }), {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'public, max-age=60',
+  });
+  mergeVary(res, 'Accept');
+  return res;
+}
+
+/* ───────────── Agent profile SSR ───────────── */
+
+const escapeHtml = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+async function agentProfile(env: Env, url: URL, request: Request, handle: string): Promise<Response> {
+  // Handles are case-insensitive upstream; keep one canonical (lower-case) URL.
+  if (handle !== handle.toLowerCase()) {
+    return Response.redirect(`${url.origin}/agent/${handle.toLowerCase()}${url.search}`, 301);
+  }
+  const pref = parseAccept(request.headers.get('accept'));
+  const kind = choose(pref);
+  const regUrl = `${API_BASE}/api/agent/${encodeURIComponent(handle)}/registration.json`;
+  if (kind === 'json') {
+    return new Response(null, { status: 302, headers: { location: regUrl, vary: 'Accept', 'cache-control': 'no-store', ...SECURITY_HEADERS } });
+  }
+  if (kind === 'none') {
+    return withHeaders(new Response(JSON.stringify({ error: 'Not acceptable', code: 'not_acceptable', available: ['text/html', 'text/markdown', 'application/json'], json: regUrl }), {
+      status: 406, headers: { 'content-type': 'application/json; charset=utf-8', vary: 'Accept' },
+    }), {});
+  }
+
   let reg: any = null;
   try {
-    const res = await fetch(`${API_BASE}/api/agent/${handle}/registration.json`, {
-      headers: { 'User-Agent': 'BaseMail-SSR/1.0' },
+    const res = await fetch(regUrl, {
+      headers: { 'user-agent': 'BaseMail-SSR/2.0', accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
+      cf: { cacheEverything: true } as any, // honours the API's own Cache-Control at the edge
     });
-    if (res.ok) reg = await res.json();
-  } catch {}
+    if (res.status === 404) return notFound(env, url, request);
+    if (!res.ok) throw new Error(`upstream ${res.status}`);
+    reg = await res.json();
+  } catch {
+    // Temporary upstream failure: never publish an indexable/cacheable page for an unverified handle.
+    return withHeaders(new Response(JSON.stringify({ error: 'Agent directory temporarily unavailable', code: 'upstream_unavailable', retry: regUrl }), {
+      status: 503,
+      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '30', 'x-robots-tag': 'noindex', vary: 'Accept' },
+    }), {});
+  }
 
-  const name = reg?.name || handle;
-  const description = reg?.description || `AI agent ${handle} on BaseMail`;
-  const image = reg?.image || 'https://basemail.ai/og-image.png';
-  const wallet = reg?.additionalProperty?.find((p: any) => p.name === 'wallet')?.value || '';
+  // Raw values (escaped exactly once at each HTML interpolation below).
+  const rawName: string = String(reg?.name || handle);
+  const rawDesc: string = String(reg?.description || `${handle} is an AI agent with a verifiable email address on BaseMail.`);
   const email = `${handle}@basemail.ai`;
-  const lensHandle = reg?.additionalProperty?.find((p: any) => p.name === 'lens')?.value || '';
+  const wallet: string = String(reg?.services?.find?.((s: any) => s.name === 'wallet')?.endpoint?.split(':').pop() || reg?.additionalProperty?.find?.((p: any) => p.name === 'wallet')?.value || '');
+  const image: string = String(reg?.image || `${SITE}/og-image.png`);
+  const rep = reg?.reputation || {};
+  const pageUrl = `${SITE}/agent/${encodeURIComponent(handle)}`;
+  const rawTitle = `${rawName} (@${handle}) — AI agent on BaseMail`;
+  const rawMetaDesc = `${rawName} is an ERC-8004 registered AI agent on BaseMail. Email: ${email}.${rep.emailsReceived ? ` ${rep.emailsReceived} emails received.` : ''}`;
 
-  // Extract stats from reputation
-  const reputation = reg?.reputation || {};
-  const emailsReceived = reputation.emailsReceived || 0;
-  const emailsSent = reputation.emailsSent || 0;
-  const uniqueSenders = reputation.uniqueSenders || 0;
-  const totalBonds = reputation.totalBondsUsdc || 0;
+  if (kind === 'md') {
+    const md = `# ${rawName} (@${handle})\n\n> ${rawMetaDesc}\n\n- **Email**: ${email}\n${wallet ? `- **Wallet**: ${wallet} (eip155:8453)\n` : ''}- **ERC-8004 registration**: ${regUrl}\n${rep.emailsReceived !== undefined ? `- **Reputation**: ${Number(rep.emailsReceived || 0)} received · ${Number(rep.emailsSent || 0)} sent · ${Number(rep.uniqueSenders || 0)} unique senders\n` : ''}\n${rawDesc}\n\nSend email to ${email} or use the BaseMail API: ${SITE}/developers\n`;
+    return withHeaders(new Response(md, { status: 200, headers: { 'content-type': 'text/markdown; charset=utf-8', vary: 'Accept', 'cache-control': 'public, max-age=60' } }), {});
+  }
 
-  // Services
-  const services = reg?.services || [];
-  const servicesHtml = services.map((s: any) =>
-    `<li><strong>${s.name}:</strong> <a href="${s.endpoint}">${s.endpoint}</a></li>`
-  ).join('\n          ');
-
-  const html = `<!DOCTYPE html>
-<html lang="en" prefix="og: https://ogp.me/ns#">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${name} (@${handle}) — AI Agent Profile | BaseMail ERC-8004</title>
-  <meta name="description" content="${name} is an ERC-8004 registered AI agent on BaseMail.${lensHandle ? ` Connected to Lens Protocol (@${lensHandle}).` : ''} Attention Bonds powered by Quadratic Funding. Email: ${email}" />
-  <meta name="keywords" content="${handle}, ${name}, AI agent, ERC-8004, agent profile, BaseMail, Æmail, Base chain, onchain identity, attention bonds, quadratic funding${lensHandle ? `, ${lensHandle}, Lens Protocol, Lens social graph` : ''}" />
-  <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://basemail.ai/agent/${handle}" />
-
-  <!-- OpenGraph -->
-  <meta property="og:title" content="${name} — AI Agent on BaseMail" />
-  <meta property="og:description" content="ERC-8004 registered agent. Email: ${email}.${emailsReceived ? ` ${emailsReceived} emails received.` : ''}${totalBonds ? ` $${totalBonds.toFixed(2)} bonded.` : ''}${lensHandle ? ` Lens: @${lensHandle}` : ''}" />
-  <meta property="og:image" content="${image}" />
-  <meta property="og:url" content="https://basemail.ai/agent/${handle}" />
-  <meta property="og:type" content="profile" />
-  <meta property="og:site_name" content="BaseMail — Æmail for AI Agents" />
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="${name} — AI Agent Profile" />
-  <meta name="twitter:description" content="ERC-8004 identity on BaseMail. ${description.slice(0, 150)}" />
-  <meta name="twitter:image" content="${image}" />
-
-  <script type="application/ld+json">
-  ${JSON.stringify({
+  const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name,
-    description,
-    url: `https://basemail.ai/agent/${handle}`,
-    image,
-    applicationCategory: 'AI Agent',
-    operatingSystem: 'Base Chain (EVM)',
-    identifier: {
-      '@type': 'PropertyValue',
-      name: 'ERC-8004 Agent Handle',
-      value: handle,
-    },
-    ...(wallet ? {
-      additionalProperty: [
-        { '@type': 'PropertyValue', name: 'wallet', value: wallet },
-        { '@type': 'PropertyValue', name: 'chain', value: 'Base (8453)' },
-        { '@type': 'PropertyValue', name: 'standard', value: 'ERC-8004' },
-        ...(lensHandle ? [{ '@type': 'PropertyValue', name: 'lens', value: lensHandle }] : []),
-      ],
-    } : {}),
-  }, null, 2)}
-  </script>
-</head>
-<body>
-  <div id="root">
-    <header>
-      <h1>${name} (@${handle})</h1>
-      <p>AI Agent Profile on BaseMail — ERC-8004</p>
-    </header>
+    '@graph': [
+      {
+        '@type': 'SoftwareApplication',
+        '@id': `${pageUrl}#agent`,
+        name: rawName,
+        description: rawDesc,
+        url: pageUrl,
+        image,
+        applicationCategory: 'AI Agent',
+        operatingSystem: 'Base (EVM)',
+        identifier: { '@type': 'PropertyValue', name: 'ERC-8004 handle', value: handle },
+        email,
+        ...(wallet ? { additionalProperty: [{ '@type': 'PropertyValue', name: 'wallet', value: wallet }, { '@type': 'PropertyValue', name: 'chain', value: 'eip155:8453' }] } : {}),
+        publisher: { '@type': 'Organization', name: 'BaseMail', url: `${SITE}/` },
+      },
+      { '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'BaseMail', item: `${SITE}/` }, { '@type': 'ListItem', position: 2, name: `@${handle}`, item: pageUrl }] },
+    ],
+  };
 
-    <main>
-      <section>
-        <h2>Agent Identity</h2>
-        <ul>
-          <li><strong>Handle:</strong> ${handle}</li>
-          <li><strong>Email:</strong> ${email}</li>
-          <li><strong>Standard:</strong> <a href="https://eips.ethereum.org/EIPS/eip-8004">ERC-8004</a></li>
-          ${wallet ? `<li><strong>Wallet:</strong> ${wallet}</li>` : ''}
-          ${lensHandle ? `<li><strong>Lens:</strong> <a href="https://hey.xyz/u/${lensHandle}">@${lensHandle}</a></li>` : ''}
-        </ul>
-        <p>${description}</p>
-      </section>
+  const e = escapeHtml;
+  const head = [
+    `<title>${e(rawTitle)}</title>`,
+    `<meta name="description" content="${e(rawMetaDesc)}" />`,
+    `<link rel="canonical" href="${pageUrl}" />`,
+    `<meta property="og:type" content="profile" />`,
+    `<meta property="og:site_name" content="BaseMail" />`,
+    `<meta property="og:title" content="${e(rawTitle)}" />`,
+    `<meta property="og:description" content="${e(rawMetaDesc)}" />`,
+    `<meta property="og:url" content="${pageUrl}" />`,
+    `<meta property="og:image" content="${e(image)}" />`,
+    `<meta name="twitter:card" content="summary" />`,
+    `<meta name="twitter:title" content="${e(rawTitle)}" />`,
+    `<meta name="twitter:description" content="${e(rawMetaDesc)}" />`,
+    `<meta name="twitter:image" content="${e(image)}" />`,
+    `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>`,
+  ].join('\n');
 
-      <section>
-        <h2>Reputation</h2>
-        <ul>
-          <li>Emails Received: ${emailsReceived}</li>
-          <li>Emails Sent: ${emailsSent}</li>
-          <li>Unique Senders: ${uniqueSenders}</li>
-          <li>Total Bonds (USDC): $${totalBonds.toFixed(2)}</li>
-        </ul>
-      </section>
+  // Semantic summary rendered inside #root; React replaces it on hydration (createRoot),
+  // so crawlers and no-JS clients get real content while the app stays unchanged.
+  const body = `<main style="max-width:48rem;margin:0 auto;padding:2rem 1.25rem;font-family:Inter,system-ui,sans-serif;color:#f2f3f5">
+<p><a href="/" style="color:#9aa0a9">BaseMail</a> / agents / ${e(handle)}</p>
+<h1>${e(rawName)} <span style="color:#9aa0a9;font-weight:400">@${e(handle)}</span></h1>
+<p>${e(rawDesc)}</p>
+<dl>
+<dt>Email</dt><dd>${e(email)}</dd>
+${wallet ? `<dt>Wallet</dt><dd>${e(wallet)} (Base, eip155:8453)</dd>` : ''}
+<dt>Standard</dt><dd><a href="https://eips.ethereum.org/EIPS/eip-8004" style="color:#7da2ff">ERC-8004</a> — <a href="${e(regUrl)}" style="color:#7da2ff">registration.json</a></dd>
+${rep.emailsReceived !== undefined ? `<dt>Reputation</dt><dd>${Number(rep.emailsReceived || 0)} received · ${Number(rep.emailsSent || 0)} sent · ${Number(rep.uniqueSenders || 0)} unique senders</dd>` : ''}
+</dl>
+<p>Send email to <strong>${e(email)}</strong> or use the <a href="${SITE}/developers" style="color:#7da2ff">BaseMail API</a>.</p>
+</main>`;
 
-      ${services.length ? `
-      <section>
-        <h2>Services</h2>
-        <ul>
-          ${servicesHtml}
-        </ul>
-      </section>` : ''}
-
-      <section>
-        <h2>Attention Bonds</h2>
-        <p>This agent uses Attention Bonds powered by Connection-Oriented Quadratic Attention Funding (CO-QAF). Stake USDC to get priority email attention.</p>
-        <p><a href="https://api.basemail.ai/api/docs">API Documentation</a></p>
-      </section>
-
-      <section>
-        <h2>Contact This Agent</h2>
-        <p>Send an email to <strong>${email}</strong> or use the BaseMail API.</p>
-        <p><a href="https://basemail.ai/">Back to BaseMail</a></p>
-      </section>
-    </main>
-
-    <footer>
-      <p>BaseMail.ai — Æmail for AI Agents on Base Chain. ERC-8004 compatible.</p>
-    </footer>
-  </div>
-
-  <script type="module" src="/src/main.tsx"></script>
-</body>
-</html>`;
-
-  return new Response(html, {
-    headers: {
-      'content-type': 'text/html;charset=UTF-8',
-      'cache-control': 'public, max-age=600, s-maxage=3600',
-    },
-  });
+  const res = await appShell(env, url, head, body, false);
+  res.headers.set('cache-control', 'public, max-age=60, s-maxage=300');
+  mergeVary(res, 'Accept');
+  return res;
 }
+
+/* ───────────── Router ───────────── */
+
+export const onRequest: PagesFunction<Env> = async (context) => {
+  const { request, env } = context;
+  const url = new URL(request.url);
+  let path = url.pathname;
+
+  // API proxy first (308 keeps the method/body) — mirrors public/_redirects.
+  if (path.startsWith('/api/')) {
+    return Response.redirect(`${API_BASE}${path}${url.search}`, 308);
+  }
+
+  // Normalise: strip trailing slash except root and directories we serve as folders.
+  if (path.length > 1 && path.endsWith('/') && !path.startsWith('/blog/')) {
+    return Response.redirect(url.origin + path.slice(0, -1) + url.search, 301);
+  }
+  // /x/index.html → /x (and /index.html → /)
+  if (path.endsWith('/index.html')) {
+    const pretty = path.slice(0, -'/index.html'.length) || '/';
+    return Response.redirect(url.origin + (pretty === '/' ? '/' : path.startsWith('/blog/') ? pretty + '/' : pretty) + url.search, 301);
+  }
+
+  if (path in REDIRECTS) {
+    const target = REDIRECTS[path];
+    return Response.redirect(target.startsWith('http') ? target : url.origin + target + url.search, 301);
+  }
+
+  // Static assets & machine files: passthrough with cache/security headers.
+  if (path.startsWith('/assets/') || STATIC_EXT.test(path) || path.startsWith('/.well-known/')) {
+    const res = await context.next();
+    if (res.status === 404) return notFound(env, url, request);
+    const out = withHeaders(res, {});
+    if (res.ok && path.startsWith('/assets/')) out.headers.set('cache-control', 'public, max-age=31536000, immutable');
+    if (path === '/llms.txt' || path === '/llms-full.txt' || /\.md$/i.test(path)) {
+      out.headers.set('content-type', 'text/markdown; charset=utf-8');
+      out.headers.set('cache-control', 'public, max-age=300');
+    }
+    return out;
+  }
+
+  // Prerendered public pages (HTML + Markdown negotiation).
+  if (PRERENDERED.has(path)) {
+    const base = path === '/' ? '' : path;
+    return servePage(env, url, request, `${base}/`, `${base}/index.md`);
+  }
+
+  // Blog: static HTML built by scripts/build-blog.mjs, with Markdown variants.
+  if (path.startsWith('/blog/')) {
+    const dir = path.endsWith('/') ? path : `${path}/`;
+    const exists = await asset(env, url.origin, dir);
+    if (!exists) return notFound(env, url, request);
+    await exists.body?.cancel();
+    if (!path.endsWith('/')) return Response.redirect(url.origin + dir + url.search, 301);
+    return servePage(env, url, request, dir, `${dir}index.md`);
+  }
+
+  // Agent profiles: SSR metadata + semantic summary for everyone; real 404 when unknown.
+  const agentMatch = path.match(/^\/agent\/([a-zA-Z0-9_.-]+)$/);
+  if (agentMatch) return agentProfile(env, url, request, agentMatch[1]);
+
+  // Client-only app routes.
+  if (path === '/dashboard' || path.startsWith('/dashboard/') || /^\/claim\/[^/]+$/.test(path)) {
+    return appShell(env, url);
+  }
+
+  return notFound(env, url, request);
+};
