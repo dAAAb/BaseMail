@@ -88,7 +88,7 @@ const L2ResolverABI = [
   },
 ] as const;
 
-const BASE_RPC = 'https://base.publicnode.com';
+const BASE_RPC = 'https://mainnet.base.org';
 const ONE_YEAR = BigInt(365 * 24 * 60 * 60);
 
 /**

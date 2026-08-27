@@ -23,7 +23,7 @@ donateBuyRoutes.get('/quote/:name', async (c) => {
   const years = parseInt(c.req.query('years') || '1');
   const duration = ONE_YEAR * BigInt(years);
 
-  const client = createPublicClient({ chain: base, transport: http('https://base.publicnode.com') });
+  const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') });
 
   try {
     const [price, donation, total] = await client.readContract({

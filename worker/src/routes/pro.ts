@@ -17,8 +17,8 @@ proRoutes.use('/*', authMiddleware());
 const PRO_PRICE_WEI = 8_000_000_000_000_000n; // 0.008 ETH
 const PRO_PRICE_ETH = '0.008';
 
-const BASE_RPC = 'https://base.publicnode.com';
-const ETH_MAINNET_RPC = 'https://ethereum-rpc.publicnode.com';
+const BASE_RPC = 'https://mainnet.base.org';
+const ETH_MAINNET_RPC = 'https://cloudflare-eth.com';
 
 /**
  * GET /api/pro/status

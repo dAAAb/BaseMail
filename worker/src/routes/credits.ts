@@ -18,8 +18,8 @@ creditsRoutes.use('/*', authMiddleware());
 const CREDITS_PER_ETH = 1_000_000; // 1 ETH = 1,000,000 credits
 const MIN_PURCHASE_WEI = 100_000_000_000_000n; // 0.0001 ETH = 100 credits 最低購買量
 
-const BASE_RPC = 'https://base.publicnode.com';
-const ETH_MAINNET_RPC = 'https://ethereum-rpc.publicnode.com';
+const BASE_RPC = 'https://mainnet.base.org';
+const ETH_MAINNET_RPC = 'https://cloudflare-eth.com';
 
 /**
  * GET /api/credits

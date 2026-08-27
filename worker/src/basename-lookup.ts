@@ -22,7 +22,7 @@ import { base, mainnet } from 'viem/chains';
 
 const BASENAME_L2_RESOLVER = '0xC6d566A56A1aFf6508b41f6c90ff131615583BCD' as const;
 const BASENAME_REGISTRAR = '0x03c4738Ee98aE44591e1A4A4F3CaB6641d95DD9a' as const;
-const BASE_RPC = 'https://base.publicnode.com';
+const BASE_RPC = 'https://mainnet.base.org';
 
 const L2ResolverAbi = [
   {
