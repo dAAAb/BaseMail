@@ -43,7 +43,7 @@ const COLS: { title: string; links: { href: string; label: string; external?: bo
       { href: '/contact', label: 'Contact' },
       { href: '/privacy', label: 'Privacy' },
       { href: 'https://github.com/dAAAb/BaseMail', label: 'GitHub', external: true },
-      { href: 'https://x.com/ABaseMailAI', label: 'X (Twitter)', external: true },
+      { href: 'https://x.com/Basemail_ai', label: 'X (Twitter)', external: true },
     ],
   },
 ];

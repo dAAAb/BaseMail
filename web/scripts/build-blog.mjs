@@ -171,7 +171,7 @@ const FOOTER_COLS = [
       { href: '/contact', label: 'Contact' },
       { href: '/privacy', label: 'Privacy' },
       { href: 'https://github.com/dAAAb/BaseMail', label: 'GitHub', external: true },
-      { href: 'https://x.com/ABaseMailAI', label: 'X (Twitter)', external: true },
+      { href: 'https://x.com/Basemail_ai', label: 'X (Twitter)', external: true },
     ],
   },
 ];
@@ -381,7 +381,7 @@ function blogTemplate(meta, bodyHtml, slug, heroImage) {
   <meta property="og:image" content="${ogImage}" />
   <meta property="og:image:width" content="${heroImage ? 1536 : 1200}" />
   <meta property="og:image:height" content="${heroImage ? 1024 : 630}" />
-  <meta name="twitter:site" content="@ABaseMailAI" />
+  <meta name="twitter:site" content="@Basemail_ai" />
   <meta property="article:published_time" content="${published}" />
   <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [
     { '@type': 'ListItem', position: 1, name: 'BaseMail', item: `${SITE}/` },
@@ -470,7 +470,7 @@ function indexTemplate(posts) {
   <meta name="twitter:description" content="${escAttr(description)}" />
   <meta name="twitter:image" content="${OG_FALLBACK}" />
   <meta property="og:locale" content="en_US" />
-  <meta name="twitter:site" content="@ABaseMailAI" />
+  <meta name="twitter:site" content="@Basemail_ai" />
   <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': [
     { '@type': 'Blog', '@id': `${SITE}/blog/#blog`, url, name: 'BaseMail Blog', description, publisher: { '@id': ORG_ID }, inLanguage: 'en',
       blogPost: posts.map((p) => ({ '@type': 'BlogPosting', headline: p.title, url: `${SITE}/blog/${p.slug}/`, datePublished: p.published, ...(p.heroImage ? { image: `${SITE}${p.heroImage}` } : {}) })) },

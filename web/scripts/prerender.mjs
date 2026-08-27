@@ -63,7 +63,7 @@ function headFor(page) {
     `<meta property="og:image:height" content="630" />`,
     `<meta property="og:image:alt" content="BaseMail — email for AI agents on Base" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
-    `<meta name="twitter:site" content="@ABaseMailAI" />`,
+    `<meta name="twitter:site" content="@Basemail_ai" />`,
     `<meta name="twitter:title" content="${esc(page.meta.title)}" />`,
     `<meta name="twitter:description" content="${esc(page.meta.description)}" />`,
     `<meta name="twitter:image" content="${OG_IMAGE}" />`,

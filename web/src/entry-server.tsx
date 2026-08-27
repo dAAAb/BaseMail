@@ -29,7 +29,7 @@ const ORGANIZATION = {
     { '@type': 'ContactPoint', contactType: 'technical support', email: 'cloudlobst3r@basemail.ai', url: `${SITE}/developers` },
   ],
   address: { '@type': 'PostalAddress', addressLocality: 'Taipei', addressCountry: 'TW' },
-  sameAs: ['https://github.com/dAAAb/BaseMail', 'https://x.com/ABaseMailAI'],
+  sameAs: ['https://github.com/dAAAb/BaseMail', 'https://x.com/Basemail_ai'],
 };
 
 const WEBSITE = {

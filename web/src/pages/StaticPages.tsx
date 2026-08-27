@@ -161,7 +161,7 @@ export function Contact() {
             icon: <Icon.X />,
             t: 'X (Twitter)',
             d: 'Product updates, $ATTN announcements and the occasional demo.',
-            action: <a className="link text-sm" href="https://x.com/ABaseMailAI" target="_blank" rel="noopener noreferrer">@ABaseMailAI</a>,
+            action: <a className="link text-sm" href="https://x.com/Basemail_ai" target="_blank" rel="noopener noreferrer">@Basemail_ai</a>,
           },
           {
             icon: <Icon.Terminal />,
