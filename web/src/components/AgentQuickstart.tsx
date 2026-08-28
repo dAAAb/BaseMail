@@ -15,13 +15,15 @@ const CALLS = `POST https://api.basemail.ai/api/auth/start           { address }
 POST https://api.basemail.ai/api/auth/agent-register  { address, signature, message }
 POST https://api.basemail.ai/api/send                 { to, subject, body }`;
 
-const SKILL = `npx clawhub@latest install basemail`;
+const INSTALL = `npm i basemail                        # TypeScript SDK
+npx -y @basemail/mcp-server           # MCP server for Claude Code / Cursor
+npx clawhub@latest install basemail   # OpenClaw / ClawHub skill`;
 
-type TabKey = 'prompt' | 'calls' | 'skill';
+type TabKey = 'prompt' | 'calls' | 'install';
 const TABS: { k: TabKey; label: string; text: string; copyLabel: string }[] = [
   { k: 'prompt', label: 'Prompt for your agent', text: AGENT_PROMPT, copyLabel: 'Copy prompt' },
   { k: 'calls', label: '3 API calls', text: CALLS, copyLabel: 'Copy' },
-  { k: 'skill', label: 'Skill', text: SKILL, copyLabel: 'Copy' },
+  { k: 'install', label: 'Install', text: INSTALL, copyLabel: 'Copy' },
 ];
 
 export default function AgentQuickstart({ compact = false, defaultTab = 'prompt' }: { compact?: boolean; defaultTab?: TabKey }) {
@@ -101,10 +103,11 @@ export default function AgentQuickstart({ compact = false, defaultTab = 'prompt'
           </div>
         ) : (
           <div className="p-5">
-            <pre tabIndex={0} className="!p-0 !text-[15px]"><code className="font-mono whitespace-pre">$ {SKILL}</code></pre>
+            <pre tabIndex={0} className="!p-0 !text-[13px]"><code className="font-mono whitespace-pre">{INSTALL}</code></pre>
             <p className="mt-4 text-xs text-fg-subtle">
-              Installs the BaseMail skill for OpenClaw-compatible agents (register, send, read inbox, buy a Basename).{' '}
-              <a href="https://clawhub.ai/daaab/skills/basemail" target="_blank" rel="noopener noreferrer" className="link">Source</a>
+              <a href="https://www.npmjs.com/package/basemail" target="_blank" rel="noopener noreferrer" className="link">basemail</a> on npm ·{' '}
+              <a href="https://www.npmjs.com/package/@basemail/mcp-server" target="_blank" rel="noopener noreferrer" className="link">@basemail/mcp-server</a> on npm ·{' '}
+              <a href="https://clawhub.ai/daaab/skills/basemail" target="_blank" rel="noopener noreferrer" className="link">skill</a> on ClawHub
             </p>
           </div>
         )}

@@ -333,8 +333,8 @@ export function Developers() {
   const cards: { href: string; t: string; d: string; icon: React.ReactNode; external?: boolean }[] = [
     { href: 'https://api.basemail.ai/api/openapi.json', t: 'OpenAPI 3.1 spec', d: 'Every operation has an operationId, typed request and response schemas, and a shared Error schema. Import it into any client generator or function-calling runtime.', icon: <Icon.Terminal /> },
     { href: 'https://api.basemail.ai/api/docs', t: 'API reference (JSON)', d: 'Human- and machine-readable reference with request bodies, response examples and cURL for every endpoint.', icon: <Icon.Mail /> },
-    { href: 'https://github.com/dAAAb/BaseMail/tree/main/mcp', t: 'MCP server', d: 'Model Context Protocol server for Claude, Cursor and any MCP client: register, send, read inbox, manage $ATTN.', icon: <Icon.Spark />, external: true },
-    { href: 'https://github.com/dAAAb/BaseMail/tree/main/sdk', t: 'TypeScript SDK', d: 'Thin client over the REST API with SIWE helpers for viem and ethers.', icon: <Icon.Key />, external: true },
+    { href: 'https://www.npmjs.com/package/@basemail/mcp-server', t: 'MCP server — @basemail/mcp-server', d: 'claude mcp add basemail -e BASEMAIL_API_KEY=… -- npx -y @basemail/mcp-server. 14 tools (register, send, inbox, keys, $ATTN) for Claude Code, Claude Desktop, Cursor.', icon: <Icon.Spark />, external: true },
+    { href: 'https://www.npmjs.com/package/basemail', t: 'TypeScript SDK — npm i basemail', d: 'new BaseMail({ privateKey }) → register(), send(), inbox(), keys.create(). Typed against the OpenAPI spec, auto-refreshing auth, ESM + CJS.', icon: <Icon.Key />, external: true },
     { href: 'https://clawhub.ai/daaab/skills/basemail', t: 'Agent skill (OpenClaw / ClawHub)', d: 'Install with npx clawhub@latest install basemail and your agent can register itself and send mail.', icon: <Icon.Users />, external: true },
     { href: '/llms.txt', t: 'llms.txt', d: 'Concise, spec-compliant summary for language models: what BaseMail is, when to use it, and where the docs live. Full version at /llms-full.txt.', icon: <Icon.Globe /> },
   ];

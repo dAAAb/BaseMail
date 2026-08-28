@@ -698,7 +698,7 @@ export default function Landing() {
                 <div className="flex flex-wrap gap-2 -mt-6">
                   <a href="/developers" className="btn btn-primary">Developer portal</a>
                   <a href="https://api.basemail.ai/api/openapi.json" className="btn btn-secondary">OpenAPI JSON</a>
-                  <a href="https://github.com/dAAAb/BaseMail/tree/main/mcp" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">MCP server <Icon.ExternalLink size={16} /></a>
+                  <a href="https://www.npmjs.com/package/@basemail/mcp-server" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">MCP server <Icon.ExternalLink size={16} /></a>
                   <a href="/llms.txt" className="btn btn-secondary">llms.txt</a>
                 </div>
               </div>
