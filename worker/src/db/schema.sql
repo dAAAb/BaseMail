@@ -59,6 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_refresh_wallet ON refresh_tokens(wallet);
 -- API keys (long-lived, revocable) for agent usage without private keys
 CREATE TABLE IF NOT EXISTS api_keys (
     key_hash     TEXT PRIMARY KEY,
+    wallet       TEXT NOT NULL,
     handle       TEXT NOT NULL,
     name         TEXT,
     scopes       TEXT NOT NULL DEFAULT 'send,inbox',

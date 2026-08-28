@@ -17,14 +17,24 @@ export function generateApiKey(): string {
   return `bm_live_${hex}`;
 }
 
-export async function storeApiKey(env: Env, handle: string, apiKey: string, name: string | null, scopes: string): Promise<void> {
+export async function storeApiKey(
+  env: Env,
+  handle: string,
+  wallet: string,
+  apiKey: string,
+  name: string | null,
+  scopes: string,
+): Promise<void> {
   const hash = await sha256Hex(apiKey);
   const now = Math.floor(Date.now() / 1000);
+  // NOTE: the production table has `wallet TEXT NOT NULL` (created by the
+  // fallback CREATE TABLE in routes/register.ts + routes/settings.ts), so the
+  // wallet column must always be bound or the INSERT fails with a 500.
   await env.DB.prepare(
-    `INSERT INTO api_keys (key_hash, handle, name, scopes, created_at, last_used_at, revoked_at)
-     VALUES (?, ?, ?, ?, ?, NULL, NULL)`
+    `INSERT INTO api_keys (key_hash, wallet, handle, name, scopes, created_at, last_used_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`
   )
-    .bind(hash, handle, name, scopes, now)
+    .bind(hash, wallet.toLowerCase(), handle, name, scopes, now)
     .run();
 }
 

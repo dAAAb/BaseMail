@@ -18,7 +18,7 @@ keyRoutes.post('/create', async (c) => {
   const scopes = (body?.scopes && body.scopes.length > 0) ? body.scopes.join(',') : 'send,inbox';
 
   const apiKey = generateApiKey();
-  await storeApiKey(c.env, auth.handle, apiKey, name, scopes);
+  await storeApiKey(c.env, auth.handle, auth.wallet || '', apiKey, name, scopes);
 
   return c.json({
     api_key: apiKey,
