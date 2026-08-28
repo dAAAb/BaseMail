@@ -615,8 +615,11 @@ export default function Dashboard() {
             <div className="text-accent font-mono text-sm truncate" title={displayEmail}>
               {showAltEmail && altEmail ? truncateEmail(auth.wallet.toLowerCase()) : truncateEmail(auth.handle!)}
             </div>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <CopyButton text={displayEmail} label="Copy address" />
+              <a href={`/agent/${auth.handle}`} className="btn btn-ghost btn-sm" title="Your public ERC-8004 profile">
+                <Icon.Shield size={14} /> Public profile
+              </a>
             </div>
             {altEmail && (
               <div className="text-fg-subtle text-xs mt-2 truncate">

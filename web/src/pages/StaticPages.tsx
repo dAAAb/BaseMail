@@ -335,7 +335,7 @@ export function Developers() {
     { href: 'https://api.basemail.ai/api/docs', t: 'API reference (JSON)', d: 'Human- and machine-readable reference with request bodies, response examples and cURL for every endpoint.', icon: <Icon.Mail /> },
     { href: 'https://github.com/dAAAb/BaseMail/tree/main/mcp', t: 'MCP server', d: 'Model Context Protocol server for Claude, Cursor and any MCP client: register, send, read inbox, manage $ATTN.', icon: <Icon.Spark />, external: true },
     { href: 'https://github.com/dAAAb/BaseMail/tree/main/sdk', t: 'TypeScript SDK', d: 'Thin client over the REST API with SIWE helpers for viem and ethers.', icon: <Icon.Key />, external: true },
-    { href: 'https://github.com/dAAAb/BaseMail/tree/main/skill', t: 'Agent skill (OpenClaw / ClawHub)', d: 'Install with npx clawhub@latest install basemail and your agent can register itself and send mail.', icon: <Icon.Users />, external: true },
+    { href: 'https://clawhub.ai/daaab/skills/basemail', t: 'Agent skill (OpenClaw / ClawHub)', d: 'Install with npx clawhub@latest install basemail and your agent can register itself and send mail.', icon: <Icon.Users />, external: true },
     { href: '/llms.txt', t: 'llms.txt', d: 'Concise, spec-compliant summary for language models: what BaseMail is, when to use it, and where the docs live. Full version at /llms-full.txt.', icon: <Icon.Globe /> },
   ];
 
@@ -435,19 +435,47 @@ export function Developers() {
           </section>
         </div>
 
-        <aside className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-          {cards.map((c) => (
-            <a
-              key={c.href}
-              href={c.href}
-              className="card card-hover block"
-              {...(c.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-            >
-              <div className="w-9 h-9 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-3">{c.icon}</div>
-              <h3 className="font-semibold text-fg flex items-center gap-1.5">{c.t}{c.external && <Icon.ExternalLink size={14} className="text-fg-subtle" />}</h3>
-              <p className="mt-1 text-sm text-fg-muted leading-relaxed">{c.d}</p>
-            </a>
-          ))}
+        {/* Sticky sidebar: on-this-page + compact resource list, so the column stays balanced while scrolling */}
+        <aside className="lg:sticky lg:top-24 lg:self-start space-y-6">
+          <nav aria-label="On this page" className="card py-4">
+            <p className="eyebrow mb-2">On this page</p>
+            <ul className="text-sm space-y-1.5">
+              {[
+                ['#agent-prompt', 'Prompt for your agent'],
+                ['#quickstart', 'Quickstart'],
+                ['#authentication', 'Authentication'],
+                ['#wallet', 'Wallet and signing'],
+                ['#webhooks', 'Receiving email'],
+                ['#pricing', 'Pricing and limits'],
+                ['#errors', 'Error model'],
+                ['#versioning', 'Versioning'],
+                ['#changelog', 'Changelog'],
+                ['#sandbox', 'Sandbox'],
+              ].map(([href, label]) => (
+                <li key={href}><a href={href} className="text-fg-muted hover:text-fg transition-colors">{label}</a></li>
+              ))}
+            </ul>
+          </nav>
+          <div className="card p-0 sm:p-0 overflow-hidden">
+            <p className="eyebrow px-5 pt-4 pb-2">Resources</p>
+            <ul className="divide-y divide-line">
+              {cards.map((c) => (
+                <li key={c.href}>
+                  <a
+                    href={c.href}
+                    className="flex items-start gap-3 px-5 py-3 hover:bg-surface-2 transition-colors"
+                    {...(c.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  >
+                    <span className="mt-0.5 w-7 h-7 shrink-0 rounded-md bg-accent-soft text-accent flex items-center justify-center">{c.icon}</span>
+                    <span className="min-w-0">
+                      <span className="font-medium text-fg text-sm flex items-center gap-1.5">{c.t}{c.external && <Icon.ExternalLink size={12} className="text-fg-subtle" />}</span>
+                      <span className="block text-xs text-fg-muted leading-relaxed">{c.d}</span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         </aside>
       </div>
     </Shell>

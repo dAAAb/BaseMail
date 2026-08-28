@@ -408,7 +408,7 @@ export default function AgentProfile() {
 
         {/* Lens Social Graph (collapsible, loads on demand) */}
         {lensAccount && (
-          <section>
+          <section id="social">
             <button
               type="button"
               onClick={() => {

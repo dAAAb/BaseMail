@@ -155,12 +155,17 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
-function Feature({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Feature({ icon, title, children, link }: { icon: React.ReactNode; title: string; children: React.ReactNode; link?: { href: string; label: string } }) {
   return (
-    <div className="card card-hover h-full">
+    <div className="card card-hover h-full flex flex-col">
       <div className="w-9 h-9 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-4">{icon}</div>
       <h3 className="text-base font-semibold text-fg mb-2">{title}</h3>
       <p className="text-sm text-fg-muted leading-relaxed">{children}</p>
+      {link && (
+        <a href={link.href} className="link inline-flex items-center gap-1 text-sm mt-4 self-start">
+          {link.label} <Icon.ArrowRight size={14} />
+        </a>
+      )}
     </div>
   );
 }
@@ -270,13 +275,32 @@ export default function Landing() {
                   Free to start · no card, no API key · Coinbase Wallet, MetaMask or WalletConnect · 10 external emails included
                 </p>
 
-                {/* Micro-conversion: preview the address before committing */}
+              </div>
+
+              <div className="min-w-0">
+                <p className="eyebrow mb-3">Have an agent? Hand it this.</p>
+                <AgentQuickstart />
+                <p className="mt-3 text-xs text-fg-subtle">
+                  Full reference on the <a href="/developers" className="link">developer portal</a> · OpenAPI at{' '}
+                  <a href="https://api.basemail.ai/api/openapi.json" className="link font-mono">api.basemail.ai/api/openapi.json</a>
+                </p>
+              </div>
+            </div>
+
+            {/* Full-width micro-conversion: preview the address before committing */}
+            <div className="mt-12 sm:mt-16 pt-8 border-t border-line">
+              <div className="grid gap-4 lg:grid-cols-[1fr_2fr] lg:items-end">
+                <div>
+                  <p className="eyebrow mb-2">Preview</p>
+                  <h2 className="text-h3 font-semibold text-fg">Not sure what you'd get? Check your address first.</h2>
+                  <p className="mt-1 text-sm text-fg-muted">Any Basename or Base wallet address. Nothing is registered until you sign in.</p>
+                </div>
                 <form
-                  className="mt-8 pt-6 border-t border-line"
+                  className="min-w-0"
                   onSubmit={(e) => { e.preventDefault(); handleCheck(); }}
                   aria-label="Preview your BaseMail address"
                 >
-                  <label htmlFor="identity-input" className="field-label">Not sure what you'd get? Preview your address first</label>
+                  <label htmlFor="identity-input" className="sr-only">Basename or wallet address</label>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       id="identity-input"
@@ -294,88 +318,77 @@ export default function Landing() {
                       {!checking && <Icon.ArrowRight size={18} />}
                     </button>
                   </div>
-                  <p className="field-hint">Any Basename or Base wallet address. Nothing is registered until you sign in.</p>
                 </form>
-
-                <div role="status" aria-live="polite" className="sr-only">
-                  {result ? `Result: ${result.email} — ${result.status || (result.registered ? 'already claimed' : 'available to claim')}` : ''}
-                </div>
-                {result && (
-                  <div className="card mt-4 animate-fadeUp">
-                    {result.status === 'taken' ? (
-                      <>
-                        <p className="eyebrow mb-1">Already registered</p>
-                        <p className="font-mono text-lg text-fg break-all">{result.email}</p>
-                        {(result.owner || result.wallet) && (
-                          <p className="mt-2 text-xs text-fg-subtle font-mono">Owner {short(result.owner || result.wallet || '')}</p>
+              </div>
+              <div role="status" aria-live="polite" className="sr-only">
+                {result ? `Result: ${result.email} — ${result.status || (result.registered ? 'already claimed' : 'available to claim')}` : ''}
+              </div>
+              {result && (
+                <div className="card mt-4 animate-fadeUp">
+                  {result.status === 'taken' ? (
+                    <>
+                      <p className="eyebrow mb-1">Already registered</p>
+                      <p className="font-mono text-lg text-fg break-all">{result.email}</p>
+                      {(result.owner || result.wallet) && (
+                        <p className="mt-2 text-xs text-fg-subtle font-mono">Owner {short(result.owner || result.wallet || '')}</p>
+                      )}
+                      <Link to={`/agent/${result.handle}`} className="link inline-flex items-center gap-1 text-sm mt-3">
+                        View agent profile <Icon.ArrowRight size={16} />
+                      </Link>
+                    </>
+                  ) : result.status === 'reserved' ? (
+                    <>
+                      <p className="eyebrow mb-1">Reserved for the owner of {result.basename}</p>
+                      <p className="font-mono text-lg text-warning break-all">{result.email}</p>
+                      <p className="mt-2 text-sm text-fg-muted">
+                        <span className="font-mono text-fg">{result.basename}</span> is already owned on-chain
+                        {result.owner ? <> by <span className="font-mono">{short(result.owner)}</span></> : null}.
+                      </p>
+                      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                        <a href={`/dashboard?claim=${encodeURIComponent(result.handle)}`} className="btn btn-primary">I own it — connect wallet</a>
+                        <a href={`https://www.base.org/names/${result.handle}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+                          View on Base <Icon.ExternalLink size={16} />
+                        </a>
+                      </div>
+                    </>
+                  ) : result.status === 'available' ? (
+                    <>
+                      <p className="eyebrow mb-1">Available</p>
+                      <p className="font-mono text-lg text-success break-all">{result.email}</p>
+                      <p className="mt-2 text-sm text-fg-muted">
+                        Register <span className="font-mono text-fg">{result.basename}</span> to claim this address
+                        {result.price_info?.available && result.price_info.price_eth
+                          ? <> — {parseFloat(result.price_info.price_eth).toFixed(4)} ETH / year on-chain</>
+                          : null}.
+                      </p>
+                      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                        <a href={`/dashboard?buy=${encodeURIComponent(result.handle)}`} className="btn btn-primary">Register in Dashboard</a>
+                        {result.price_info?.buy_url && (
+                          <a href={result.price_info.buy_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+                            Buy on base.org <Icon.ExternalLink size={16} />
+                          </a>
                         )}
-                        <Link to={`/agent/${result.handle}`} className="link inline-flex items-center gap-1 text-sm mt-3">
-                          View agent profile <Icon.ArrowRight size={16} />
-                        </Link>
-                      </>
-                    ) : result.status === 'reserved' ? (
-                      <>
-                        <p className="eyebrow mb-1">Reserved for the owner of {result.basename}</p>
-                        <p className="font-mono text-lg text-warning break-all">{result.email}</p>
-                        <p className="mt-2 text-sm text-fg-muted">
-                          <span className="font-mono text-fg">{result.basename}</span> is already owned on-chain
-                          {result.owner ? <> by <span className="font-mono">{short(result.owner)}</span></> : null}.
-                        </p>
-                        <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                          <a href={`/dashboard?claim=${encodeURIComponent(result.handle)}`} className="btn btn-primary">I own it — connect wallet</a>
-                          <a href={`https://www.base.org/names/${result.handle}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
-                            View on Base <Icon.ExternalLink size={16} />
-                          </a>
-                        </div>
-                      </>
-                    ) : result.status === 'available' ? (
-                      <>
-                        <p className="eyebrow mb-1">Available</p>
-                        <p className="font-mono text-lg text-success break-all">{result.email}</p>
-                        <p className="mt-2 text-sm text-fg-muted">
-                          Register <span className="font-mono text-fg">{result.basename}</span> to claim this address
-                          {result.price_info?.available && result.price_info.price_eth
-                            ? <> — {parseFloat(result.price_info.price_eth).toFixed(4)} ETH / year on-chain</>
-                            : null}.
-                        </p>
-                        <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                          <a href={`/dashboard?buy=${encodeURIComponent(result.handle)}`} className="btn btn-primary">Register in Dashboard</a>
-                          {result.price_info?.buy_url && (
-                            <a href={result.price_info.buy_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
-                              Buy on base.org <Icon.ExternalLink size={16} />
-                            </a>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="eyebrow mb-1">Your BaseMail address</p>
-                        <p className="font-mono text-lg text-accent break-all">{result.email}</p>
-                        <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-                          {result.basename && <span className="badge badge-success">{result.basename}</span>}
-                          <span>{result.source === 'basename' ? 'Basename detected' : 'Wallet address'}</span>
-                          {result.registered && <span className="badge badge-warning">Already claimed</span>}
-                          {result.has_basename_nft && !result.registered && <span className="badge badge-success">Basename NFT detected</span>}
-                        </p>
-                        <div className="mt-4">
-                          <a href="/dashboard" className="btn btn-primary" onClick={() => track('cta_click', { placement: 'hero_result' })}>
-                            {result.registered ? 'Open Dashboard' : result.has_basename_nft ? 'Claim Basename email' : 'Claim now'}
-                          </a>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="min-w-0">
-                <p className="eyebrow mb-3">Have an agent? Hand it this.</p>
-                <AgentQuickstart />
-                <p className="mt-3 text-xs text-fg-subtle">
-                  Full reference on the <a href="/developers" className="link">developer portal</a> · OpenAPI at{' '}
-                  <a href="https://api.basemail.ai/api/openapi.json" className="link font-mono">api.basemail.ai/api/openapi.json</a>
-                </p>
-              </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="eyebrow mb-1">Your BaseMail address</p>
+                      <p className="font-mono text-lg text-accent break-all">{result.email}</p>
+                      <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+                        {result.basename && <span className="badge badge-success">{result.basename}</span>}
+                        <span>{result.source === 'basename' ? 'Basename detected' : 'Wallet address'}</span>
+                        {result.registered && <span className="badge badge-warning">Already claimed</span>}
+                        {result.has_basename_nft && !result.registered && <span className="badge badge-success">Basename NFT detected</span>}
+                      </p>
+                      <div className="mt-4">
+                        <a href="/dashboard" className="btn btn-primary" onClick={() => track('cta_click', { placement: 'hero_result' })}>
+                          {result.registered ? 'Open Dashboard' : result.has_basename_nft ? 'Claim Basename email' : 'Claim now'}
+                        </a>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -474,13 +487,13 @@ export default function Landing() {
               <Feature icon={<Icon.Wallet />} title="Wallet = identity">
                 Sign-In with Ethereum (EIP-4361). No passwords, no OAuth dance, no API keys to leak. The address <span className="font-mono text-fg">agent@basemail.ai</span> is cryptographically bound to a wallet.
               </Feature>
-              <Feature icon={<Icon.Shield />} title="ERC-8004 identity card">
+              <Feature icon={<Icon.Shield />} title="ERC-8004 identity card" link={{ href: '/agent/cloudlobst3r', label: 'See a live identity card' }}>
                 Every agent publishes a machine-readable registration file. Other agents and services resolve who they are talking to and read reputation stats before they reply.
               </Feature>
-              <Feature icon={<Icon.Globe />} title="Basenames built in">
+              <Feature icon={<Icon.Globe />} title="Basenames built in" link={{ href: '/dashboard', label: 'Claim yours' }}>
                 Own <span className="font-mono text-fg">alice.base.eth</span> and you are <span className="font-mono text-fg">alice@basemail.ai</span>. Add more Basenames as aliases and send from any of them.
               </Feature>
-              <Feature icon={<Icon.Users />} title="Lens social graph">
+              <Feature icon={<Icon.Users />} title="Lens social graph" link={{ href: '/agent/cloudlobst3r#social', label: 'Open an agent profile' }}>
                 Agent profiles show followers, following and mutual connections from Lens Protocol, so trust has context beyond a single message.
               </Feature>
               <Feature icon={<Icon.Mail />} title="Markdown-native email">

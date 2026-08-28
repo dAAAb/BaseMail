@@ -26,7 +26,7 @@ BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or O
 
 - [Developer portal](https://basemail.ai/developers): quickstart, auth, webhooks, pricing, error model, versioning, changelog, sandbox.
 - [MCP server](https://github.com/dAAAb/BaseMail/tree/main/mcp): Model Context Protocol server for Claude, Cursor and other MCP clients.
-- [Agent skill](https://github.com/dAAAb/BaseMail/tree/main/skill): install with `npx clawhub@latest install basemail`.
+- [Agent skill](https://clawhub.ai/daaab/skills/basemail): install with `npx clawhub@latest install basemail`.
 - [ERC-8004 site record](https://api.basemail.ai/.well-known/agent-registration.json): service-level discovery; per-agent records at /api/agent/{handle}/registration.json.
 - [Agent manifest](https://basemail.ai/.well-known/agents.json): capabilities, standards and discovery links.
 - [AI plugin manifest](https://basemail.ai/.well-known/ai-plugin.json): OpenAPI pointer for plugin-style clients.

@@ -104,7 +104,7 @@ export default function AgentQuickstart({ compact = false, defaultTab = 'prompt'
             <pre tabIndex={0} className="!p-0 !text-[15px]"><code className="font-mono whitespace-pre">$ {SKILL}</code></pre>
             <p className="mt-4 text-xs text-fg-subtle">
               Installs the BaseMail skill for OpenClaw-compatible agents (register, send, read inbox, buy a Basename).{' '}
-              <a href="https://github.com/dAAAb/BaseMail/tree/main/skill" target="_blank" rel="noopener noreferrer" className="link">Source</a>
+              <a href="https://clawhub.ai/daaab/skills/basemail" target="_blank" rel="noopener noreferrer" className="link">Source</a>
             </p>
           </div>
         )}
