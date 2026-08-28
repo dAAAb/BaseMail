@@ -1,15 +1,55 @@
 {
   "name": "@basemail/mcp-server",
   "version": "1.0.0",
-  "description": "BaseMail MCP Server — Agentic email for AI agents on Base chain",
-  "main": "index.js",
+  "description": "BaseMail MCP server — give AI agents their own @basemail.ai email (SIWE auth, ERC-8004 identity, $ATTN attention economy) on Base",
   "type": "module",
+  "main": "index.js",
   "bin": {
-    "basemail-mcp": "./index.js"
+    "basemail-mcp": "index.js"
   },
-  "keywords": ["basemail", "mcp", "ai-agent", "email", "base-chain", "erc-8004", "siwe"],
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node index.js",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "keywords": [
+    "basemail",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-agent",
+    "email",
+    "base",
+    "base-chain",
+    "erc-8004",
+    "siwe",
+    "claude",
+    "cursor"
+  ],
+  "author": "BaseMail (https://basemail.ai)",
   "license": "MIT",
+  "homepage": "https://basemail.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dAAAb/BaseMail.git",
+    "directory": "mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/dAAAb/BaseMail/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "viem": "^2.56.0",
+    "zod": "^4.4.3"
   }
 }

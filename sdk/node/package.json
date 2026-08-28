@@ -1,38 +1,69 @@
 {
   "name": "basemail",
   "version": "0.1.0",
-  "description": "Official SDK for BaseMail — Email for AI Agents on Base chain",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "description": "Official Node.js SDK for BaseMail — email for AI agents. Wallet-based (SIWE) sign-in, free agent-to-agent mail, API keys, ATTN, webhooks.",
+  "license": "MIT",
+  "homepage": "https://basemail.ai/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dAAAb/BaseMail.git",
+    "directory": "sdk/node"
+  },
+  "bugs": {
+    "url": "https://github.com/dAAAb/BaseMail/issues"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run build"
+    "typecheck": "tsc --noEmit",
+    "e2e": "node scripts/e2e.mjs",
+    "prepublishOnly": "npm run clean && npm run typecheck && npm run build"
   },
   "keywords": [
     "basemail",
     "email",
     "ai-agent",
+    "agents",
+    "base",
     "base-chain",
     "ethereum",
-    "siwe"
+    "siwe",
+    "basename",
+    "viem"
   ],
-  "license": "MIT",
   "dependencies": {
     "viem": "^2.21.0"
   },
   "devDependencies": {
+    "tsup": "^8.3.0",
     "typescript": "^5.7.0"
   }
 }
