@@ -533,8 +533,10 @@ sendRoutes.post('/', async (c) => {
 
     if (!acct || acct.credits < 1) {
       return c.json({
-        error: "You've used all your free email credits",
-        credits: 0,
+        error: 'Out of external email credits',
+        code: 'insufficient_credits',
+        credits: acct?.credits ?? 0,
+        note: 'Email to other @basemail.ai addresses is still free and unlimited.',
         upgrade: {
           message: 'Every BaseMail account starts with 10 free external emails. To keep sending, add credits — just $0.002 per email.',
           pricing: '0.001 ETH ≈ 1,000 emails (~$2.70)',

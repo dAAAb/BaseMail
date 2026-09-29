@@ -869,7 +869,7 @@ Object.assign(paths, {
     put: {
       operationId: 'upgradeHandle', tags: ['Registration'],
       summary: 'Upgrade 0x handle to a Basename handle',
-      description: 'For accounts registered as `0x…@basemail.ai`. Either claim a Basename you already own (`basename`, or auto-detected via reverse resolution) or buy one (`auto_basename` + `basename_name`; platform pays gas, names > 0.002 ETH rejected). Migrates all emails, keys, bonds and settings to the new handle and returns a new JWT. Auth: Bearer. Rate limited: sponsored purchases 2/IP/day.',
+      description: 'For accounts registered as `0x…@basemail.ai`. Either claim a Basename you already own (`basename`, or auto-detected via reverse resolution) or buy one (`auto_basename` + `basename_name`; platform pays gas, names > 0.002 ETH rejected). Migrates all emails, keys, bonds and settings to the new handle and keeps the credit balance, credit history, Pro tier and ATTN; returns a new JWT. Auth: Bearer. Rate limited: sponsored purchases 2/IP/day.',
       requestBody: jsonBody(ref('RegisterRequest'), { auto_basename: true, basename_name: 'desiredname' }, false),
       responses: {
         '200': jsonRes('Handle upgraded', ref('UpgradeResponse')),
@@ -950,7 +950,7 @@ Object.assign(paths, {
         '200': jsonRes('Sent', ref('SendResponse'), { success: true, email_id: 'msg-123', from: 'alice@basemail.ai', to: 'recipient@example.com', subject: 'Hello from AI', internal: false, attachments: 0 }),
         '400': errRes('Validation failed: missing to/subject/body, invalid recipient, attachment > 10 MB, bad USDC payment, or unverifiable `from_handle`', { error: 'to, subject, and body are required' }),
         '401': unauthorized(),
-        '402': errRes('Out of credits (external send), or MPP payment challenge when no Bearer token is sent', { error: "You've used all your free email credits", credits: 0, upgrade: { message: 'Every BaseMail account starts with 10 free external emails. To keep sending, add credits — just $0.002 per email.', pricing: '0.001 ETH ≈ 1,000 emails (~$2.70)', how_to: 'Send ETH on Base to your deposit address, then call POST /api/credits/buy with the tx_hash.', dashboard: 'https://basemail.ai/dashboard/credits', docs: 'https://api.basemail.ai/api/docs' } }),
+        '402': errRes('Out of credits (external send), or MPP payment challenge when no Bearer token is sent', { error: 'Out of external email credits', code: 'insufficient_credits', credits: 0, note: 'Email to other @basemail.ai addresses is still free and unlimited.', upgrade: { message: 'Every BaseMail account starts with 10 free external emails. To keep sending, add credits — just $0.002 per email.', pricing: '0.001 ETH ≈ 1,000 emails (~$2.70)', how_to: 'Send ETH on Base to your deposit address, then call POST /api/credits/buy with the tx_hash.', dashboard: 'https://basemail.ai/dashboard/credits', docs: 'https://api.basemail.ai/api/docs' } }),
         '403': errRes('No handle registered for this credential', { error: 'No email registered for this wallet or API key' }),
         '404': errRes('Internal recipient does not exist (only 0x addresses can receive pre-registration mail)', { error: 'Recipient not found: bob@basemail.ai' }),
         '413': errRes('Pre-storage email too large (max 1 MB)', { error: 'Email too large for pre-storage (max 1MB)' }),
@@ -1558,7 +1558,7 @@ Object.assign(paths, {
     put: {
       operationId: 'setPrimaryHandle', tags: ['Settings', 'Aliases'],
       summary: 'Switch primary handle',
-      description: 'Promotes one of your aliases to be the primary handle/email; migrates all data and returns a new JWT. Auth: Bearer.',
+      description: 'Promotes one of your aliases to be the primary handle/email; migrates all data (credits, Pro tier and history included) and returns a new JWT. Auth: Bearer.',
       requestBody: jsonBody(ref('PrimaryHandleRequest'), { handle: 'canflyai' }),
       responses: {
         '200': jsonRes('Switched', ref('PrimaryHandleResponse')),

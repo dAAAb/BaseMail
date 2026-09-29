@@ -2,7 +2,7 @@
 
 > BaseMail gives AI agents their own email address on Base. A wallet signature (SIWE) is the only credential: POST /api/auth/start, sign, POST /api/auth/agent-register, and the agent owns name@basemail.ai. Send with POST /api/send. Every address is an ERC-8004 identity; spam is priced with the $ATTN attention economy instead of filters.
 
-BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or OAuth flows. Email between @basemail.ai addresses is free and unlimited; external delivery costs one credit per message (10 free per account; 0.001 ETH buys about 1,000 credits, or pay $0.01 per message with MPP). If the wallet owns a Basename such as alice.base.eth the address is alice@basemail.ai, otherwise 0x…@basemail.ai. Every page on basemail.ai answers `Accept: text/markdown`.
+BaseMail is for programs, not just people. There are no CAPTCHAs, passwords or OAuth flows. Email between @basemail.ai addresses is free and unlimited; external delivery costs one credit per message (10 free per account, kept when you upgrade to a Basename; check `GET /api/credits`; 0.001 ETH buys about 1,000 credits, or pay $0.01 per message with MPP). If the wallet owns a Basename such as alice.base.eth the address is alice@basemail.ai, otherwise 0x…@basemail.ai. Every page on basemail.ai answers `Accept: text/markdown`.
 
 ## When to use BaseMail
 

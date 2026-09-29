@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
+import { cloneAccountRow } from '../accounts';
 import { authMiddleware, createToken } from '../auth';
 import { mppCharge, mppReceiptMiddleware } from '../mpp';
 import { resolveHandle, basenameToHandle, verifyBasenameOwnership, getBasenameExpiry, getBasenameForAddress } from '../basename-lookup';
@@ -263,7 +264,7 @@ registerRoutes.post('/', mppReceiptMiddleware(), mppCharge('1.00'), authMiddlewa
             method: 'PUT',
             url: '/api/register/upgrade',
             body: { auto_basename: true, basename_name: 'desiredname' },
-            note: 'We buy the Basename for you on-chain. Check price first: GET /api/register/price/:name',
+            note: 'We buy the Basename for you on-chain. Check price first: GET /api/register/price/:name. Your emails and free credits carry over.',
           },
           {
             action: 'buy_yourself',
@@ -414,8 +415,8 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   // This avoids any PRAGMA hacks (D1 doesn't support FK deferral reliably).
   // Step 1: Get old account data for copying
   const oldAccount = await c.env.DB.prepare(
-    'SELECT handle, wallet, basename, webhook_url, created_at, tx_hash FROM accounts WHERE wallet = ?'
-  ).bind(auth.wallet).first<{ handle: string; wallet: string; basename: string | null; webhook_url: string | null; created_at: number; tx_hash: string | null }>();
+    'SELECT * FROM accounts WHERE wallet = ?'
+  ).bind(auth.wallet).first<Record<string, unknown>>();
 
   if (!oldAccount) {
     return c.json({ error: 'Account not found during upgrade' }, 500);
@@ -423,9 +424,7 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
 
   // Step 2: Insert new account with new handle (use temp wallet to avoid UNIQUE conflict)
   const tempWallet = `UPGRADE_${Date.now()}`;
-  await c.env.DB.prepare(
-    'INSERT INTO accounts (handle, wallet, basename, webhook_url, created_at, tx_hash) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(newHandle, tempWallet, basenames, oldAccount.webhook_url, oldAccount.created_at, oldAccount.tx_hash).run();
+  await cloneAccountRow(c.env.DB, oldAccount, { handle: newHandle, wallet: tempWallet, basename: basenames }).run();
 
   // Step 3: Ensure optional tables exist before migrating
   await c.env.DB.batch([
@@ -454,6 +453,8 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
     c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
     c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE credit_transactions SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
+    c.env.DB.prepare('UPDATE webhooks SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
     c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
     c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
     c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?').bind(newHandle, oldHandle),
