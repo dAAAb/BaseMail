@@ -42,6 +42,8 @@
   --accent: #0052ff;
   --accent-hover: #2e6bff;
   --attn: #8b5cf6;
+  /* Sticky SiteHeader: h-16 (4rem) + 1px bottom border */
+  --nav-height: calc(4rem + 1px);
   color-scheme: dark;
 }
 
@@ -49,6 +51,11 @@
   html {
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
+  }
+  /* Keep in-page anchor targets (e.g. /developers#wallet) clear of the sticky header */
+  :target,
+  [id] {
+    scroll-margin-top: calc(var(--nav-height) + 1rem);
   }
   body {
     @apply bg-bg text-fg font-sans antialiased;
