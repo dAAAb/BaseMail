@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
-import { cloneAccountRow } from '../accounts';
+import { isStaleHandlePlaceholder, moveAccountHandle } from '../accounts';
 import { authMiddleware, createToken } from '../auth';
 import { mppCharge, mppReceiptMiddleware } from '../mpp';
 import { resolveHandle, basenameToHandle, verifyBasenameOwnership, getBasenameExpiry, getBasenameForAddress } from '../basename-lookup';
@@ -14,6 +14,32 @@ export const registerRoutes = new Hono<AppBindings>();
 
 // Maximum price the platform will auto-pay for a Basename (blocks 4-char and shorter names)
 const MAX_AUTO_BASENAME_PRICE = 2000000000000000n; // 0.002 ETH (~$5)
+
+/**
+ * How an agent gets `<name>@basemail.ai` when <name>.base.eth is still unregistered.
+ * Agents kept reading the on-chain price as "my wallet must pay it" — say plainly
+ * that the sponsored path costs the caller nothing.
+ */
+function sponsoredBasenameInfo(name: string, priceWei: bigint) {
+  if (priceWei > MAX_AUTO_BASENAME_PRICE) {
+    return {
+      sponsored: false,
+      reason: `${formatEther(priceWei)} ETH is above the ${formatEther(MAX_AUTO_BASENAME_PRICE)} ETH sponsorship limit (names under 5 characters). Buy it with your own wallet at https://www.base.org/names/${name}, then PUT /api/register/upgrade {"basename":"${name}.base.eth"}.`,
+    };
+  }
+  return {
+    sponsored: true,
+    cost_to_you_eth: '0',
+    description: `BaseMail pays the ${formatEther(priceWei)} ETH registration fee and the gas. Your wallet needs no ETH; ${name}.base.eth is minted to your wallet and your emails and credits carry over.`,
+    steps: [
+      { step: 1, action: 'Register a 0x… inbox (skip if you already have a token)', method: 'POST', url: '/api/auth/agent-register' },
+      { step: 2, action: `Upgrade to ${name}@basemail.ai`, method: 'PUT', url: '/api/register/upgrade', auth: 'Bearer <token>', body: { auto_basename: true, basename_name: name } },
+      { step: 3, action: 'Use the new token from the response — it carries the new handle' },
+    ],
+    limits: `${SPONSORED_BASENAME_PER_IP_PER_DAY} sponsored names per IP per day; one per account.`,
+    retry: 'If the upgrade call fails after the name was bought, the response says so (basename_owned: true); retrying with {"basename":"<name>.base.eth"} never buys it twice.',
+  };
+}
 
 /**
  * POST /api/register
@@ -264,7 +290,7 @@ registerRoutes.post('/', mppReceiptMiddleware(), mppCharge('1.00'), authMiddlewa
             method: 'PUT',
             url: '/api/register/upgrade',
             body: { auto_basename: true, basename_name: 'desiredname' },
-            note: 'We buy the Basename for you on-chain. Check price first: GET /api/register/price/:name. Your emails and free credits carry over.',
+            note: 'BaseMail buys the Basename for you on-chain and pays the fee and gas — your wallet needs no ETH (names of 5+ characters). Check availability first: GET /api/register/check/:name. Your emails and free credits carry over.',
           },
           {
             action: 'buy_yourself',
@@ -315,7 +341,8 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
   }
 
   let basenames: string | null = null;
-  let newHandle: string;
+  let newHandle!: string;
+  let purchaseTx: string | null = null;
 
   if (body.auto_basename) {
     if (await isRateLimited(c, 'sponsored-basename', clientIp(c), SPONSORED_BASENAME_PER_IP_PER_DAY, 86400)) {
@@ -329,6 +356,14 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     const name = body.basename_name;
     if (!name || !isValidBasename(name)) {
       return c.json({ error: 'basename_name is required (3-32 chars, a-z, 0-9, -)' }, 400);
+    }
+
+    // Refuse before spending ETH if another BaseMail account already holds the handle
+    const holder = await c.env.DB.prepare(
+      'SELECT wallet FROM accounts WHERE handle = ?'
+    ).bind(name).first<{ wallet: string }>();
+    if (holder && !isStaleHandlePlaceholder(holder.wallet)) {
+      return c.json({ error: `${name}@${c.env.DOMAIN} is already registered by another wallet` }, 409);
     }
 
     const available = await isBasenameAvailable(name);
@@ -375,6 +410,7 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
         );
         basenames = result.fullName;
         newHandle = name;
+        purchaseTx = result.txHash;
       } catch (e: any) {
         return c.json({ error: `Basename registration failed: ${e.message}` }, 500);
       }
@@ -401,19 +437,17 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
 
   const oldHandle = account.handle;
 
-  // 檢查新 handle 是否已被占用
+  // 檢查新 handle 是否已被占用（stale placeholder from an earlier failed upgrade can be replaced:
+  // ownership of the Basename was verified above）
   const existing = await c.env.DB.prepare(
-    'SELECT handle FROM accounts WHERE handle = ?'
-  ).bind(newHandle).first();
+    'SELECT wallet FROM accounts WHERE handle = ?'
+  ).bind(newHandle).first<{ wallet: string }>();
+  const staleWallet = existing && isStaleHandlePlaceholder(existing.wallet) ? existing.wallet : undefined;
 
-  if (existing) {
+  if (existing && !staleWallet) {
     return c.json({ error: 'This Basename handle is already registered by another wallet' }, 409);
   }
 
-  // 更新帳號 handle + 遷移所有 FK 子表
-  // Strategy: Insert new handle first → migrate children → delete old handle.
-  // This avoids any PRAGMA hacks (D1 doesn't support FK deferral reliably).
-  // Step 1: Get old account data for copying
   const oldAccount = await c.env.DB.prepare(
     'SELECT * FROM accounts WHERE wallet = ?'
   ).bind(auth.wallet).first<Record<string, unknown>>();
@@ -422,59 +456,41 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     return c.json({ error: 'Account not found during upgrade' }, 500);
   }
 
-  // Step 2: Insert new account with new handle (use temp wallet to avoid UNIQUE conflict)
-  const tempWallet = `UPGRADE_${Date.now()}`;
-  await cloneAccountRow(c.env.DB, oldAccount, { handle: newHandle, wallet: tempWallet, basename: basenames }).run();
-
-  // Step 3: Ensure optional tables exist before migrating
-  await c.env.DB.batch([
-    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (
-      token_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL,
-      last_used_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
-    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
-      key_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
-      name TEXT, scopes TEXT NOT NULL DEFAULT 'send,inbox',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()), last_used_at INTEGER,
-      revoked_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
-  ]);
-
-  // Step 4: Migrate all child tables (newHandle now exists in accounts, so FK is satisfied)
-  // Then delete old account and fix wallet on new account.
-  const batchResults = await c.env.DB.batch([
-    // Migrate child tables
-    c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE refresh_tokens SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE api_keys SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_config SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE credit_transactions SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE webhooks SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?').bind(newHandle, oldHandle),
-    // Delete old account (no children reference it anymore)
-    c.env.DB.prepare('DELETE FROM accounts WHERE handle = ?').bind(oldHandle),
-    // Fix wallet on new account (now unique since old row is deleted)
-    c.env.DB.prepare('UPDATE accounts SET wallet = ? WHERE handle = ?').bind(auth.wallet, newHandle),
-  ]);
-  const migratedCount = batchResults[0]?.meta?.changes || 0;
-
-  // Insert into basename_aliases with is_primary=1
+  let expiry = 0;
   if (basenames) {
-    const aliasId = `alias-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
-    let expiry = 0;
     try { expiry = await getBasenameExpiry(basenames); } catch {}
-    await c.env.DB.prepare(
-      `INSERT INTO basename_aliases (id, wallet, handle, basename, is_primary, expiry)
-       VALUES (?, ?, ?, ?, 1, ?)
-       ON CONFLICT(handle) DO UPDATE SET is_primary = 1, expiry = ?`
-    ).bind(aliasId, auth.wallet, newHandle, basenames, expiry || null, expiry || null).run();
+  }
+  const aliasId = `alias-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+
+  // Move handle + all child rows + primary alias in one atomic batch
+  let migratedCount = 0;
+  try {
+    ({ migratedEmails: migratedCount } = await moveAccountHandle(c.env.DB, oldAccount, {
+      newHandle,
+      basename: basenames,
+      replaceStaleWallet: staleWallet,
+      extra: basenames ? [
+        c.env.DB.prepare(
+          `INSERT INTO basename_aliases (id, wallet, handle, basename, is_primary, expiry)
+           VALUES (?, ?, ?, ?, 1, ?)
+           ON CONFLICT(handle) DO UPDATE SET is_primary = 1, expiry = ?`
+        ).bind(aliasId, auth.wallet, newHandle, basenames, expiry || null, expiry || null),
+      ] : [],
+    }));
+  } catch (e: any) {
+    console.log('[upgrade] migration failed:', e.message, e.stack);
+    return c.json({
+      error: `Upgrade failed while moving the account: ${e.message}`,
+      code: 'upgrade_migration_failed',
+      current_email: `${oldHandle}@${c.env.DOMAIN}`,
+      basename: basenames,
+      basename_owned: !!basenames,
+      purchase_tx: purchaseTx,
+      retry_safe: true,
+      hint: basenames
+        ? `Nothing changed in BaseMail and your current address still works. ${basenames} is already owned by your wallet, so retrying will not buy it again: PUT /api/register/upgrade {"basename":"${basenames}"}.`
+        : 'Nothing changed in BaseMail and your current address still works. Retry the same request.',
+    }, 500);
   }
 
   // 發新 token
@@ -489,6 +505,7 @@ registerRoutes.put('/upgrade', authMiddleware(), async (c) => {
     basename: basenames,
     token: newToken,
     migrated_emails: migratedCount,
+    ...(purchaseTx ? { purchase_tx: purchaseTx, paid_by: 'basemail' } : {}),
   });
   } catch (e: any) {
     console.log('[upgrade] Error:', e.message, e.stack);
@@ -566,9 +583,10 @@ registerRoutes.get('/check/:input', async (c) => {
     const existing = await c.env.DB.prepare(
       'SELECT handle, wallet FROM accounts WHERE handle = ?'
     ).bind(name).first<{ handle: string; wallet: string }>();
-    response.registered = !!existing;
+    const stuck = !!existing && isStaleHandlePlaceholder(existing.wallet);
+    response.registered = !!existing && !stuck;
     response.available_basemail = !existing;
-    if (existing?.wallet) response.wallet = existing.wallet;
+    if (existing?.wallet && !stuck) response.wallet = existing.wallet;
 
     // Check on-chain Basename availability + price
     try {
@@ -607,7 +625,10 @@ registerRoutes.get('/check/:input', async (c) => {
       }
 
       // Determine overall status
-      if (existing) {
+      if (stuck) {
+        response.status = 'upgrade_incomplete';
+        response.note = `An earlier upgrade to ${name}@${c.env.DOMAIN} did not finish. The wallet that owns ${name}.base.eth can complete it: PUT /api/register/upgrade {"basename":"${name}.base.eth"} (no new purchase).`;
+      } else if (existing) {
         response.status = 'taken';
       } else if (available) {
         response.status = 'available';
@@ -619,19 +640,16 @@ registerRoutes.get('/check/:input', async (c) => {
       response.status = existing ? 'taken' : 'unknown';
     }
 
-    // Direct buy flow for available names
+    // Available names: the sponsored path first, self-purchase second
     if (response.status === 'available' && response.price_info?.available) {
+      response.get_this_email = sponsoredBasenameInfo(name, BigInt(response.price_info.price_wei));
       response.direct_buy = {
-        description: 'Buy this Basename directly with your wallet, then register on BaseMail.',
+        description: 'Alternative: buy this Basename yourself with your own wallet (you pay the ETH), then register on BaseMail.',
         steps: [
           { step: 1, action: 'Connect wallet in Dashboard', url: '/dashboard' },
           { step: 2, action: `Buy ${name}.base.eth`, url: response.price_info.buy_url, method: 'on-chain', price: response.price_info.price_eth + ' ETH' },
           { step: 3, action: 'Register on BaseMail with your new Basename', url: '/dashboard', method: 'POST /api/auth/agent-register' },
         ],
-        alternative: {
-          description: 'Or use auto_basename in the Dashboard to buy + register in one click.',
-          url: '/dashboard',
-        },
       };
     }
   }
@@ -668,6 +686,7 @@ registerRoutes.get('/price/:name', async (c) => {
       available: true,
       price_wei: priceWei.toString(),
       price_eth: formatEther(priceWei),
+      get_this_email: sponsoredBasenameInfo(name, priceWei),
     });
   } catch (e: any) {
     return c.json({ error: `Price query failed: ${e.message}` }, 500);

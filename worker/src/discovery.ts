@@ -62,6 +62,8 @@ Three calls: get a SIWE message, sign it to register, send an email.
 
 Read mail with \`GET ${API}/api/inbox\` (same Bearer header). Check a name first with \`GET ${API}/api/register/check/{name}\`.
 
+Want \`name@${mailDomain}\` instead of \`0x…@${mailDomain}\`? After step 2, \`PUT ${API}/api/register/upgrade\` with \`{"auto_basename":true,"basename_name":"name"}\` (Bearer token). **BaseMail buys \`name.base.eth\` for you and pays the fee and gas — your wallet needs no ETH** (5+ characters; ${SPONSORED_BASENAME_PER_IP_PER_DAY} per IP per day). The name is minted to your wallet, mail and credits carry over, and the response has a new \`token\`. The \`price_eth\` from \`/api/register/check\` or \`/api/register/price\` is what BaseMail pays, not you. If the call fails it changes nothing and is safe to retry; if the response says \`basename_owned: true\`, retry with \`{"basename":"name.base.eth"}\` so the name is not bought twice.
+
 Example:
 
 \`\`\`bash

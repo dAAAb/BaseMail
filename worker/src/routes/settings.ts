@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { AppBindings } from '../types';
-import { cloneAccountRow } from '../accounts';
+import { isStaleHandlePlaceholder, moveAccountHandle } from '../accounts';
 import { authMiddleware, createToken } from '../auth';
 import { verifyBasenameOwnership, getBasenameExpiry } from '../basename-lookup';
 
@@ -177,17 +177,20 @@ settingsRoutes.put('/primary', async (c) => {
   }
 
   const oldHandle = auth.handle;
+  if (newHandle === oldHandle) {
+    return c.json({ error: `${newHandle} is already your primary handle` }, 400);
+  }
 
-  // Check new handle not taken by another account
+  // Check new handle not taken by another account (a stale placeholder from an
+  // earlier failed switch/upgrade can be replaced — the alias proves ownership)
   const existing = await c.env.DB.prepare(
     'SELECT wallet FROM accounts WHERE handle = ? AND wallet != ?'
-  ).bind(newHandle, auth.wallet).first();
-  if (existing) {
+  ).bind(newHandle, auth.wallet).first<{ wallet: string }>();
+  const staleWallet = existing && isStaleHandlePlaceholder(existing.wallet) ? existing.wallet : undefined;
+  if (existing && !staleWallet) {
     return c.json({ error: 'Handle already taken by another wallet' }, 409);
   }
 
-  // Switch primary: Insert new handle → migrate children → delete old handle.
-  // No PRAGMA needed — avoids D1's unreliable FK deferral.
   const oldAccount = await c.env.DB.prepare(
     'SELECT * FROM accounts WHERE wallet = ?'
   ).bind(auth.wallet).first<Record<string, unknown>>();
@@ -196,48 +199,16 @@ settingsRoutes.put('/primary', async (c) => {
     return c.json({ error: 'Account not found' }, 500);
   }
 
-  // Insert new handle with temp wallet to avoid UNIQUE conflict
-  const tempWallet = `SWITCH_${Date.now()}`;
-  await cloneAccountRow(c.env.DB, oldAccount, { handle: newHandle, wallet: tempWallet, basename: alias.basename }).run();
-
-  // Ensure optional tables exist before migrating
-  await c.env.DB.batch([
-    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS refresh_tokens (
-      token_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL,
-      last_used_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
-    c.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_keys (
-      key_hash TEXT PRIMARY KEY, wallet TEXT NOT NULL, handle TEXT NOT NULL,
-      name TEXT, scopes TEXT NOT NULL DEFAULT 'send,inbox',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()), last_used_at INTEGER,
-      revoked_at INTEGER, FOREIGN KEY (handle) REFERENCES accounts(handle))`),
-  ]);
-
-  // Migrate children, delete old, fix wallet — all in one atomic batch
-  await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE emails SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE refresh_tokens SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE api_keys SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_config SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_bonds SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_bonds SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE attention_whitelist SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE sender_reputation SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE sender_reputation SET recipient_handle = ? WHERE recipient_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE qaf_scores SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE credit_transactions SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE webhooks SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE world_id_verifications SET handle = ? WHERE handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE escrow_claims SET sender_handle = ? WHERE sender_handle = ?').bind(newHandle, oldHandle),
-    c.env.DB.prepare('UPDATE escrow_claims SET claimer_handle = ? WHERE claimer_handle = ?').bind(newHandle, oldHandle),
-    // Delete old account (children already migrated)
-    c.env.DB.prepare('DELETE FROM accounts WHERE handle = ?').bind(oldHandle),
-    // Fix wallet on new account
-    c.env.DB.prepare('UPDATE accounts SET wallet = ? WHERE handle = ?').bind(auth.wallet, newHandle),
-    // Update basename_aliases
-    c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 0 WHERE wallet = ?').bind(auth.wallet),
-    c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 1 WHERE handle = ? AND wallet = ?').bind(newHandle, auth.wallet),
-  ]);
+  // Move handle + children and flip is_primary — one atomic batch
+  await moveAccountHandle(c.env.DB, oldAccount, {
+    newHandle,
+    basename: alias.basename,
+    replaceStaleWallet: staleWallet,
+    extra: [
+      c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 0 WHERE wallet = ?').bind(auth.wallet),
+      c.env.DB.prepare('UPDATE basename_aliases SET is_primary = 1 WHERE handle = ? AND wallet = ?').bind(newHandle, auth.wallet),
+    ],
+  });
 
   // Issue new token
   const secret = c.env.JWT_SECRET!;

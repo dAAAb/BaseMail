@@ -229,6 +229,8 @@ const schemas: J = {
       basename: NULLABLE_STR,
       token: { type: 'string', description: 'New JWT for the upgraded handle. Old tokens still verify but carry the old handle — switch immediately.' },
       migrated_emails: { type: 'integer' },
+      purchase_tx: { type: 'string', description: 'Present when BaseMail bought the Basename in this call (Base mainnet tx hash).' },
+      paid_by: { type: 'string', const: 'basemail', description: 'Present with `purchase_tx`: the fee and gas were paid by BaseMail, not the caller.' },
     },
     example: { success: true, email: 'desiredname@basemail.ai', handle: 'desiredname', old_handle: '0x1234...', basename: 'desiredname.base.eth', token: 'eyJ...', migrated_emails: 3 },
   },
@@ -869,7 +871,7 @@ Object.assign(paths, {
     put: {
       operationId: 'upgradeHandle', tags: ['Registration'],
       summary: 'Upgrade 0x handle to a Basename handle',
-      description: 'For accounts registered as `0x…@basemail.ai`. Either claim a Basename you already own (`basename`, or auto-detected via reverse resolution) or buy one (`auto_basename` + `basename_name`; platform pays gas, names > 0.002 ETH rejected). Migrates all emails, keys, bonds and settings to the new handle and keeps the credit balance, credit history, Pro tier and ATTN; returns a new JWT. Auth: Bearer. Rate limited: sponsored purchases 2/IP/day.',
+      description: 'For accounts registered as `0x…@basemail.ai`. Either claim a Basename you already own (`basename`, or auto-detected via reverse resolution) or have BaseMail buy one for you (`auto_basename` + `basename_name`): **BaseMail pays the registration fee and gas — your wallet needs no ETH**; the name is minted to your wallet; names priced above 0.002 ETH (under 5 characters) are rejected. Migrates all emails, keys, bonds and settings to the new handle and keeps the credit balance, credit history, Pro tier and ATTN; returns a new JWT. The handle change is atomic: on failure nothing changes and the request is safe to retry — a 500 with `basename_owned: true` means the name is already yours, so retry with `{"basename":"<name>.base.eth"}` (no second purchase). Auth: Bearer. Rate limited: sponsored purchases 2/IP/day.',
       requestBody: jsonBody(ref('RegisterRequest'), { auto_basename: true, basename_name: 'desiredname' }, false),
       responses: {
         '200': jsonRes('Handle upgraded', ref('UpgradeResponse')),
@@ -879,7 +881,7 @@ Object.assign(paths, {
         '404': errRes('Account not found, or no Basename found for this wallet', { error: 'No Basename found for this wallet. Get one at https://www.base.org/names' }),
         '409': errRes('Name unavailable on-chain or handle taken', { error: 'Basename "alice.base.eth" is not available', hint: 'If you already own this Basename, use { "basename": "alice.base.eth" } instead of auto_basename.' }),
         '429': rateLimited('sponsored Basename registrations', '2 sponsored Basename purchases per IP per day'),
-        '500': errRes('Upgrade failed (on-chain purchase, price check, or migration error)', { error: 'Upgrade error: …' }),
+        '500': errRes('Upgrade failed (on-chain purchase, price check, or migration error). Nothing changed; safe to retry.', { error: 'Upgrade failed while moving the account: …', code: 'upgrade_migration_failed', current_email: '0x1234…@basemail.ai', basename: 'desiredname.base.eth', basename_owned: true, retry_safe: true, hint: 'Nothing changed in BaseMail and your current address still works. desiredname.base.eth is already owned by your wallet, so retrying will not buy it again: PUT /api/register/upgrade {"basename":"desiredname.base.eth"}.' }),
         '503': errRes('Basename auto-registration not configured', { error: 'Basename auto-registration is not configured' }),
       },
     },
