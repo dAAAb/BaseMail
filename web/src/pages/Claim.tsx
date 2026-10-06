@@ -94,19 +94,32 @@ export default function Claim() {
 
       // 2. Claim (auto-registers if no account)
       setStatus('Claiming USDC...');
-      const claimRes = await fetch(`${API_BASE}/api/claim/${id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${verifyData.token}` },
-      });
-      const claimData = await claimRes.json();
-      if (!claimRes.ok) throw new Error(claimData.error || 'Claim failed');
+      // 202 = release sent but not confirmed yet; posting again resumes the same tx
+      let claimData: any;
+      let newAccount = false;
+      for (let attempt = 0; ; attempt++) {
+        const claimRes = await fetch(`${API_BASE}/api/claim/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${verifyData.token}` },
+        });
+        claimData = await claimRes.json();
+        if (!claimRes.ok) throw new Error(claimData.error || 'Claim failed');
 
-      // If a new token was issued (new account created), store it
-      if (claimData.token) {
-        localStorage.setItem('basemail_token', claimData.token);
+        // If a new token was issued (new account created), store it
+        if (claimData.token) {
+          localStorage.setItem('basemail_token', claimData.token);
+        }
+        newAccount ||= !!claimData.new_account;
+
+        if (!claimData.pending) break;
+        if (attempt >= 24) {
+          throw new Error('The release is still confirming on-chain. Reload this page in a minute and claim again to finish.');
+        }
+        setStatus('Confirming on-chain...');
+        await new Promise(r => setTimeout(r, 5000));
       }
 
-      setClaimResult({ ...claimData, handle: claimData.claimer || verifyData.handle });
+      setClaimResult({ ...claimData, new_account: newAccount, handle: claimData.claimer || verifyData.handle });
       setStatus('');
     } catch (e: any) {
       setStatusError(e.message || 'Failed');

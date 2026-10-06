@@ -731,6 +731,10 @@ Object.assign(schemas, {
     type: 'object', required: ['success', 'claim_id', 'amount_usdc', 'release_tx', 'receipt_email_id', 'claimer', 'new_account'],
     properties: { success: { type: 'boolean', const: true }, claim_id: { type: 'string' }, amount_usdc: { type: 'string' }, release_tx: TX_HASH, receipt_email_id: { type: 'string' }, claimer: HANDLE, new_account: { type: 'boolean', description: 'true if a BaseMail account was auto-created for the claiming wallet.' }, token: { type: 'string', description: 'JWT for the auto-created account. Present only when `new_account` is true.' } },
   },
+  ClaimPending: {
+    type: 'object', required: ['pending', 'claim_id', 'release_tx', 'message', 'new_account'],
+    properties: { pending: { type: 'boolean', const: true }, claim_id: { type: 'string' }, release_tx: { oneOf: [TX_HASH, { type: 'null' }], description: 'Release transaction hash; null while the release is still being broadcast.' }, message: { type: 'string' }, new_account: { type: 'boolean' }, token: { type: 'string', description: 'JWT for the auto-created account. Present only when `new_account` is true.' } },
+  },
   ApiKeyCreateRequest: { type: 'object', properties: { name: { type: 'string', maxLength: 64 }, scopes: { type: 'array', items: { type: 'string' }, default: ['send', 'inbox'], description: 'Informational today; keys currently grant the same access as a JWT for the handle.' } } },
   ApiKeyCreated: {
     type: 'object', required: ['api_key', 'handle', 'scopes', 'note'],
@@ -1587,13 +1591,15 @@ Object.assign(paths, {
     post: {
       operationId: 'claimEscrow', tags: ['Claims'],
       summary: 'Claim escrowed USDC',
-      description: 'Releases the escrowed USDC on Base to the authenticated wallet (worker pays gas) and drops a receipt email in your inbox. If the wallet has no BaseMail account one is auto-created and a JWT returned. Auth: Bearer JWT (SIWE) or an API key linked to a registered account.',
+      description: 'Releases the escrowed USDC on Base to the authenticated wallet (worker pays gas) and drops a receipt email in your inbox. A `202` means the release is broadcast but not yet confirmed: POST again until you get `200`. If the wallet has no BaseMail account one is auto-created and a JWT returned. Auth: Bearer JWT (SIWE) or an API key linked to a registered account.',
       parameters: [pathParam('id', 'Claim ID.', { type: 'string' })],
       responses: {
         '200': jsonRes('Claimed', ref('ClaimResponse')),
+        '202': jsonRes('Release sent but not confirmed yet — POST again in a few seconds to finish (it resumes the same transaction)', ref('ClaimPending')),
         '400': errRes('Claim already settled/expired, or deposit missing on-chain', { error: 'Claim already claimed' }),
         '401': errRes('No wallet could be associated with the credential', { error: 'Wallet required. Use SIWE auth or an API key linked to a registered account.' }),
         '404': notFound('Claim', 'Claim not found'),
+        '409': errRes('Claim is being released to another wallet, or the deposit was settled outside BaseMail', { error: 'This claim is already being released to another wallet' }),
         '500': errRes('Escrow not configured or on-chain release failed', { error: 'On-chain release failed: …' }),
       },
     },

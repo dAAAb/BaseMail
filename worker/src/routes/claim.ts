@@ -13,6 +13,9 @@ const ESCROW_ABI = parseAbi([
   'function getDeposit(bytes32 claimId) view returns (address sender, uint256 amount, uint256 expiry, bool settled)',
 ]);
 
+// A claim lock older than this belongs to a request that died before broadcasting
+const CLAIM_LOCK_TTL = 120;
+
 export const claimRoutes = new Hono<AppBindings>();
 
 // Auto-migrate: create escrow_claims table if missing
@@ -213,110 +216,8 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
   ).bind(claimId).first<any>();
 
   if (!claim) return c.json({ error: 'Claim not found' }, 404);
-  if (claim.status !== 'pending') return c.json({ error: `Claim already ${claim.status}` }, 400);
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now >= claim.expires_at) {
-    await c.env.DB.prepare('UPDATE escrow_claims SET status = ? WHERE claim_id = ?').bind('expired', claimId).run();
-    return c.json({ error: 'Claim has expired. USDC can be refunded to sender.' }, 400);
-  }
-
-  // Check worker wallet config
-  if (!c.env.WALLET_PRIVATE_KEY || !c.env.PAYMENT_ESCROW_ADDRESS) {
-    return c.json({ error: 'Escrow not configured on server' }, 500);
-  }
-
-  // Call PaymentEscrow.release() on-chain
-  const account = privateKeyToAccount(c.env.WALLET_PRIVATE_KEY as Hex);
-  const publicClient = createPublicClient({ chain: base, transport: baseTransport() });
-  const walletClient = createWalletClient({ chain: base, transport: baseTransport(), account });
-
-  const claimIdHash = keccak256(toHex(claimId));
-  let releaseTx: string;
-
-  try {
-    // Verify on-chain deposit exists and is not settled
-    const [sender, amount, expiry, settled] = await publicClient.readContract({
-      address: c.env.PAYMENT_ESCROW_ADDRESS as `0x${string}`,
-      abi: ESCROW_ABI,
-      functionName: 'getDeposit',
-      args: [claimIdHash],
-    });
-
-    if (sender === '0x0000000000000000000000000000000000000000') {
-      return c.json({ error: 'Deposit not found on-chain' }, 400);
-    }
-    if (settled) {
-      return c.json({ error: 'Deposit already settled on-chain' }, 400);
-    }
-
-    // Release to claimer's wallet
-    const hash = await walletClient.writeContract({
-      address: c.env.PAYMENT_ESCROW_ADDRESS as `0x${string}`,
-      abi: ESCROW_ABI,
-      functionName: 'release',
-      args: [claimIdHash, auth.wallet as `0x${string}`],
-    });
-
-    // Wait for confirmation
-    const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 30_000 });
-    if (receipt.status !== 'success') {
-      return c.json({ error: 'Release transaction failed on-chain' }, 500);
-    }
-
-    releaseTx = hash;
-  } catch (e: any) {
-    return c.json({ error: `On-chain release failed: ${e.message}` }, 500);
-  }
-
-  // Generate receipt email (internal delivery to claimer's inbox)
-  const receiptEmailId = `escrow-${claimId}-${Date.now().toString(36)}`;
-  const amountStr = claim.amount_usdc.toFixed(2);
-  const senderEmail = `${claim.sender_handle}@basemail.ai`;
-  const claimerEmail = `${auth.handle}@basemail.ai`;
-  const explorerUrl = claim.network === 'base-mainnet' ? 'https://basescan.org' : 'https://sepolia.basescan.org';
-
-  const receiptSubject = `USDC Payment: $${amountStr} — Claimed ✅`;
-  const receiptBody = [
-    `You claimed a payment of ${amountStr} USDC from ${claim.sender_handle}.`,
-    ``,
-    `Originally sent to: ${claim.recipient_email}`,
-    `Release TX: ${explorerUrl}/tx/${releaseTx}`,
-    ``,
-    `Sent via BaseMail.ai`,
-  ].join('\n');
-
-  // Build minimal MIME for R2 storage
-  const { createMimeMessage } = await import('mimetext');
-  const msg = createMimeMessage();
-  msg.setSender({ name: claim.sender_handle, addr: senderEmail });
-  msg.setRecipient(claimerEmail);
-  msg.setSubject(receiptSubject);
-  msg.addMessage({ contentType: 'text/plain', data: receiptBody });
-  msg.setHeader('X-BaseMail-USDC-Payment', `${amountStr} USDC`);
-  msg.setHeader('X-BaseMail-USDC-TxHash', releaseTx);
-  msg.setHeader('X-BaseMail-USDC-Network', claim.network === 'base-mainnet' ? 'Base Mainnet' : 'Base Sepolia (Testnet)');
-  msg.setHeader('X-BaseMail-Escrow-Claim', claimId);
-
-  const rawMime = msg.asRaw();
-  const r2Key = `emails/${auth.handle}/inbox/${receiptEmailId}.eml`;
-  await c.env.EMAIL_STORE.put(r2Key, rawMime);
-
-  const snippet = `You claimed a payment of ${amountStr} USDC from ${claim.sender_handle}.`;
-
-  await c.env.DB.prepare(
-    `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx, usdc_network)
-     VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-  ).bind(
-    receiptEmailId, auth.handle, senderEmail, claimerEmail,
-    receiptSubject, snippet, r2Key, rawMime.length,
-    now, amountStr, releaseTx, claim.network,
-  ).run();
-
-  // Update escrow_claims
-  await c.env.DB.prepare(
-    `UPDATE escrow_claims SET status = 'claimed', claimer_handle = ?, claimer_wallet = ?, release_tx = ?, receipt_email_id = ?, claimed_at = ? WHERE claim_id = ?`
-  ).bind(auth.handle, auth.wallet, releaseTx, receiptEmailId, now, claimId).run();
+  const sameClaimer = (claim.claimer_wallet || '').toLowerCase() === auth.wallet.toLowerCase();
 
   // If new account was created, issue a token so frontend can redirect to dashboard
   let token: string | undefined;
@@ -326,16 +227,209 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
     } catch {}
   }
 
-  return c.json({
+  const claimedResponse = (row: any) => c.json({
     success: true,
     claim_id: claimId,
-    amount_usdc: amountStr,
-    release_tx: releaseTx,
-    receipt_email_id: receiptEmailId,
-    claimer: handle,
+    amount_usdc: Number(row.amount_usdc).toFixed(2),
+    release_tx: row.release_tx,
+    receipt_email_id: row.receipt_email_id,
+    claimer: row.claimer_handle,
     new_account: newAccount,
     ...(token ? { token } : {}),
   });
+
+  const pendingResponse = (releaseTx: string | null) => c.json({
+    pending: true,
+    claim_id: claimId,
+    release_tx: releaseTx,
+    message: 'Release submitted on-chain and waiting for confirmation. Retry this request in a few seconds to finish the claim.',
+    new_account: newAccount,
+    ...(token ? { token } : {}),
+  }, 202);
+
+  // Retry after the release already went through (e.g. the first response timed out)
+  if (claim.status === 'claimed' && sameClaimer) return claimedResponse(claim);
+  if (claim.status !== 'pending') return c.json({ error: `Claim already ${claim.status}` }, 400);
+
+  // Check worker wallet config
+  if (!c.env.WALLET_PRIVATE_KEY || !c.env.PAYMENT_ESCROW_ADDRESS) {
+    return c.json({ error: 'Escrow not configured on server' }, 500);
+  }
+
+  const escrow = c.env.PAYMENT_ESCROW_ADDRESS as Address;
+  const publicClient = createPublicClient({ chain: base, transport: baseTransport() });
+  const claimIdHash = keccak256(toHex(claimId));
+  const now = Math.floor(Date.now() / 1000);
+
+  // Mark the claim as claimed and drop the receipt email. Safe to call more
+  // than once: only the request that flips status from 'pending' writes.
+  const finalize = async (releaseTx: string, claimerHandle: string, claimerWallet: string) => {
+    const receiptEmailId = `escrow-${claimId}-${Date.now().toString(36)}`;
+    const claimedAt = Math.floor(Date.now() / 1000);
+
+    const updated = await c.env.DB.prepare(
+      `UPDATE escrow_claims SET status = 'claimed', claimer_handle = ?, claimer_wallet = ?, release_tx = ?, receipt_email_id = ?, claimed_at = ?
+       WHERE claim_id = ? AND status = 'pending'`
+    ).bind(claimerHandle, claimerWallet, releaseTx, receiptEmailId, claimedAt, claimId).run();
+
+    if (!updated.meta.changes) {
+      const row = await c.env.DB.prepare('SELECT * FROM escrow_claims WHERE claim_id = ?').bind(claimId).first<any>();
+      return claimedResponse(row);
+    }
+
+    try {
+      // Generate receipt email (internal delivery to claimer's inbox)
+      const amountStr = claim.amount_usdc.toFixed(2);
+      const senderEmail = `${claim.sender_handle}@basemail.ai`;
+      const claimerEmail = `${claimerHandle}@basemail.ai`;
+      const explorerUrl = claim.network === 'base-mainnet' ? 'https://basescan.org' : 'https://sepolia.basescan.org';
+
+      const receiptSubject = `USDC Payment: $${amountStr} — Claimed ✅`;
+      const receiptBody = [
+        `You claimed a payment of ${amountStr} USDC from ${claim.sender_handle}.`,
+        ``,
+        `Originally sent to: ${claim.recipient_email}`,
+        `Release TX: ${explorerUrl}/tx/${releaseTx}`,
+        ``,
+        `Sent via BaseMail.ai`,
+      ].join('\n');
+
+      // Build minimal MIME for R2 storage
+      const { createMimeMessage } = await import('mimetext');
+      const msg = createMimeMessage();
+      msg.setSender({ name: claim.sender_handle, addr: senderEmail });
+      msg.setRecipient(claimerEmail);
+      msg.setSubject(receiptSubject);
+      msg.addMessage({ contentType: 'text/plain', data: receiptBody });
+      msg.setHeader('X-BaseMail-USDC-Payment', `${amountStr} USDC`);
+      msg.setHeader('X-BaseMail-USDC-TxHash', releaseTx);
+      msg.setHeader('X-BaseMail-USDC-Network', claim.network === 'base-mainnet' ? 'Base Mainnet' : 'Base Sepolia (Testnet)');
+      msg.setHeader('X-BaseMail-Escrow-Claim', claimId);
+
+      const rawMime = msg.asRaw();
+      const r2Key = `emails/${claimerHandle}/inbox/${receiptEmailId}.eml`;
+      await c.env.EMAIL_STORE.put(r2Key, rawMime);
+
+      const snippet = `You claimed a payment of ${amountStr} USDC from ${claim.sender_handle}.`;
+
+      await c.env.DB.prepare(
+        `INSERT INTO emails (id, handle, folder, from_addr, to_addr, subject, snippet, r2_key, size, read, created_at, usdc_amount, usdc_tx, usdc_network)
+         VALUES (?, ?, 'inbox', ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+      ).bind(
+        receiptEmailId, claimerHandle, senderEmail, claimerEmail,
+        receiptSubject, snippet, r2Key, rawMime.length,
+        claimedAt, amountStr, releaseTx, claim.network,
+      ).run();
+    } catch (e) {
+      // The USDC already moved; a missing receipt must not turn into an error
+      console.error(`claim ${claimId}: released in ${releaseTx} but receipt email failed`, e);
+    }
+
+    return claimedResponse({ ...claim, release_tx: releaseTx, receipt_email_id: receiptEmailId, claimer_handle: claimerHandle });
+  };
+
+  // Wait for the release receipt. A revert frees the claim for another try;
+  // anything short of a receipt (timeout, flaky RPC) keeps the tx on record
+  // so the next request picks it up instead of sending a second release.
+  const settle = async (releaseTx: Hex, claimerHandle: string, claimerWallet: string) => {
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({ hash: releaseTx, timeout: 20_000 });
+    } catch {
+      return pendingResponse(releaseTx);
+    }
+    if (receipt.status !== 'success') {
+      await c.env.DB.prepare(
+        `UPDATE escrow_claims SET release_tx = NULL, claimer_handle = NULL, claimer_wallet = NULL
+         WHERE claim_id = ? AND status = 'pending' AND release_tx = ?`
+      ).bind(claimId, releaseTx).run();
+      return c.json({ error: 'Release transaction failed on-chain', release_tx: releaseTx }, 500);
+    }
+    return finalize(releaseTx, claimerHandle, claimerWallet);
+  };
+
+  // A release is already in flight: release_tx holds its hash, or
+  // `locked:<unix>` while a request is between locking and broadcasting
+  if (claim.release_tx) {
+    const lockedAt = claim.release_tx.startsWith('locked:') ? Number(claim.release_tx.slice(7)) : null;
+    if (lockedAt === null) {
+      if (!sameClaimer) return c.json({ error: 'This claim is already being released to another wallet' }, 409);
+      return settle(claim.release_tx as Hex, claim.claimer_handle, claim.claimer_wallet);
+    }
+    if (lockedAt >= now - CLAIM_LOCK_TTL) {
+      return sameClaimer ? pendingResponse(null) : c.json({ error: 'This claim is already being processed' }, 409);
+    }
+    // Stale lock: that request died before broadcasting, so take it over below
+  }
+
+  if (now >= claim.expires_at) {
+    await c.env.DB.prepare('UPDATE escrow_claims SET status = ? WHERE claim_id = ?').bind('expired', claimId).run();
+    return c.json({ error: 'Claim has expired. USDC can be refunded to sender.' }, 400);
+  }
+
+  // Lock the claim so a double submit can't broadcast two releases
+  const lockValue = `locked:${now}`;
+  const locked = await c.env.DB.prepare(
+    `UPDATE escrow_claims SET release_tx = ?, claimer_handle = ?, claimer_wallet = ?
+     WHERE claim_id = ? AND status = 'pending'
+       AND (release_tx IS NULL OR (release_tx LIKE 'locked:%' AND CAST(substr(release_tx, 8) AS INTEGER) < ?))`
+  ).bind(lockValue, handle, auth.wallet, claimId, now - CLAIM_LOCK_TTL).run();
+  if (!locked.meta.changes) {
+    // Lost the race to a concurrent request; same wallet just waits for it
+    const current = await c.env.DB.prepare(
+      'SELECT release_tx, claimer_wallet FROM escrow_claims WHERE claim_id = ?'
+    ).bind(claimId).first<{ release_tx: string | null; claimer_wallet: string | null }>();
+    if ((current?.claimer_wallet || '').toLowerCase() === auth.wallet.toLowerCase()) {
+      return pendingResponse(current?.release_tx?.startsWith('0x') ? current.release_tx : null);
+    }
+    return c.json({ error: 'This claim is already being processed. Retry in a few seconds.' }, 409);
+  }
+
+  const unlock = () => c.env.DB.prepare(
+    `UPDATE escrow_claims SET release_tx = NULL, claimer_handle = NULL, claimer_wallet = NULL
+     WHERE claim_id = ? AND release_tx = ?`
+  ).bind(claimId, lockValue).run();
+
+  // Call PaymentEscrow.release() on-chain
+  let releaseTx: Hex;
+  try {
+    // Verify on-chain deposit exists and is not settled
+    const [sender, , , settled] = await publicClient.readContract({
+      address: escrow,
+      abi: ESCROW_ABI,
+      functionName: 'getDeposit',
+      args: [claimIdHash],
+    });
+
+    if (sender === '0x0000000000000000000000000000000000000000') {
+      await unlock();
+      return c.json({ error: 'Deposit not found on-chain' }, 400);
+    }
+    if (settled) {
+      await unlock();
+      return c.json({ error: 'Deposit already settled on-chain, but BaseMail has no release record for it. Contact support with this claim ID.' }, 409);
+    }
+
+    // Release to claimer's wallet
+    const account = privateKeyToAccount(c.env.WALLET_PRIVATE_KEY as Hex);
+    const walletClient = createWalletClient({ chain: base, transport: baseTransport(), account });
+    releaseTx = await walletClient.writeContract({
+      address: escrow,
+      abi: ESCROW_ABI,
+      functionName: 'release',
+      args: [claimIdHash, auth.wallet as `0x${string}`],
+    });
+  } catch (e: any) {
+    await unlock();
+    return c.json({ error: `On-chain release failed: ${e.shortMessage || e.message}` }, 500);
+  }
+
+  // Record the hash before waiting, so a retry resumes this tx
+  await c.env.DB.prepare('UPDATE escrow_claims SET release_tx = ? WHERE claim_id = ? AND release_tx = ?')
+    .bind(releaseTx, claimId, lockValue).run()
+    .catch((e) => console.error(`claim ${claimId}: could not record release tx ${releaseTx}`, e));
+
+  return settle(releaseTx, handle!, auth.wallet);
 });
 
 export default claimRoutes;
