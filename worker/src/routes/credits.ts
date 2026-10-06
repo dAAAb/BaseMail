@@ -7,6 +7,7 @@ import {
 } from 'viem';
 import { base, mainnet } from 'viem/chains';
 import { baseTransport, ethTransport } from '../rpc';
+import { isGasTopupTx } from '../escrow-gas';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
 
@@ -114,6 +115,11 @@ creditsRoutes.post('/buy', async (c) => {
   // 確認交易成功
   if (receipt.status !== 'success') {
     return c.json({ error: 'Transaction failed on-chain' }, 400);
+  }
+
+  // Gas top-ups for escrowed USDC go to the same wallet but belong to their claims
+  if (await isGasTopupTx(c.env.DB, tx_hash, tx.input)) {
+    return c.json({ error: 'This transaction is an escrow gas top-up and cannot be used here' }, 409);
   }
 
   // 確認收款地址是 Worker 錢包

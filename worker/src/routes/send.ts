@@ -1,3 +1,4 @@
+import { attachGasTopup } from '../escrow-gas';
 import { isRateLimited, clientIp, rateLimitResponse, EXTERNAL_SEND_PER_IP_PER_HOUR, EXTERNAL_SEND_PER_HANDLE_PER_HOUR } from '../ratelimit';
 import { Hono } from 'hono';
 import { EmailMessage } from 'cloudflare:email';
@@ -150,6 +151,10 @@ sendRoutes.post('/', async (c) => {
       deposit_tx: string;  // on-chain deposit tx hash
       network?: string;    // 'base-mainnet' | 'base-sepolia'
       expires_at: number;  // unix timestamp
+      gas_topup?: {        // ETH the sender paid the BaseMail wallet, forwarded to the claimer
+        tx_hash: string;
+        amount_wei: string;
+      };
     };
   }>();
 
@@ -457,6 +462,7 @@ sendRoutes.post('/', async (c) => {
   // escrow, so the claim must exist even if this email can't go out (the
   // sender can share the claim link, or retry with the same claim_id).
   let escrowRecorded = false;
+  let gasTopup: Awaited<ReturnType<typeof attachGasTopup>> | null = null;
   if (escrow_claim && !isInternal) {
     try {
       await c.env.DB.prepare(
@@ -485,6 +491,17 @@ sendRoutes.post('/', async (c) => {
       ).run();
       escrowRecorded = true;
     } catch (_) { /* don't block email sending */ }
+
+    if (escrowRecorded && escrow_claim.gas_topup) {
+      gasTopup = await attachGasTopup(c.env, {
+        claimId: escrow_claim.claim_id,
+        senderHandle: auth.handle,
+        senderWallet: auth.wallet || '',
+        txHash: escrow_claim.gas_topup.tx_hash || '',
+        amountWei: String(escrow_claim.gas_topup.amount_wei ?? ''),
+        network: escrow_claim.network || 'base-mainnet',
+      }).catch((e) => ({ recorded: false as const, error: e?.message || 'Gas top-up check failed' }));
+    }
   }
 
   if (isInternal) {
@@ -736,6 +753,7 @@ sendRoutes.post('/', async (c) => {
         amount: escrow_claim!.amount,
         claim_url: `https://basemail.ai/claim/${escrow_claim!.claim_id}`,
         expires_at: escrow_claim!.expires_at,
+        ...(gasTopup ? { gas_topup: gasTopup } : {}),
       },
     } : {}),
     ...(attnResult.amount > 0 || attnResult.reason !== 'skip' ? {

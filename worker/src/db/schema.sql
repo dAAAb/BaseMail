@@ -181,7 +181,13 @@ CREATE TABLE IF NOT EXISTS escrow_claims (
     receipt_email_id TEXT,
     created_at       INTEGER NOT NULL DEFAULT (unixepoch()),
     expires_at       INTEGER NOT NULL,
-    claimed_at       INTEGER
+    claimed_at       INTEGER,
+    -- Gas top-up (ETH forwarded to the claimer). Existing DBs get these via
+    -- ensureEscrowGasColumns() at runtime — don't ALTER here, this file re-runs on every deploy.
+    gas_topup_wei    INTEGER,
+    gas_topup_tx     TEXT,
+    gas_status       TEXT,                              -- pending | sending | sent | refunded
+    gas_release_tx   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_escrow_sender ON escrow_claims(sender_handle);

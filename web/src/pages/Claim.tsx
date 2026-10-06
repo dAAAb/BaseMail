@@ -16,6 +16,7 @@ interface ClaimInfo {
   expires_at: number;
   created_at: number;
   expired: boolean;
+  gas_topup_eth?: string;  // ETH for gas sent along with the USDC on claim
 }
 
 /** Shorten 0x addresses for display: 0x1234…abcd */
@@ -183,6 +184,12 @@ export default function Claim() {
                     </p>
                   </div>
                 )}
+                {claimResult.gas_topup && (
+                  <p className="text-fg-muted text-xs mb-2">
+                    + {claimResult.gas_topup.amount_eth} ETH for gas sent to your wallet{' '}
+                    <a href={`${explorerBase}/tx/${claimResult.gas_topup.tx}`} target="_blank" rel="noopener noreferrer" className="link">tx</a>
+                  </p>
+                )}
                 {claimResult.release_tx && (
                   <a href={`${explorerBase}/tx/${claimResult.release_tx}`}
                     target="_blank" rel="noopener noreferrer"
@@ -211,6 +218,11 @@ export default function Claim() {
                   <p className="text-fg-subtle text-xs mt-2 break-all">
                     To: {claim.recipient_email} · {networkLabel}
                   </p>
+                  {claim.gas_topup_eth && (
+                    <p className="text-fg-muted text-xs mt-1">
+                      + {claim.gas_topup_eth} ETH for gas, sent to your wallet with the USDC
+                    </p>
+                  )}
                 </div>
 
                 {isClaimed && (

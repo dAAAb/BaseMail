@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { createPublicClient, createWalletClient, parseAbi, keccak256, toHex, type Hex, type Address } from 'viem';
+import { createPublicClient, createWalletClient, parseAbi, keccak256, toHex, formatEther, type Hex, type Address } from 'viem';
 import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -7,6 +7,7 @@ import { AppBindings } from '../types';
 import { baseTransport } from '../rpc';
 import { authMiddleware, createToken } from '../auth';
 import { resolveHandle } from '../basename-lookup';
+import { ensureEscrowGasColumns, forwardGasTopup } from '../escrow-gas';
 
 const ESCROW_ABI = parseAbi([
   'function release(bytes32 claimId, address claimer) external',
@@ -32,6 +33,7 @@ claimRoutes.use('/*', async (c, next) => {
         created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL, claimed_at INTEGER
       )`).run();
     } catch {}
+    await ensureEscrowGasColumns(c.env.DB);
   }
   await next();
 });
@@ -44,7 +46,7 @@ claimRoutes.get('/:id', async (c) => {
   const claimId = c.req.param('id');
 
   const claim = await c.env.DB.prepare(
-    'SELECT claim_id, sender_handle, recipient_email, amount_usdc, network, status, expires_at, created_at FROM escrow_claims WHERE claim_id = ?'
+    'SELECT claim_id, sender_handle, recipient_email, amount_usdc, network, status, expires_at, created_at, gas_topup_wei, gas_status, gas_release_tx FROM escrow_claims WHERE claim_id = ?'
   ).bind(claimId).first<any>();
 
   if (!claim) {
@@ -123,6 +125,11 @@ claimRoutes.get('/:id', async (c) => {
     expires_at: claim.expires_at,
     created_at: claim.created_at,
     expired: claim.status === 'pending' && Math.floor(Date.now() / 1000) >= claim.expires_at,
+    ...(claim.gas_topup_wei > 0 && claim.gas_status !== 'refunded' ? {
+      gas_topup_eth: formatEther(BigInt(claim.gas_topup_wei)),
+      gas_status: claim.gas_status,
+      ...(claim.gas_release_tx ? { gas_tx: claim.gas_release_tx } : {}),
+    } : {}),
     // Agent-friendly claim instructions
     ...(isPending ? {
       claim_url: `https://basemail.ai/claim/${claim.claim_id}`,
@@ -227,7 +234,7 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
     } catch {}
   }
 
-  const claimedResponse = (row: any) => c.json({
+  const claimedResponse = (row: any, gas?: { tx: string; amount_eth: string } | null) => c.json({
     success: true,
     claim_id: claimId,
     amount_usdc: Number(row.amount_usdc).toFixed(2),
@@ -235,6 +242,9 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
     receipt_email_id: row.receipt_email_id,
     claimer: row.claimer_handle,
     new_account: newAccount,
+    ...(gas ? { gas_topup: { amount_eth: gas.amount_eth, tx: gas.tx } }
+      : row.gas_release_tx && row.gas_status === 'sent' ? { gas_topup: { amount_eth: formatEther(BigInt(row.gas_topup_wei)), tx: row.gas_release_tx } }
+      : {}),
     ...(token ? { token } : {}),
   });
 
@@ -248,7 +258,10 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
   }, 202);
 
   // Retry after the release already went through (e.g. the first response timed out)
-  if (claim.status === 'claimed' && sameClaimer) return claimedResponse(claim);
+  if (claim.status === 'claimed' && sameClaimer) {
+    const gas = claim.gas_status === 'pending' ? await forwardGasTopup(c.env, claimId, claim.claimer_wallet, 'release') : null;
+    return claimedResponse(claim, gas);
+  }
   if (claim.status !== 'pending') return c.json({ error: `Claim already ${claim.status}` }, 400);
 
   // Check worker wallet config
@@ -325,7 +338,10 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
       console.error(`claim ${claimId}: released in ${releaseTx} but receipt email failed`, e);
     }
 
-    return claimedResponse({ ...claim, release_tx: releaseTx, receipt_email_id: receiptEmailId, claimer_handle: claimerHandle });
+    // Gas the sender attached for this claimer; a failure is retried by the next request or the cron
+    const gas = claim.gas_status === 'pending' ? await forwardGasTopup(c.env, claimId, claimerWallet, 'release') : null;
+
+    return claimedResponse({ ...claim, release_tx: releaseTx, receipt_email_id: receiptEmailId, claimer_handle: claimerHandle }, gas);
   };
 
   // Wait for the release receipt. A revert frees the claim for another try;

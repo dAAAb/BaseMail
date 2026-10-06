@@ -5,12 +5,14 @@
  * 1. Reset daily_earned counters (once per day)
  * 2. Daily ATTN drip (+10 per account)
  * 3. Settle expired ATTN escrows (48h timeout)
+ * 4. Escrow gas top-ups: retry failed forwards, refund expired ones
  *
  * Rollback: Remove `scheduled` from index.ts default export + remove cron trigger from wrangler.toml.
  */
 
 import type { Env } from './types';
 import { ATTN } from './routes/attn';
+import { settleGasTopups } from './escrow-gas';
 
 export async function handleCron(
   event: ScheduledEvent,
@@ -96,5 +98,12 @@ export async function handleCron(
     }
   } catch (err) {
     console.error('Cron handler error:', err);
+  }
+
+  // ── 4. Escrow gas top-ups (separate so an ATTN failure can't hold up ETH refunds) ──
+  try {
+    await settleGasTopups(env, now);
+  } catch (err) {
+    console.error('Gas top-up settlement error:', err);
   }
 }

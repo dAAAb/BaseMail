@@ -899,6 +899,30 @@ const MAX_USDC_RECIPIENTS = 20;
 const FREE_EXTERNAL_PER_HOUR = 10; // mirrors EXTERNAL_SEND_PER_HANDLE_PER_HOUR in worker/src/ratelimit.ts
 const MIN_ESCROW_USDC = 0.1;       // PaymentEscrow.MIN_AMOUNT
 
+// Optional gas top-up: enough ETH for each recipient to make a few USDC payments
+// themselves — e.g. buying OpenRouter credits through Coinbase checkout, which can
+// take an approve plus a payment-contract call. Measured on Base 2026-10: a USDC
+// transfer is ~63k gas, an approve ~56k, the L1 data fee ~6e-9 ETH per tx.
+const GAS_TOPUP_PAYMENTS = 3;
+const GAS_PER_PAYMENT = BigInt(260_000);              // approve + checkout call, generous
+const GAS_FEE_HEADROOM = BigInt(3);                   // still enough if gas prices triple
+const L1_FEE_PER_TX = BigInt(100_000_000_000);        // 1e-7 ETH, ~15x the measured L1 fee
+const GAS_TOPUP_FLOOR = BigInt(20_000_000_000_000);   // 0.00002 ETH
+const GAS_TOPUP_MAX = BigInt(1_000_000_000_000_000);  // 0.001 ETH, MAX_GAS_TOPUP_WEI in worker/src/escrow-gas.ts
+const GAS_TOPUP_STEP = BigInt(1_000_000_000_000);     // round up to 0.000001 ETH
+const FALLBACK_MAX_FEE = BigInt(50_000_000);          // 0.05 gwei if the fee estimate fails
+// The sender's own transactions, in gas units (generous)
+const SENDER_GAS = { approve: BigInt(60_000), transfer: BigInt(70_000), deposit: BigInt(180_000), ethSend: BigInt(21_000), escrowTopup: BigInt(26_000) };
+const GAS_TOPUP_MARKER_HEX = toHex('basemail:gas-topup'); // GAS_TOPUP_MARKER in worker/src/escrow-gas.ts
+
+/** 0.0000641 → "0.0000641", without exponent notation */
+function fmtEth(wei: bigint) {
+  const n = Number(formatUnits(wei, 18));
+  if (n === 0) return '0';
+  const decimals = Math.min(12, Math.max(2, 2 - Math.floor(Math.log10(n))));
+  return n.toFixed(decimals).replace(/\.?0+$/, '');
+}
+
 interface UsdcRecipient {
   addr: string;                  // handle@basemail.ai or an external email
   external: boolean;             // external → PaymentEscrow + claim email
@@ -912,6 +936,9 @@ interface UsdcSendResult {
   note?: string;
   txHash?: string;
   claimUrl?: string;
+  gasTx?: string;
+  gasEth?: string;
+  gasNote?: string;
 }
 
 /** "alice", "alice@basemail.ai", "bob@gmail.com" → normalized address, or null if invalid */
@@ -935,7 +962,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const [results, setResults] = useState<Record<string, UsdcSendResult>>({});
   const [error, setError] = useState('');
   const [credits, setCredits] = useState<number | null>(null);
+  const [includeGas, setIncludeGas] = useState(false);
+  const [maxFeePerGas, setMaxFeePerGas] = useState<bigint | null>(null);
+  const [ethUsd, setEthUsd] = useState<number | null>(null);
   const { writeContractAsync } = useWriteContract();
+  const { sendTransactionAsync } = useSendTransaction();
 
   const net = USDC_NET_CONFIG[network];
   const walletAddr = auth.wallet as `0x${string}`;
@@ -950,6 +981,45 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const totalRaw = amountRaw * BigInt(recipients.length);
   const fmtUsdc = (v: bigint) => parseFloat(formatUnits(v, 6)).toFixed(2);
   const totalStr = fmtUsdc(totalRaw);
+
+  // Live gas price for the ETH estimates (re-read when the network changes)
+  useEffect(() => {
+    setMaxFeePerGas(null);
+    publicClient?.estimateFeesPerGas().then(f => setMaxFeePerGas(f.maxFeePerGas ?? null)).catch(() => {});
+  }, [publicClient]);
+
+  useEffect(() => {
+    fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot')
+      .then(r => r.json())
+      .then(d => { const p = parseFloat(d?.data?.amount); if (p > 0) setEthUsd(p); })
+      .catch(() => {});
+  }, []);
+
+  const feePerGas = maxFeePerGas ?? FALLBACK_MAX_FEE;
+  const gasPerRecipient = (() => {
+    const perPayment = GAS_PER_PAYMENT * feePerGas * GAS_FEE_HEADROOM + BigInt(2) * L1_FEE_PER_TX;
+    let wei = BigInt(GAS_TOPUP_PAYMENTS) * perPayment;
+    if (wei < GAS_TOPUP_FLOOR) wei = GAS_TOPUP_FLOOR;
+    wei = ((wei + GAS_TOPUP_STEP - BigInt(1)) / GAS_TOPUP_STEP) * GAS_TOPUP_STEP;
+    return wei > GAS_TOPUP_MAX ? GAS_TOPUP_MAX : wei;
+  })();
+  /** ETH the sender spends on their own transactions for this batch, with 2x headroom */
+  function estimateSenderFees(nInternal: number, nExternal: number, withGas: boolean) {
+    const i = BigInt(nInternal), x = BigInt(nExternal);
+    let gasUnits = i * SENDER_GAS.transfer + x * SENDER_GAS.deposit;
+    let txs = i + x;
+    if (nExternal > 0) { gasUnits += SENDER_GAS.approve; txs += BigInt(1); }
+    if (withGas) {
+      gasUnits += i * SENDER_GAS.ethSend; txs += i;
+      if (nExternal > 0) { gasUnits += SENDER_GAS.escrowTopup; txs += BigInt(1); }
+    }
+    return (gasUnits * feePerGas + txs * L1_FEE_PER_TX) * BigInt(2);
+  }
+  const fmtUsd = (wei: bigint) => {
+    if (ethUsd === null) return '';
+    const usd = Number(formatUnits(wei, 18)) * ethUsd;
+    return usd < 0.01 ? ' (<$0.01)' : ` (≈$${usd.toFixed(2)})`;
+  };
 
   // External sends cost 1 credit each — load the balance once someone external is added
   useEffect(() => {
@@ -1013,6 +1083,9 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   });
   const pendingExternal = pending.filter(r => r.external).length;
   const pendingTotalRaw = amountRaw * BigInt(pending.length);
+  const topupTotal = includeGas ? gasPerRecipient * BigInt(pending.length) : BigInt(0);
+  const senderFees = estimateSenderFees(pending.length - pendingExternal, pendingExternal, includeGas);
+  const ethNeeded = topupTotal + senderFees;
 
   // Everything that would make the batch fail part-way — checked before any wallet prompt
   const problems: string[] = [];
@@ -1026,7 +1099,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   if (amountValid && pending.length > 0 && usdcBal && pendingTotalRaw > usdcBal.value) {
     problems.push(`Not enough USDC on ${net.label}: need ${fmtUsdc(pendingTotalRaw)}, you have ${fmtUsdc(usdcBal.value)}.`);
   }
-  if (gasBal && gasBal.value === BigInt(0)) problems.push(`You need a little ETH on ${net.label} to pay gas.`);
+  if (gasBal && pending.length > 0 && gasBal.value < ethNeeded) {
+    problems.push(includeGas
+      ? `Not enough ETH on ${net.label}: need ${fmtEth(ethNeeded)} (gas top-ups ${fmtEth(topupTotal)} + your network fees ≈${fmtEth(senderFees)}), you have ${fmtEth(gasBal.value)}.`
+      : `Not enough ETH on ${net.label} for network fees: need ≈${fmtEth(senderFees)}, you have ${fmtEth(gasBal.value)}.`);
+  }
   if (credits !== null && pendingExternal > credits) {
     problems.push(`Each external email uses 1 credit: need ${pendingExternal}, you have ${credits}.`);
   }
@@ -1045,6 +1122,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
     setPhase('running');
     const queue = pending;
     const queueExternal = queue.filter(r => r.external);
+    const topup = includeGas ? gasPerRecipient : BigInt(0);
     setResults(prev => {
       const next = { ...prev };
       for (const r of queue) next[r.addr] = { state: 'queued' };
@@ -1059,7 +1137,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
       setStepLabel(`Switching to ${net.label}...`);
       await switchChainAsync({ chainId: net.chainId });
 
-      // Re-read the balance on-chain: the sidebar number may be stale
+      // Re-read balances on-chain: the numbers on screen may be stale
       setStepLabel('Checking balance...');
       const needed = amountRaw * BigInt(queue.length);
       const balance = await publicClient.readContract({
@@ -1067,6 +1145,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
       });
       if (balance < needed) {
         throw new Error(`Not enough USDC: need ${fmtUsdc(needed)}, you have ${fmtUsdc(balance)}.`);
+      }
+      const ethNow = await publicClient.getBalance({ address: walletAddr });
+      const ethNeededNow = topup * BigInt(queue.length) + estimateSenderFees(queue.length - queueExternal.length, queueExternal.length, topup > BigInt(0));
+      if (ethNow < ethNeededNow) {
+        throw new Error(`Not enough ETH on ${net.label}: need ${fmtEth(ethNeededNow)}, you have ${fmtEth(ethNow)}.`);
       }
 
       // One approval covering every escrow deposit in this batch
@@ -1097,51 +1180,34 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
       return;
     }
 
+    // ── 1. USDC — stop the batch on any failure; nothing after it has been sent ──
+    const paid: Array<{ r: UsdcRecipient; txHash: `0x${string}`; claimId?: string; claimUrl?: string; expiresAt?: number }> = [];
     for (let i = 0; i < queue.length; i++) {
       const r = queue[i];
-      const label = `${i + 1}/${queue.length}`;
-      let txHash: `0x${string}`;
-      let claimUrl: string | undefined;
-      let payload: Record<string, unknown>;
-
-      // On-chain step — stop the batch on any failure, nothing after it has been sent
       try {
         setResult(r.addr, { state: 'working', note: 'Confirm in wallet...' });
-        setStepLabel(`${label} · Confirm payment to ${r.addr} in your wallet...`);
+        setStepLabel(`${i + 1}/${queue.length} · Confirm payment to ${r.addr} in your wallet...`);
         if (r.external) {
           const { keccak256 } = await import('viem');
           const claimId = crypto.randomUUID();
           const expiresAt = Math.floor(Date.now() / 1000) + expiryHours * 3600;
-          txHash = await writeContractAsync({
+          const txHash = await writeContractAsync({
             address: PAYMENT_ESCROW_ADDRESS, abi: PAYMENT_ESCROW_ABI, functionName: 'deposit',
             args: [keccak256(toHex(claimId)), amountRaw, BigInt(expiresAt)], chainId: net.chainId,
           });
-          claimUrl = `https://basemail.ai/claim/${claimId}`;
-          payload = {
-            to: r.addr,
-            subject: `💸 You received ${amountStr} USDC — Claim now`,
-            body: `${auth.handle} sent you ${amountStr} USDC on ${networkLabel}!\n\n` +
-              `Click to claim: ${claimUrl}\n\n` +
-              `This payment is held in escrow. No crypto wallet? One will be created for you automatically.\n\n` +
-              `Expires: ${new Date(expiresAt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\n\n` +
-              `Sent via BaseMail.ai`,
-            escrow_claim: { claim_id: claimId, amount: amountStr, deposit_tx: txHash, network, expires_at: expiresAt },
-          };
+          paid.push({ r, txHash, claimId, claimUrl: `https://basemail.ai/claim/${claimId}`, expiresAt });
         } else {
           const memo = new TextEncoder().encode(`basemail:${r.addr}`);
           const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
-          txHash = await writeContractAsync({
+          const txHash = await writeContractAsync({
             address: net.usdc, abi: ERC20_ABI, functionName: 'transfer',
             args: [r.wallet as `0x${string}`, amountRaw], chainId: net.chainId,
             dataSuffix: `0x${memoHex}` as `0x${string}`,
           });
-          payload = {
-            to: r.addr,
-            subject: `USDC Payment: $${amountStr}`,
-            body: `You received a payment of ${amountStr} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${txHash}\n\nSent via BaseMail.ai`,
-            usdc_payment: { tx_hash: txHash, amount: amountStr, network },
-          };
+          paid.push({ r, txHash });
         }
+        const p = paid[paid.length - 1];
+        setResult(r.addr, { state: 'working', note: 'Paid · email goes out after the last payment', txHash: p.txHash, claimUrl: p.claimUrl });
       } catch (e: any) {
         setResult(r.addr, { state: 'failed', note: isRejection(e) ? 'Cancelled in wallet' : (e.shortMessage || e.message || 'Transaction failed') });
         setResults(prev => {
@@ -1152,20 +1218,82 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
         setError(`Stopped at ${r.addr}. Recipients marked "Not sent" received nothing — you can retry them.`);
         break;
       }
+    }
 
-      // Email step — the USDC already moved, so a failure here doesn't stop the batch
-      setResult(r.addr, { state: 'working', note: 'Sending email...', txHash, claimUrl });
-      setStepLabel(`${label} · Sending ${r.external ? 'claim' : 'payment'} email to ${r.addr}...`);
+    // ── 2. Gas top-ups, only for recipients who were paid ──
+    const gas: Record<string, { tx?: `0x${string}`; error?: string }> = {};
+    if (topup > BigInt(0) && paid.length > 0) {
+      // External recipients have no wallet yet: one tx to BaseMail, forwarded when each one claims
+      const paidExternal = paid.filter(p => p.r.external);
+      if (paidExternal.length > 0) {
+        const total = topup * BigInt(paidExternal.length);
+        try {
+          setStepLabel(`Confirm ${fmtEth(total)} ETH gas for ${paidExternal.length} escrow recipient${paidExternal.length > 1 ? 's' : ''} in your wallet...`);
+          const tx = await sendTransactionAsync({ to: DEPOSIT_ADDRESS as `0x${string}`, value: total, data: GAS_TOPUP_MARKER_HEX, chainId: net.chainId });
+          setStepLabel('Waiting for the gas top-up to confirm...');
+          await publicClient.waitForTransactionReceipt({ hash: tx });
+          for (const p of paidExternal) gas[p.r.addr] = { tx };
+        } catch (e: any) {
+          for (const p of paidExternal) gas[p.r.addr] = { error: isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message || 'failed') };
+        }
+      }
+      let gasStopped = false;
+      for (const p of paid.filter(p => !p.r.external)) {
+        if (gasStopped) { gas[p.r.addr] = { error: 'not sent' }; continue; }
+        try {
+          setStepLabel(`Confirm ${fmtEth(topup)} ETH gas for ${p.r.addr} in your wallet...`);
+          gas[p.r.addr] = { tx: await sendTransactionAsync({ to: p.r.wallet as `0x${string}`, value: topup, chainId: net.chainId }) };
+        } catch (e: any) {
+          gas[p.r.addr] = { error: isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message || 'failed') };
+          if (isRejection(e)) gasStopped = true; // one "no" in the wallet skips the remaining top-ups
+        }
+      }
+    }
+
+    // ── 3. Emails — the money already moved, so a failure here doesn't stop the batch ──
+    const gasLine = `${fmtEth(topup)} ETH for gas — enough for about ${GAS_TOPUP_PAYMENTS} USDC payments on Base`;
+    for (let i = 0; i < paid.length; i++) {
+      const { r, txHash, claimId, claimUrl, expiresAt } = paid[i];
+      const g = gas[r.addr];
+      const gasNote = g?.error ? `Gas top-up not sent (${g.error})` : undefined;
+      setStepLabel(`${i + 1}/${paid.length} · Sending ${r.external ? 'claim' : 'payment'} email to ${r.addr}...`);
+      const payload = r.external ? {
+        to: r.addr,
+        subject: `💸 You received ${amountStr} USDC — Claim now`,
+        body: `${auth.handle} sent you ${amountStr} USDC on ${networkLabel}!\n\n` +
+          `Click to claim: ${claimUrl}\n\n` +
+          (g?.tx ? `Includes ${gasLine}, sent to your wallet when you claim.\n\n` : '') +
+          `This payment is held in escrow. No crypto wallet? One will be created for you automatically.\n\n` +
+          `Expires: ${new Date(expiresAt! * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\n\n` +
+          `Sent via BaseMail.ai`,
+        escrow_claim: {
+          claim_id: claimId, amount: amountStr, deposit_tx: txHash, network, expires_at: expiresAt,
+          ...(g?.tx ? { gas_topup: { tx_hash: g.tx, amount_wei: topup.toString() } } : {}),
+        },
+      } : {
+        to: r.addr,
+        subject: `USDC Payment: $${amountStr}`,
+        body: `You received a payment of ${amountStr} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${txHash}\n\n` +
+          (g?.tx ? `Plus ${gasLine}.\nGas transaction: ${net.explorer}/tx/${g.tx}\n\n` : '') +
+          `Sent via BaseMail.ai`,
+        usdc_payment: { tx_hash: txHash, amount: amountStr, network },
+      };
       try {
         const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(payload) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        setResult(r.addr, { state: 'done', note: r.external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered', txHash, claimUrl });
+        const gasRecord = data.escrow_claim?.gas_topup;
+        setResult(r.addr, {
+          state: 'done',
+          note: r.external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered',
+          txHash, claimUrl, gasTx: g?.tx, gasEth: g?.tx ? fmtEth(topup) : undefined,
+          gasNote: gasRecord && !gasRecord.recorded ? `Gas paid but not linked to this claim: ${gasRecord.error}. Contact support with the gas tx.` : gasNote,
+        });
       } catch (e: any) {
         setResult(r.addr, {
           state: 'email_failed',
           note: `USDC ${r.external ? 'escrowed' : 'sent'}, but the email failed: ${e.message}${r.external ? ' — share the claim link yourself.' : ''}`,
-          txHash, claimUrl,
+          txHash, claimUrl, gasTx: g?.tx, gasEth: g?.tx ? fmtEth(topup) : undefined, gasNote,
         });
       }
     }
@@ -1283,6 +1411,53 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
           </p>
         </div>
 
+        {/* Optional gas top-up */}
+        <div className="mb-4">
+          <label className={`card-inset flex items-start gap-3 px-3 py-2.5 ${phase === 'idle' ? 'cursor-pointer' : 'opacity-70'}`}>
+            <input
+              type="checkbox"
+              checked={includeGas}
+              disabled={phase !== 'idle'}
+              onChange={(e) => setIncludeGas(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#7da2ff]"
+            />
+            <span className="text-xs">
+              <span className="block text-sm text-fg">Add ETH for gas</span>
+              <span className="block text-fg-subtle mt-0.5">
+                {fmtEth(gasPerRecipient)} ETH{fmtUsd(gasPerRecipient)} per recipient — enough for about {GAS_TOPUP_PAYMENTS} USDC payments
+                (e.g. buying OpenRouter credits), even if gas prices triple.
+                {externals.length > 0 && ' Escrow recipients get it when they claim; it comes back to you if they don\'t.'}
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {/* What this costs the sender */}
+        {phase === 'idle' && recipients.length > 0 && amountValid && (
+          <div className="card-inset mb-4 px-3 py-2.5 text-xs space-y-1">
+            <div className="flex justify-between gap-2">
+              <span className="text-fg-subtle">USDC</span>
+              <span className="font-mono text-fg">{fmtUsdc(pendingTotalRaw)}{pending.length > 1 ? ` (${pending.length} × ${amountNum})` : ''}</span>
+            </div>
+            {includeGas && (
+              <div className="flex justify-between gap-2">
+                <span className="text-fg-subtle">Gas top-ups</span>
+                <span className="font-mono text-fg">{fmtEth(topupTotal)} ETH{pending.length > 1 ? ` (${pending.length} × ${fmtEth(gasPerRecipient)})` : ''}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-2">
+              <span className="text-fg-subtle">Your network fees</span>
+              <span className="font-mono text-fg">≈{fmtEth(senderFees)} ETH</span>
+            </div>
+            <div className="flex justify-between gap-2 border-t border-line pt-1">
+              <span className="text-fg-subtle">ETH needed</span>
+              <span className={`font-mono ${gasBal && gasBal.value < ethNeeded ? 'text-danger' : 'text-fg'}`}>
+                {fmtEth(ethNeeded)}{fmtUsd(ethNeeded)} · you have {gasBal ? fmtEth(gasBal.value) : '—'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Escrow: Expiry selector */}
         {externals.length > 0 && (
           <div className="mb-4">
@@ -1323,8 +1498,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
             {recipients.length > externals.length && (
               <p>@basemail.ai recipients are paid directly to their wallet on {net.label}, with an on-chain memo.</p>
             )}
-            {recipients.length > 1 && (
-              <p>Your wallet asks you to confirm each payment in turn{externals.length > 0 ? ', after one approval for the escrow total' : ''}.</p>
+            {(recipients.length > 1 || includeGas) && (
+              <p>
+                Your wallet asks you to confirm each payment in turn{externals.length > 0 ? ', after one approval for the escrow total' : ''}
+                {includeGas ? `, then the gas top-ups (${recipients.length - externals.length} direct${externals.length > 0 ? ' + 1 for all escrow recipients' : ''})` : ''}.
+              </p>
             )}
             {network === 'base-mainnet' && (
               <p className="text-warning flex items-start gap-1.5">
@@ -1361,6 +1539,15 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
                     {res?.state === 'done' && <Icon.Check size={14} className="text-success shrink-0" />}
                   </div>
                   <p className={`mt-0.5 break-words ${tone}`}>{res?.note || 'Waiting'}</p>
+                  {res?.gasTx && (
+                    <p className="mt-0.5 text-fg-subtle">
+                      + {res.gasEth} ETH gas{r.external ? ', delivered when they claim' : ''}{' '}
+                      <a href={`${net.explorer}/tx/${res.gasTx}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
+                        tx <Icon.ExternalLink size={12} />
+                      </a>
+                    </p>
+                  )}
+                  {res?.gasNote && <p className="mt-0.5 text-warning break-words">{res.gasNote}</p>}
                   {(res?.txHash || res?.claimUrl) && (
                     <p className="mt-1 flex flex-wrap gap-x-3">
                       {res.txHash && (

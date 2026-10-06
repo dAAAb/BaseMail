@@ -341,6 +341,11 @@ Object.assign(schemas, {
       claim_id: { type: 'string' }, amount: { type: 'string' }, deposit_tx: TX_HASH,
       network: { type: 'string', enum: ['base-mainnet', 'base-sepolia'], default: 'base-mainnet' },
       expires_at: UNIX_TS,
+      gas_topup: {
+        type: 'object', required: ['tx_hash', 'amount_wei'],
+        description: 'Optional ETH for the claimer\'s gas (Base Mainnet only). Send ETH from your own wallet to the BaseMail wallet (`GET /api/credits` deposit address) with calldata = hex of `basemail:gas-topup`; one tx can cover several claims (their `amount_wei` may not add up to more than it paid). BaseMail forwards each share to the claimer when they claim, or back to you after the claim expires. Max 0.001 ETH per claim. Such a tx cannot be used to buy credits.',
+        properties: { tx_hash: TX_HASH, amount_wei: { type: 'string', pattern: '^[0-9]+$', description: 'This claim\'s share, in wei.' } },
+      },
     },
   },
   SendRequest: {
@@ -373,7 +378,7 @@ Object.assign(schemas, {
       bond_resolved: { type: 'boolean', description: 'Present (true) only when replying resolved an active USDC attention bond.' },
       attachments: { type: 'integer', description: 'Number of attachments sent.' },
       usdc_payment: { type: 'object', description: 'Present only when `usdc_payment` was verified.', required: ['verified', 'amount', 'tx_hash', 'network'], properties: { verified: { type: 'boolean', const: true }, amount: { type: 'string' }, tx_hash: TX_HASH, network: { type: 'string' } } },
-      escrow_claim: { type: 'object', description: 'Present only when an escrow claim was recorded.', properties: { claim_id: { type: 'string' }, amount: { type: 'string' }, claim_url: { type: 'string', format: 'uri' }, expires_at: UNIX_TS } },
+      escrow_claim: { type: 'object', description: 'Present only when an escrow claim was recorded.', properties: { claim_id: { type: 'string' }, amount: { type: 'string' }, claim_url: { type: 'string', format: 'uri' }, expires_at: UNIX_TS, gas_topup: { type: 'object', description: 'Result of `escrow_claim.gas_topup`, when one was sent. The email is delivered either way.', properties: { recorded: { type: 'boolean' }, amount_eth: { type: 'string' }, error: { type: 'string' } } } } },
       attn: {
         type: 'object', description: 'ATTN auto-stake result. Present for internal sends when the ATTN system ran.',
         properties: {
@@ -723,13 +728,16 @@ Object.assign(schemas, {
       claim_id: { type: 'string' }, sender: HANDLE, recipient_email: EMAIL_ADDR, amount_usdc: { type: 'number' },
       network: { type: 'string', enum: ['base-mainnet', 'base-sepolia'] }, status: { type: 'string', enum: ['pending', 'claimed', 'expired'] },
       expires_at: UNIX_TS, created_at: UNIX_TS, expired: { type: 'boolean' },
+      gas_topup_eth: { type: 'string', description: 'ETH for gas that comes with this claim, sent to the claimer\'s wallet on claim. Absent when none.' },
+      gas_status: { type: 'string', enum: ['pending', 'sending', 'sent'] },
+      gas_tx: { ...TX_HASH, description: 'Gas forward transaction, once sent.' },
       claim_url: { type: 'string', format: 'uri', description: 'Present while claimable.' },
       api: { type: 'object', additionalProperties: true, description: 'Agent-friendly claim instructions (endpoint, method, auth, instructions[]). Present while claimable.' },
     },
   },
   ClaimResponse: {
     type: 'object', required: ['success', 'claim_id', 'amount_usdc', 'release_tx', 'receipt_email_id', 'claimer', 'new_account'],
-    properties: { success: { type: 'boolean', const: true }, claim_id: { type: 'string' }, amount_usdc: { type: 'string' }, release_tx: TX_HASH, receipt_email_id: { type: 'string' }, claimer: HANDLE, new_account: { type: 'boolean', description: 'true if a BaseMail account was auto-created for the claiming wallet.' }, token: { type: 'string', description: 'JWT for the auto-created account. Present only when `new_account` is true.' } },
+    properties: { success: { type: 'boolean', const: true }, claim_id: { type: 'string' }, amount_usdc: { type: 'string' }, release_tx: TX_HASH, receipt_email_id: { type: 'string' }, claimer: HANDLE, new_account: { type: 'boolean', description: 'true if a BaseMail account was auto-created for the claiming wallet.' }, gas_topup: { type: 'object', description: 'ETH for gas forwarded to your wallet with this claim.', properties: { amount_eth: { type: 'string' }, tx: TX_HASH } }, token: { type: 'string', description: 'JWT for the auto-created account. Present only when `new_account` is true.' } },
   },
   ClaimPending: {
     type: 'object', required: ['pending', 'claim_id', 'release_tx', 'message', 'new_account'],
