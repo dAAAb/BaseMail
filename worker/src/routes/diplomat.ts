@@ -11,7 +11,8 @@
  */
 
 import { Hono } from 'hono';
-import { createPublicClient, http, type Hex } from 'viem';
+import { createPublicClient, type Hex } from 'viem';
+import { baseTransport } from '../rpc';
 import { base } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
@@ -401,7 +402,7 @@ diplomatRoutes.post('/send', async (c) => {
     // ── Auto-buy: if buy_tx_hash provided, verify USDC tx and top up ATTN ──
     if (body.buy_tx_hash) {
       try {
-        const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') });
+        const client = createPublicClient({ chain: base, transport: baseTransport() });
         const receipt = await client.waitForTransactionReceipt({
           hash: body.buy_tx_hash as Hex,
           timeout: 15_000,

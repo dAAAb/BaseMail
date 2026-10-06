@@ -10,7 +10,8 @@
  */
 
 import { Hono } from 'hono';
-import { createPublicClient, http, parseAbi, type Hex } from 'viem';
+import { createPublicClient, parseAbi, type Hex } from 'viem';
+import { baseTransport } from '../rpc';
 import { base } from 'viem/chains';
 import { AppBindings } from '../types';
 import { authMiddleware } from '../auth';
@@ -186,7 +187,7 @@ attnRoutes.post('/buy', async (c) => {
 
   // Verify on-chain USDC transfer
   try {
-    const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') });
+    const client = createPublicClient({ chain: base, transport: baseTransport() });
     const receipt = await client.waitForTransactionReceipt({
       hash: tx_hash as Hex,
       timeout: 15_000,

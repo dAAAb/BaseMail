@@ -1,14 +1,10 @@
 import { Hono } from 'hono';
-import { createPublicClient, createWalletClient, http, parseAbi, keccak256, toHex, type Hex, type Address, fallback } from 'viem';
+import { createPublicClient, createWalletClient, parseAbi, keccak256, toHex, type Hex, type Address } from 'viem';
 import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
-// Multiple RPCs with fallback for reliability
-const baseTransport = fallback([
-  http('https://mainnet.base.org'),
-  http('https://1rpc.io/base'),
-]);
 import { AppBindings } from '../types';
+import { baseTransport } from '../rpc';
 import { authMiddleware, createToken } from '../auth';
 import { resolveHandle } from '../basename-lookup';
 
@@ -232,8 +228,8 @@ claimRoutes.post('/:id', authMiddleware(), async (c) => {
 
   // Call PaymentEscrow.release() on-chain
   const account = privateKeyToAccount(c.env.WALLET_PRIVATE_KEY as Hex);
-  const publicClient = createPublicClient({ chain: base, transport: baseTransport });
-  const walletClient = createWalletClient({ chain: base, transport: baseTransport, account });
+  const publicClient = createPublicClient({ chain: base, transport: baseTransport() });
+  const walletClient = createWalletClient({ chain: base, transport: baseTransport(), account });
 
   const claimIdHash = keccak256(toHex(claimId));
   let releaseTx: string;
