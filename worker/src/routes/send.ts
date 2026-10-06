@@ -452,6 +452,41 @@ sendRoutes.post('/', async (c) => {
   // Internal vs external routing
   const isInternal = to.toLowerCase().endsWith(`@${c.env.DOMAIN}`);
 
+  // ── Record escrow claim (for external email with USDC) ──
+  // Before any credit / rate-limit / delivery check: the USDC is already in
+  // escrow, so the claim must exist even if this email can't go out (the
+  // sender can share the claim link, or retry with the same claim_id).
+  let escrowRecorded = false;
+  if (escrow_claim && !isInternal) {
+    try {
+      await c.env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS escrow_claims (
+          claim_id TEXT PRIMARY KEY, sender_handle TEXT NOT NULL, sender_wallet TEXT NOT NULL,
+          recipient_email TEXT NOT NULL, amount_usdc REAL NOT NULL, deposit_tx TEXT NOT NULL,
+          network TEXT NOT NULL DEFAULT 'base-mainnet', status TEXT NOT NULL DEFAULT 'pending',
+          claimer_handle TEXT, claimer_wallet TEXT, release_tx TEXT, receipt_email_id TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL, claimed_at INTEGER
+        )`
+      ).run();
+
+      const senderWallet = auth.wallet || '';
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO escrow_claims (claim_id, sender_handle, sender_wallet, recipient_email, amount_usdc, deposit_tx, network, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        escrow_claim.claim_id,
+        auth.handle,
+        senderWallet,
+        to,
+        parseFloat(escrow_claim.amount),
+        escrow_claim.deposit_tx,
+        escrow_claim.network || 'base-mainnet',
+        escrow_claim.expires_at,
+      ).run();
+      escrowRecorded = true;
+    } catch (_) { /* don't block email sending */ }
+  }
+
   if (isInternal) {
     // ── Internal delivery: store directly in recipient's inbox ──
     let recipientHandle = to.split('@')[0].toLowerCase();
@@ -643,38 +678,6 @@ sendRoutes.post('/', async (c) => {
     verifiedUsdc?.tx_hash || null,
     verifiedUsdc?.network || null,
   ).run();
-
-  // ── Record escrow claim (for external email with USDC) ──
-  let escrowRecorded = false;
-  if (escrow_claim && !isInternal) {
-    try {
-      await c.env.DB.prepare(
-        `CREATE TABLE IF NOT EXISTS escrow_claims (
-          claim_id TEXT PRIMARY KEY, sender_handle TEXT NOT NULL, sender_wallet TEXT NOT NULL,
-          recipient_email TEXT NOT NULL, amount_usdc REAL NOT NULL, deposit_tx TEXT NOT NULL,
-          network TEXT NOT NULL DEFAULT 'base-mainnet', status TEXT NOT NULL DEFAULT 'pending',
-          claimer_handle TEXT, claimer_wallet TEXT, release_tx TEXT, receipt_email_id TEXT,
-          created_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER NOT NULL, claimed_at INTEGER
-        )`
-      ).run();
-
-      const senderWallet = auth.wallet || '';
-      await c.env.DB.prepare(
-        `INSERT INTO escrow_claims (claim_id, sender_handle, sender_wallet, recipient_email, amount_usdc, deposit_tx, network, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        escrow_claim.claim_id,
-        auth.handle,
-        senderWallet,
-        to,
-        parseFloat(escrow_claim.amount),
-        escrow_claim.deposit_tx,
-        escrow_claim.network || 'base-mainnet',
-        escrow_claim.expires_at,
-      ).run();
-      escrowRecorded = true;
-    } catch (_) { /* don't block email sending */ }
-  }
 
   // Auto-resolve attention bond if replying to a bonded email
   let bondResolved = false;
