@@ -2,11 +2,13 @@
  * Gas top-ups for escrowed USDC.
  *
  * An external recipient has no wallet until they claim, so the sender pays
- * the gas ETH for all of them in one transaction to the BaseMail wallet
- * (WALLET_ADDRESS, the same key that owns PaymentEscrow), tagged with
- * GAS_TOPUP_MARKER in its calldata. Each claim records its share; the worker
- * forwards it to the claimer on release, or back to the sender once the
- * claim expires unclaimed (cron).
+ * the gas ETH for all of them in one plain ETH transfer to the BaseMail
+ * wallet (WALLET_ADDRESS, the same key that owns PaymentEscrow), tagged by
+ * its value: the last six digits in wei are GAS_TOPUP_TAG_WEI. (Not calldata:
+ * MetaMask refuses data on a transfer to an address that is one of the
+ * user's own accounts, and hardware wallets warn on it.) Each claim records
+ * its share; the worker forwards it to the claimer on release, or back to
+ * the sender once the claim expires unclaimed (cron).
  *
  * WALLET_ADDRESS also receives credit / Pro purchases, so a tagged tx can
  * never be redeemed there and vice versa (see isGasTopupTx).
@@ -17,8 +19,10 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { baseTransport } from './rpc';
 import type { Env } from './types';
 
-export const GAS_TOPUP_MARKER = 'basemail:gas-topup';
-const MARKER_HEX = toHex(GAS_TOPUP_MARKER).slice(2).toLowerCase();
+export const GAS_TOPUP_TAG_MOD = 1_000_000n;
+export const GAS_TOPUP_TAG_WEI = 424_242n; // value % GAS_TOPUP_TAG_MOD — about 4e-13 ETH
+/** Older top-ups carried this as calldata; still honoured so credits / Pro keep refusing them */
+const LEGACY_MARKER_HEX = toHex('basemail:gas-topup').slice(2).toLowerCase();
 
 /** Per-recipient ceiling — a top-up is a few payments' worth of gas, not a transfer */
 export const MAX_GAS_TOPUP_WEI = 10n ** 15n; // 0.001 ETH
@@ -35,13 +39,14 @@ export async function ensureEscrowGasColumns(db: D1Database) {
   columnsReady = true;
 }
 
-export function hasGasTopupMarker(input: string | undefined | null) {
-  return !!input && input.toLowerCase().includes(MARKER_HEX);
+export function isGasTopupValue(value: bigint) {
+  return value % GAS_TOPUP_TAG_MOD === GAS_TOPUP_TAG_WEI;
 }
 
 /** True if this tx was (or is tagged to be) used as a gas top-up — credits / Pro must refuse it */
-export async function isGasTopupTx(db: D1Database, txHash: string, input?: string | null) {
-  if (hasGasTopupMarker(input)) return true;
+export async function isGasTopupTx(db: D1Database, txHash: string, tx?: { value?: bigint; input?: string | null }) {
+  if (tx?.value !== undefined && isGasTopupValue(tx.value)) return true;
+  if (tx?.input && tx.input.toLowerCase().includes(LEGACY_MARKER_HEX)) return true;
   try {
     const row = await db.prepare('SELECT 1 FROM escrow_claims WHERE gas_topup_tx = ? LIMIT 1').bind(txHash.toLowerCase()).first();
     return !!row;
@@ -81,15 +86,20 @@ export async function attachGasTopup(
   if (receipt.status !== 'success') return fail('Gas top-up transaction failed on-chain');
   if (tx.from.toLowerCase() !== opts.senderWallet.toLowerCase()) return fail('Gas top-up must come from your own wallet');
   if (!env.WALLET_ADDRESS || tx.to?.toLowerCase() !== env.WALLET_ADDRESS.toLowerCase()) return fail('Gas top-up must be sent to the BaseMail wallet');
-  if (!hasGasTopupMarker(tx.input)) return fail(`Gas top-up tx must carry "${GAS_TOPUP_MARKER}" as calldata`);
+  if (!isGasTopupValue(tx.value)) return fail(`Gas top-up value must end in ${GAS_TOPUP_TAG_WEI} wei (value % ${GAS_TOPUP_TAG_MOD} === ${GAS_TOPUP_TAG_WEI})`);
 
   await ensureEscrowGasColumns(env.DB);
   const res = await env.DB.prepare(
     `UPDATE escrow_claims SET gas_topup_wei = CAST(? AS INTEGER), gas_topup_tx = ?, gas_status = 'pending'
      WHERE claim_id = ? AND sender_handle = ? AND gas_topup_tx IS NULL
        AND (SELECT COALESCE(SUM(gas_topup_wei), 0) FROM escrow_claims WHERE gas_topup_tx = ?) + CAST(? AS INTEGER) <= CAST(? AS INTEGER)`
-  ).bind(amount.toString(), txHash, opts.claimId, opts.senderHandle, txHash, amount.toString(), tx.value.toString()).run();
-  if (!res.meta.changes) return fail('Gas top-up tx is already fully allocated, or this claim already has one');
+  ).bind(amount.toString(), txHash, opts.claimId, opts.senderHandle, txHash, amount.toString(), (tx.value - GAS_TOPUP_TAG_WEI).toString()).run(); // the tag isn't allocatable
+  if (!res.meta.changes) {
+    const existing = await env.DB.prepare('SELECT gas_topup_tx, gas_topup_wei FROM escrow_claims WHERE claim_id = ? AND sender_handle = ?')
+      .bind(opts.claimId, opts.senderHandle).first<{ gas_topup_tx: string | null; gas_topup_wei: number | null }>();
+    if (existing?.gas_topup_tx === txHash) return { recorded: true, amount_eth: formatEther(BigInt(existing.gas_topup_wei || 0)) };
+    return fail('Gas top-up tx is already fully allocated, or this claim already has one');
+  }
 
   return { recorded: true, amount_eth: formatEther(amount) };
 }

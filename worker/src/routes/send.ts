@@ -1,4 +1,5 @@
 import { attachGasTopup } from '../escrow-gas';
+import { baseTransport } from '../rpc';
 import { isRateLimited, clientIp, rateLimitResponse, EXTERNAL_SEND_PER_IP_PER_HOUR, EXTERNAL_SEND_PER_HANDLE_PER_HOUR } from '../ratelimit';
 import { Hono } from 'hono';
 import { EmailMessage } from 'cloudflare:email';
@@ -190,10 +191,12 @@ sendRoutes.post('/', async (c) => {
     }
 
     try {
-      const client = createPublicClient({ chain: netConfig.chain, transport: http(netConfig.rpc) });
+      // mainnet.base.org alone rate-limits Cloudflare egress — use the shared fallback on mainnet
+      const transport = networkKey === 'base-mainnet' ? baseTransport() : http(netConfig.rpc);
+      const client = createPublicClient({ chain: netConfig.chain, transport });
       const receipt = await client.waitForTransactionReceipt({
         hash: usdc_payment.tx_hash as Hex,
-        timeout: 15_000,
+        timeout: 30_000,
       });
 
       if (receipt.status !== 'success') {

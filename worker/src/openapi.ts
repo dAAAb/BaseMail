@@ -343,7 +343,7 @@ Object.assign(schemas, {
       expires_at: UNIX_TS,
       gas_topup: {
         type: 'object', required: ['tx_hash', 'amount_wei'],
-        description: 'Optional ETH for the claimer\'s gas (Base Mainnet only). Send ETH from your own wallet to the BaseMail wallet (`GET /api/credits` deposit address) with calldata = hex of `basemail:gas-topup`; one tx can cover several claims (their `amount_wei` may not add up to more than it paid). BaseMail forwards each share to the claimer when they claim, or back to you after the claim expires. Max 0.001 ETH per claim. Such a tx cannot be used to buy credits.',
+        description: 'Optional ETH for the claimer\'s gas (Base Mainnet only). Send ETH from your own wallet to the BaseMail wallet (`GET /api/credits` deposit address) as a plain transfer whose value in wei ends in `424242` (value % 1000000 = 424242, e.g. 0.00004 ETH + 424242 wei); one tx can cover several claims (their `amount_wei` may not add up to more than it paid). BaseMail forwards each share to the claimer when they claim, or back to you after the claim expires. Max 0.001 ETH per claim. Such a tx cannot be used to buy credits.',
         properties: { tx_hash: TX_HASH, amount_wei: { type: 'string', pattern: '^[0-9]+$', description: 'This claim\'s share, in wei.' } },
       },
     },

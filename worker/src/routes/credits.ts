@@ -118,7 +118,7 @@ creditsRoutes.post('/buy', async (c) => {
   }
 
   // Gas top-ups for escrowed USDC go to the same wallet but belong to their claims
-  if (await isGasTopupTx(c.env.DB, tx_hash, tx.input)) {
+  if (await isGasTopupTx(c.env.DB, tx_hash, { value: tx.value, input: tx.input })) {
     return c.json({ error: 'This transaction is an escrow gas top-up and cannot be used here' }, 409);
   }
 

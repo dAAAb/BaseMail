@@ -913,7 +913,9 @@ const GAS_TOPUP_STEP = BigInt(1_000_000_000_000);     // round up to 0.000001 ET
 const FALLBACK_MAX_FEE = BigInt(50_000_000);          // 0.05 gwei if the fee estimate fails
 // The sender's own transactions, in gas units (generous)
 const SENDER_GAS = { approve: BigInt(60_000), transfer: BigInt(70_000), deposit: BigInt(180_000), ethSend: BigInt(21_000), escrowTopup: BigInt(26_000) };
-const GAS_TOPUP_MARKER_HEX = toHex('basemail:gas-topup'); // GAS_TOPUP_MARKER in worker/src/escrow-gas.ts
+// Escrow top-ups to BaseMail are tagged by value (wei ends in 424242), not calldata: MetaMask refuses
+// data on a transfer to one of the user's own accounts. GAS_TOPUP_TAG_WEI in worker/src/escrow-gas.ts
+const GAS_TOPUP_TAG_WEI = BigInt(424_242);
 
 /** 0.0000641 → "0.0000641", without exponent notation */
 function fmtEth(wei: bigint) {
@@ -967,6 +969,8 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const [ethUsd, setEthUsd] = useState<number | null>(null);
   const { writeContractAsync } = useWriteContract();
   const { sendTransactionAsync } = useSendTransaction();
+  const emailPayloads = useRef<Record<string, Record<string, unknown>>>({});
+  const [resending, setResending] = useState<string | null>(null);
 
   const net = USDC_NET_CONFIG[network];
   const walletAddr = auth.wallet as `0x${string}`;
@@ -1229,7 +1233,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
         const total = topup * BigInt(paidExternal.length);
         try {
           setStepLabel(`Confirm ${fmtEth(total)} ETH gas for ${paidExternal.length} escrow recipient${paidExternal.length > 1 ? 's' : ''} in your wallet...`);
-          const tx = await sendTransactionAsync({ to: DEPOSIT_ADDRESS as `0x${string}`, value: total, data: GAS_TOPUP_MARKER_HEX, chainId: net.chainId });
+          const tx = await sendTransactionAsync({ to: DEPOSIT_ADDRESS as `0x${string}`, value: total + GAS_TOPUP_TAG_WEI, chainId: net.chainId });
           setStepLabel('Waiting for the gas top-up to confirm...');
           await publicClient.waitForTransactionReceipt({ hash: tx });
           for (const p of paidExternal) gas[p.r.addr] = { tx };
@@ -1278,6 +1282,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
           `Sent via BaseMail.ai`,
         usdc_payment: { tx_hash: txHash, amount: amountStr, network },
       };
+      emailPayloads.current[r.addr] = payload;
       try {
         const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(payload) });
         const data = await res.json().catch(() => ({}));
@@ -1301,6 +1306,27 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
     setStepLabel('');
     setPhase('finished');
     refetchUsdc();
+  }
+
+  /** Re-send an email whose payment already went through (same claim / tx — nothing is paid again) */
+  async function resendEmail(addr: string) {
+    const payload = emailPayloads.current[addr];
+    if (!payload) return;
+    setResending(addr);
+    try {
+      const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(payload) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const external = 'escrow_claim' in payload;
+      setResults(prev => ({
+        ...prev,
+        [addr]: { ...prev[addr], state: 'done', note: external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered' },
+      }));
+    } catch (e: any) {
+      setResults(prev => ({ ...prev, [addr]: { ...prev[addr], note: `Email still failing: ${e.message}` } }));
+    } finally {
+      setResending(null);
+    }
   }
 
   const doneCount = Object.values(results).filter(r => r.state === 'done' || r.state === 'email_failed').length;
@@ -1548,6 +1574,16 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
                     </p>
                   )}
                   {res?.gasNote && <p className="mt-0.5 text-warning break-words">{res.gasNote}</p>}
+                  {res?.state === 'email_failed' && emailPayloads.current[r.addr] && (
+                    <button
+                      type="button"
+                      onClick={() => resendEmail(r.addr)}
+                      disabled={resending !== null}
+                      className="btn btn-secondary btn-sm mt-1.5"
+                    >
+                      <Icon.Refresh size={14} /> {resending === r.addr ? 'Sending...' : 'Resend email'}
+                    </button>
+                  )}
                   {(res?.txHash || res?.claimUrl) && (
                     <p className="mt-1 flex flex-wrap gap-x-3">
                       {res.txHash && (
