@@ -1588,6 +1588,24 @@ Object.assign(paths, {
 
 // ── Claims / Keys / Stats / Discovery ──
 Object.assign(paths, {
+  '/api/escrow/claims': {
+    post: {
+      operationId: 'recordEscrowClaim', tags: ['Claims'],
+      summary: 'Record an escrow deposit as a claim',
+      description: 'Call right after your `PaymentEscrow.deposit(keccak256(claim_id), amount, expiry)` confirms, so the claim exists even if the claim email is never sent. Amount and expiry are read from the contract and only the depositing wallet can record it. Idempotent; a later `POST /api/send` with the same `escrow_claim.claim_id` sends the email. Base Mainnet only. Auth: Bearer.',
+      requestBody: jsonBody({
+        type: 'object', required: ['claim_id', 'recipient_email'],
+        properties: { claim_id: { type: 'string', description: 'The string you hashed with keccak256 for the deposit.' }, recipient_email: EMAIL_ADDR, deposit_tx: TX_HASH, network: { type: 'string', enum: ['base-mainnet'], default: 'base-mainnet' } },
+      }, { claim_id: '3f0c2a9e-…', recipient_email: 'friend@gmail.com', deposit_tx: '0x…' }),
+      responses: {
+        '200': jsonRes('Recorded', { type: 'object', properties: { recorded: { type: 'boolean', const: true }, claim_id: { type: 'string' }, recipient_email: EMAIL_ADDR, amount_usdc: { type: 'string' }, expires_at: UNIX_TS, status: { type: 'string' }, claim_url: { type: 'string', format: 'uri' } } }),
+        '400': errRes('Invalid claim_id / recipient_email / network', { error: 'Invalid claim_id' }),
+        '403': errRes('Deposit made by another wallet', { error: 'This deposit was made by another wallet' }),
+        '404': errRes('No deposit for this claim_id on-chain yet', { error: 'No escrow deposit for this claim_id yet' }),
+        '409': errRes('claim_id already recorded by another sender', { error: 'claim_id already belongs to another sender' }),
+      },
+    },
+  },
   '/api/claim/{id}': {
     get: {
       operationId: 'getClaim', tags: ['Claims'], security: PUBLIC,

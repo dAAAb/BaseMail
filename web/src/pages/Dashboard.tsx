@@ -3,7 +3,7 @@ import WorldIdVerify from '../components/WorldIdVerify';
 import { Icon } from '../components/Icons';
 import { Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect, useSignMessage, useSendTransaction, useBalance, useSwitchChain } from 'wagmi';
-import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex } from 'viem';
+import { parseEther, formatUnits, encodeFunctionData, parseAbi, toHex, keccak256 } from 'viem';
 import { base, mainnet } from 'wagmi/chains';
 import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 
@@ -20,6 +20,7 @@ const BASE_MAINNET_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as `0x${s
 const PAYMENT_ESCROW_ADDRESS = '0xaf41b976978ac981d79c1008dd71681355c71bf6' as `0x${string}`;
 const PAYMENT_ESCROW_ABI = parseAbi([
   'function deposit(bytes32 claimId, uint256 amount, uint256 expiry) external',
+  'function getDeposit(bytes32 claimId) view returns (address sender, uint256 amount, uint256 expiry, bool settled)',
 ]);
 const ESCROW_ABI = parseAbi([
   'function deposit(address _recipient, bytes32 _emailId, uint256 _amount) external',
@@ -917,6 +918,14 @@ const SENDER_GAS = { approve: BigInt(60_000), transfer: BigInt(70_000), deposit:
 // data on a transfer to one of the user's own accounts. GAS_TOPUP_TAG_WEI in worker/src/escrow-gas.ts
 const GAS_TOPUP_TAG_WEI = BigInt(424_242);
 
+// A wallet can hand back a tx hash for a transaction that never lands (e.g. one its
+// relay cancels because it would revert), so every step is confirmed on-chain, and
+// gives up waiting after this long instead of hanging.
+const TX_CONFIRM_TIMEOUT_MS = 90_000;
+// One batch at a time across tabs: two batches share one escrow approval.
+const SEND_LOCK_KEY = 'basemail_usdc_send_lock';
+const SEND_LOCK_STALE_MS = 15_000;
+
 /** 0.0000641 → "0.0000641", without exponent notation */
 function fmtEth(wei: bigint) {
   const n = Number(formatUnits(wei, 18));
@@ -933,15 +942,49 @@ interface UsdcRecipient {
   error?: string;
 }
 
-interface UsdcSendResult {
-  state: 'queued' | 'working' | 'done' | 'email_failed' | 'failed' | 'skipped';
-  note?: string;
-  txHash?: string;
-  claimUrl?: string;
+/**
+ * A send in progress, saved to localStorage on every change — before each
+ * wallet prompt — so a closed tab, a reload or a timeout can be resumed and
+ * nothing paid is ever lost track of (an escrow claim ID most of all).
+ */
+type TxStep = 'todo' | 'sent' | 'confirmed' | 'unconfirmed' | 'failed';
+interface UsdcBatchItem {
+  addr: string;
+  external: boolean;
+  wallet?: string;
+  claimId?: string;              // escrow: chosen and saved before the deposit is signed
+  expiresAt?: number;
+  pay: TxStep;
+  payTx?: string;
+  payNote?: string;
+  recorded?: boolean;            // escrow claim stored server-side (POST /api/escrow/claims)
+  gas?: TxStep;                  // absent when no gas top-up was asked for
   gasTx?: string;
-  gasEth?: string;
   gasNote?: string;
+  email: 'todo' | 'done' | 'failed';
+  emailNote?: string;
 }
+interface UsdcBatch {
+  wallet: string;
+  network: UsdcNetwork;
+  amountRaw: string;
+  amountStr: string;
+  expiryHours: number;
+  topupWei: string;              // '0' without gas top-ups
+  items: UsdcBatchItem[];
+}
+
+const usdcBatchKey = (wallet: string) => `basemail_usdc_batch:${wallet.toLowerCase()}`;
+function loadUsdcBatch(wallet: string): UsdcBatch | null {
+  try { return JSON.parse(localStorage.getItem(usdcBatchKey(wallet)) || 'null'); } catch { return null; }
+}
+function saveUsdcBatch(wallet: string, batch: UsdcBatch | null) {
+  try {
+    if (batch) localStorage.setItem(usdcBatchKey(wallet), JSON.stringify(batch));
+    else localStorage.removeItem(usdcBatchKey(wallet));
+  } catch { /* private mode: the batch still runs, it just can't be resumed after a reload */ }
+}
+const usdcItemDone = (i: UsdcBatchItem) => i.pay === 'confirmed' && i.email === 'done';
 
 /** "alice", "alice@basemail.ai", "bob@gmail.com" → normalized address, or null if invalid */
 function normalizeUsdcRecipient(raw: string): string | null {
@@ -959,20 +1002,27 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const [amount, setAmount] = useState('');
   const [network, setNetwork] = useState<UsdcNetwork>('base-mainnet');
   const [expiryHours, setExpiryHours] = useState(168); // 7 days default
-  const [phase, setPhase] = useState<'idle' | 'running' | 'finished'>('idle');
-  const [stepLabel, setStepLabel] = useState('');
-  const [results, setResults] = useState<Record<string, UsdcSendResult>>({});
-  const [error, setError] = useState('');
   const [credits, setCredits] = useState<number | null>(null);
   const [includeGas, setIncludeGas] = useState(false);
   const [maxFeePerGas, setMaxFeePerGas] = useState<bigint | null>(null);
   const [ethUsd, setEthUsd] = useState<number | null>(null);
   const { writeContractAsync } = useWriteContract();
   const { sendTransactionAsync } = useSendTransaction();
-  const emailPayloads = useRef<Record<string, Record<string, unknown>>>({});
-  const [resending, setResending] = useState<string | null>(null);
 
-  const net = USDC_NET_CONFIG[network];
+  // The batch being sent (or left unfinished by an earlier visit)
+  const [batch, setBatchState] = useState<UsdcBatch | null>(() => loadUsdcBatch(auth.wallet));
+  const batchRef = useRef(batch);
+  const setBatch = (b: UsdcBatch | null) => { batchRef.current = b; saveUsdcBatch(auth.wallet, b); setBatchState(b); };
+  const [running, setRunning] = useState(false);
+  const [stepLabel, setStepLabel] = useState('');
+  const [error, setError] = useState('');
+  const [itemAction, setItemAction] = useState<string | null>(null); // addr of a per-row action in progress
+  const [confirmAction, setConfirmAction] = useState<string | null>(null); // two-click confirmations
+  const [tabId] = useState(() => crypto.randomUUID());
+  const [otherTabSending, setOtherTabSending] = useState(false);
+
+  const activeNetwork = batch?.network ?? network;
+  const net = USDC_NET_CONFIG[activeNetwork];
   const walletAddr = auth.wallet as `0x${string}`;
   const publicClient = usePublicClient({ chainId: net.chainId });
   const { data: usdcBal, refetch: refetchUsdc } = useBalance({ address: walletAddr, chainId: net.chainId, token: net.usdc });
@@ -985,6 +1035,24 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   const totalRaw = amountRaw * BigInt(recipients.length);
   const fmtUsdc = (v: bigint) => parseFloat(formatUnits(v, 6)).toFixed(2);
   const totalStr = fmtUsdc(totalRaw);
+
+  // ── Cross-tab lock ──
+  function lockHeldByOtherTab() {
+    try {
+      const v = JSON.parse(localStorage.getItem(SEND_LOCK_KEY) || 'null');
+      return !!v && v.tab !== tabId && Date.now() - v.ts < SEND_LOCK_STALE_MS;
+    } catch { return false; }
+  }
+  function writeLock() { try { localStorage.setItem(SEND_LOCK_KEY, JSON.stringify({ tab: tabId, ts: Date.now() })); } catch {} }
+  function releaseLock() {
+    try { if (JSON.parse(localStorage.getItem(SEND_LOCK_KEY) || 'null')?.tab === tabId) localStorage.removeItem(SEND_LOCK_KEY); } catch {}
+  }
+  useEffect(() => {
+    const check = () => setOtherTabSending(lockHeldByOtherTab());
+    check();
+    const t = setInterval(check, 2000);
+    return () => { clearInterval(t); releaseLock(); };
+  }, []);
 
   // Live gas price for the ETH estimates (re-read when the network changes)
   useEffect(() => {
@@ -1056,7 +1124,6 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
     );
     if (accepted.length === 0) return;
     setRecipients(prev => [...prev, ...accepted]);
-    setResults({});
     for (const r of accepted.filter(r => !r.external)) resolveRecipient(r.addr);
   }
 
@@ -1075,20 +1142,11 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
 
   function removeRecipient(addr: string) {
     setRecipients(prev => prev.filter(r => r.addr !== addr));
-    setResults({});
   }
 
   const resolving = recipients.some(r => r.resolving);
-  const busy = phase === 'running';
-  // Not sent yet: everyone before the first run, then whoever failed or was skipped
-  const pending = recipients.filter(r => {
-    const s = results[r.addr]?.state;
-    return !s || s === 'queued' || s === 'failed' || s === 'skipped';
-  });
-  const pendingExternal = pending.filter(r => r.external).length;
-  const pendingTotalRaw = amountRaw * BigInt(pending.length);
-  const topupTotal = includeGas ? gasPerRecipient * BigInt(pending.length) : BigInt(0);
-  const senderFees = estimateSenderFees(pending.length - pendingExternal, pendingExternal, includeGas);
+  const topupTotal = includeGas ? gasPerRecipient * BigInt(recipients.length) : BigInt(0);
+  const senderFees = estimateSenderFees(recipients.length - externals.length, externals.length, includeGas);
   const ethNeeded = topupTotal + senderFees;
 
   // Everything that would make the batch fail part-way — checked before any wallet prompt
@@ -1100,237 +1158,374 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
   if (externals.length > 0 && network !== 'base-mainnet') {
     problems.push('Escrow for external emails is only available on Base Mainnet.');
   }
-  if (amountValid && pending.length > 0 && usdcBal && pendingTotalRaw > usdcBal.value) {
-    problems.push(`Not enough USDC on ${net.label}: need ${fmtUsdc(pendingTotalRaw)}, you have ${fmtUsdc(usdcBal.value)}.`);
+  if (amountValid && recipients.length > 0 && usdcBal && totalRaw > usdcBal.value) {
+    problems.push(`Not enough USDC on ${net.label}: need ${fmtUsdc(totalRaw)}, you have ${fmtUsdc(usdcBal.value)}.`);
   }
-  if (gasBal && pending.length > 0 && gasBal.value < ethNeeded) {
+  if (gasBal && recipients.length > 0 && gasBal.value < ethNeeded) {
     problems.push(includeGas
       ? `Not enough ETH on ${net.label}: need ${fmtEth(ethNeeded)} (gas top-ups ${fmtEth(topupTotal)} + your network fees ≈${fmtEth(senderFees)}), you have ${fmtEth(gasBal.value)}.`
       : `Not enough ETH on ${net.label} for network fees: need ≈${fmtEth(senderFees)}, you have ${fmtEth(gasBal.value)}.`);
   }
-  if (credits !== null && pendingExternal > credits) {
-    problems.push(`Each external email uses 1 credit: need ${pendingExternal}, you have ${credits}.`);
+  if (credits !== null && externals.length > credits) {
+    problems.push(`Each external email uses 1 credit: need ${externals.length}, you have ${credits}.`);
   }
-  if (auth.tier !== 'pro' && pendingExternal > FREE_EXTERNAL_PER_HOUR) {
+  if (auth.tier !== 'pro' && externals.length > FREE_EXTERNAL_PER_HOUR) {
     problems.push(`Free accounts can email at most ${FREE_EXTERNAL_PER_HOUR} external recipients per hour.`);
   }
 
-  const canSend = !busy && pending.length > 0 && amountValid && !resolving && problems.length === 0;
+  const canStart = !batch && !running && !otherTabSending && recipients.length > 0 && amountValid && !resolving && problems.length === 0;
 
-  const setResult = (addr: string, r: UsdcSendResult) => setResults(prev => ({ ...prev, [addr]: r }));
+  // ── Batch helpers ──
+  const isRejection = (e: any) => /reject|denied|cancel/i.test(`${e?.shortMessage || ''} ${e?.message || ''}`);
+  function patchItem(addr: string, p: Partial<UsdcBatchItem>) {
+    const cur = batchRef.current;
+    if (!cur) return;
+    setBatch({ ...cur, items: cur.items.map(i => i.addr === addr ? { ...i, ...p } : i) });
+  }
+  const currentItem = (addr: string) => batchRef.current!.items.find(i => i.addr === addr)!;
 
-  async function handleSend() {
-    if (!canSend) return;
-    if (!publicClient) { setError(`Could not connect to ${net.label}. Try again.`); return; }
-    setError('');
-    setPhase('running');
-    const queue = pending;
-    const queueExternal = queue.filter(r => r.external);
-    const topup = includeGas ? gasPerRecipient : BigInt(0);
-    setResults(prev => {
-      const next = { ...prev };
-      for (const r of queue) next[r.addr] = { state: 'queued' };
-      return next;
+  async function waitForTx(hash: `0x${string}`) {
+    try { return await publicClient!.waitForTransactionReceipt({ hash, timeout: TX_CONFIRM_TIMEOUT_MS }); } catch { return null; }
+  }
+  async function receiptNow(hash?: string) {
+    if (!hash) return null;
+    try { return await publicClient!.getTransactionReceipt({ hash: hash as `0x${string}` }); } catch { return null; }
+  }
+  /** Is this claim's deposit in the escrow, from this wallet? The contract is the source of truth, not the tx hash. */
+  async function depositExists(claimId: string) {
+    const [sender] = await publicClient!.readContract({
+      address: PAYMENT_ESCROW_ADDRESS, abi: PAYMENT_ESCROW_ABI, functionName: 'getDeposit', args: [keccak256(toHex(claimId))],
     });
-
-    const amountStr = amountNum.toFixed(2);
-    const networkLabel = network === 'base-mainnet' ? 'Base' : 'Base Sepolia (testnet)';
-    const isRejection = (e: any) => /reject|denied|cancel/i.test(`${e?.shortMessage || ''} ${e?.message || ''}`);
-
+    return sender.toLowerCase() === walletAddr.toLowerCase();
+  }
+  /** Store the claim server-side as soon as its deposit confirms, so it's claimable even if the email never goes out */
+  async function recordClaim(addr: string) {
+    const i = currentItem(addr);
+    if (!i.external || !i.claimId || i.recorded) return;
     try {
-      setStepLabel(`Switching to ${net.label}...`);
-      await switchChainAsync({ chainId: net.chainId });
-
-      // Re-read balances on-chain: the numbers on screen may be stale
-      setStepLabel('Checking balance...');
-      const needed = amountRaw * BigInt(queue.length);
-      const balance = await publicClient.readContract({
-        address: net.usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [walletAddr],
+      const res = await apiFetch('/api/escrow/claims', auth.token, {
+        method: 'POST',
+        body: JSON.stringify({ claim_id: i.claimId, recipient_email: i.addr, deposit_tx: i.payTx, network: batchRef.current!.network }),
       });
-      if (balance < needed) {
-        throw new Error(`Not enough USDC: need ${fmtUsdc(needed)}, you have ${fmtUsdc(balance)}.`);
-      }
-      const ethNow = await publicClient.getBalance({ address: walletAddr });
-      const ethNeededNow = topup * BigInt(queue.length) + estimateSenderFees(queue.length - queueExternal.length, queueExternal.length, topup > BigInt(0));
-      if (ethNow < ethNeededNow) {
-        throw new Error(`Not enough ETH on ${net.label}: need ${fmtEth(ethNeededNow)}, you have ${fmtEth(ethNow)}.`);
-      }
+      if (res.ok) patchItem(addr, { recorded: true });
+    } catch { /* POST /api/send records it too; Resume retries */ }
+  }
 
-      // One approval covering every escrow deposit in this batch
-      if (queueExternal.length > 0) {
-        const escrowTotal = amountRaw * BigInt(queueExternal.length);
-        const allowance = await publicClient.readContract({
-          address: net.usdc, abi: ERC20_ABI, functionName: 'allowance', args: [walletAddr, PAYMENT_ESCROW_ADDRESS],
-        });
-        if (allowance < escrowTotal) {
-          setStepLabel(`Approve ${fmtUsdc(escrowTotal)} USDC for escrow in your wallet...`);
-          const approveHash = await writeContractAsync({
-            address: net.usdc, abi: ERC20_ABI, functionName: 'approve',
-            args: [PAYMENT_ESCROW_ADDRESS, escrowTotal], chainId: net.chainId,
-          });
-          setStepLabel('Waiting for approval to confirm...');
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
-        }
-      }
-    } catch (e: any) {
-      setError(isRejection(e) ? 'Cancelled in wallet. Nothing was sent.' : (e.shortMessage || e.message || 'Failed'));
-      setResults(prev => {
-        const next = { ...prev };
-        for (const r of queue) next[r.addr] = { state: 'skipped', note: 'Not sent' };
-        return next;
-      });
-      setStepLabel('');
-      setPhase('finished');
-      return;
-    }
-
-    // ── 1. USDC — stop the batch on any failure; nothing after it has been sent ──
-    const paid: Array<{ r: UsdcRecipient; txHash: `0x${string}`; claimId?: string; claimUrl?: string; expiresAt?: number }> = [];
-    for (let i = 0; i < queue.length; i++) {
-      const r = queue[i];
-      try {
-        setResult(r.addr, { state: 'working', note: 'Confirm in wallet...' });
-        setStepLabel(`${i + 1}/${queue.length} · Confirm payment to ${r.addr} in your wallet...`);
-        if (r.external) {
-          const { keccak256 } = await import('viem');
-          const claimId = crypto.randomUUID();
-          const expiresAt = Math.floor(Date.now() / 1000) + expiryHours * 3600;
-          const txHash = await writeContractAsync({
-            address: PAYMENT_ESCROW_ADDRESS, abi: PAYMENT_ESCROW_ABI, functionName: 'deposit',
-            args: [keccak256(toHex(claimId)), amountRaw, BigInt(expiresAt)], chainId: net.chainId,
-          });
-          paid.push({ r, txHash, claimId, claimUrl: `https://basemail.ai/claim/${claimId}`, expiresAt });
-        } else {
-          const memo = new TextEncoder().encode(`basemail:${r.addr}`);
-          const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
-          const txHash = await writeContractAsync({
-            address: net.usdc, abi: ERC20_ABI, functionName: 'transfer',
-            args: [r.wallet as `0x${string}`, amountRaw], chainId: net.chainId,
-            dataSuffix: `0x${memoHex}` as `0x${string}`,
-          });
-          paid.push({ r, txHash });
-        }
-        const p = paid[paid.length - 1];
-        setResult(r.addr, { state: 'working', note: 'Paid · email goes out after the last payment', txHash: p.txHash, claimUrl: p.claimUrl });
-      } catch (e: any) {
-        setResult(r.addr, { state: 'failed', note: isRejection(e) ? 'Cancelled in wallet' : (e.shortMessage || e.message || 'Transaction failed') });
-        setResults(prev => {
-          const next = { ...prev };
-          for (const rest of queue.slice(i + 1)) next[rest.addr] = { state: 'skipped', note: 'Not sent' };
-          return next;
-        });
-        setError(`Stopped at ${r.addr}. Recipients marked "Not sent" received nothing — you can retry them.`);
-        break;
-      }
-    }
-
-    // ── 2. Gas top-ups, only for recipients who were paid ──
-    const gas: Record<string, { tx?: `0x${string}`; error?: string }> = {};
-    if (topup > BigInt(0) && paid.length > 0) {
-      // External recipients have no wallet yet: one tx to BaseMail, forwarded when each one claims
-      const paidExternal = paid.filter(p => p.r.external);
-      if (paidExternal.length > 0) {
-        const total = topup * BigInt(paidExternal.length);
-        try {
-          setStepLabel(`Confirm ${fmtEth(total)} ETH gas for ${paidExternal.length} escrow recipient${paidExternal.length > 1 ? 's' : ''} in your wallet...`);
-          const tx = await sendTransactionAsync({ to: DEPOSIT_ADDRESS as `0x${string}`, value: total + GAS_TOPUP_TAG_WEI, chainId: net.chainId });
-          setStepLabel('Waiting for the gas top-up to confirm...');
-          await publicClient.waitForTransactionReceipt({ hash: tx });
-          for (const p of paidExternal) gas[p.r.addr] = { tx };
-        } catch (e: any) {
-          for (const p of paidExternal) gas[p.r.addr] = { error: isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message || 'failed') };
-        }
-      }
-      let gasStopped = false;
-      for (const p of paid.filter(p => !p.r.external)) {
-        if (gasStopped) { gas[p.r.addr] = { error: 'not sent' }; continue; }
-        try {
-          setStepLabel(`Confirm ${fmtEth(topup)} ETH gas for ${p.r.addr} in your wallet...`);
-          gas[p.r.addr] = { tx: await sendTransactionAsync({ to: p.r.wallet as `0x${string}`, value: topup, chainId: net.chainId }) };
-        } catch (e: any) {
-          gas[p.r.addr] = { error: isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message || 'failed') };
-          if (isRejection(e)) gasStopped = true; // one "no" in the wallet skips the remaining top-ups
-        }
-      }
-    }
-
-    // ── 3. Emails — the money already moved, so a failure here doesn't stop the batch ──
-    const gasLine = `${fmtEth(topup)} ETH for gas — enough for about ${GAS_TOPUP_PAYMENTS} USDC payments on Base`;
-    for (let i = 0; i < paid.length; i++) {
-      const { r, txHash, claimId, claimUrl, expiresAt } = paid[i];
-      const g = gas[r.addr];
-      const gasNote = g?.error ? `Gas top-up not sent (${g.error})` : undefined;
-      setStepLabel(`${i + 1}/${paid.length} · Sending ${r.external ? 'claim' : 'payment'} email to ${r.addr}...`);
-      const payload = r.external ? {
-        to: r.addr,
-        subject: `💸 You received ${amountStr} USDC — Claim now`,
-        body: `${auth.handle} sent you ${amountStr} USDC on ${networkLabel}!\n\n` +
+  function emailPayload(b: UsdcBatch, i: UsdcBatchItem) {
+    const n = USDC_NET_CONFIG[b.network];
+    const networkLabel = b.network === 'base-mainnet' ? 'Base' : 'Base Sepolia (testnet)';
+    const topup = BigInt(b.topupWei);
+    const gasLine = i.gas === 'confirmed' ? `${fmtEth(topup)} ETH for gas — enough for about ${GAS_TOPUP_PAYMENTS} USDC payments on Base` : '';
+    if (i.external) {
+      const claimUrl = `https://basemail.ai/claim/${i.claimId}`;
+      return {
+        to: i.addr,
+        subject: `💸 You received ${b.amountStr} USDC — Claim now`,
+        body: `${auth.handle} sent you ${b.amountStr} USDC on ${networkLabel}!\n\n` +
           `Click to claim: ${claimUrl}\n\n` +
-          (g?.tx ? `Includes ${gasLine}, sent to your wallet when you claim.\n\n` : '') +
+          (gasLine ? `Includes ${gasLine}, sent to your wallet when you claim.\n\n` : '') +
           `This payment is held in escrow. No crypto wallet? One will be created for you automatically.\n\n` +
-          `Expires: ${new Date(expiresAt! * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\n\n` +
+          `Expires: ${new Date(i.expiresAt! * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}\n\n` +
           `Sent via BaseMail.ai`,
         escrow_claim: {
-          claim_id: claimId, amount: amountStr, deposit_tx: txHash, network, expires_at: expiresAt,
-          ...(g?.tx ? { gas_topup: { tx_hash: g.tx, amount_wei: topup.toString() } } : {}),
+          claim_id: i.claimId, amount: b.amountStr, deposit_tx: i.payTx || '', network: b.network, expires_at: i.expiresAt,
+          ...(i.gas === 'confirmed' && i.gasTx ? { gas_topup: { tx_hash: i.gasTx, amount_wei: b.topupWei } } : {}),
         },
-      } : {
-        to: r.addr,
-        subject: `USDC Payment: $${amountStr}`,
-        body: `You received a payment of ${amountStr} USDC on ${networkLabel}.\n\nTransaction: ${net.explorer}/tx/${txHash}\n\n` +
-          (g?.tx ? `Plus ${gasLine}.\nGas transaction: ${net.explorer}/tx/${g.tx}\n\n` : '') +
-          `Sent via BaseMail.ai`,
-        usdc_payment: { tx_hash: txHash, amount: amountStr, network },
       };
-      emailPayloads.current[r.addr] = payload;
-      try {
-        const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(payload) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        const gasRecord = data.escrow_claim?.gas_topup;
-        setResult(r.addr, {
-          state: 'done',
-          note: r.external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered',
-          txHash, claimUrl, gasTx: g?.tx, gasEth: g?.tx ? fmtEth(topup) : undefined,
-          gasNote: gasRecord && !gasRecord.recorded ? `Gas paid but not linked to this claim: ${gasRecord.error}. Contact support with the gas tx.` : gasNote,
-        });
-      } catch (e: any) {
-        setResult(r.addr, {
-          state: 'email_failed',
-          note: `USDC ${r.external ? 'escrowed' : 'sent'}, but the email failed: ${e.message}${r.external ? ' — share the claim link yourself.' : ''}`,
-          txHash, claimUrl, gasTx: g?.tx, gasEth: g?.tx ? fmtEth(topup) : undefined, gasNote,
-        });
-      }
     }
-
-    setStepLabel('');
-    setPhase('finished');
-    refetchUsdc();
+    return {
+      to: i.addr,
+      subject: `USDC Payment: $${b.amountStr}`,
+      body: `You received a payment of ${b.amountStr} USDC on ${networkLabel}.\n\nTransaction: ${n.explorer}/tx/${i.payTx}\n\n` +
+        (gasLine ? `Plus ${gasLine}.\nGas transaction: ${n.explorer}/tx/${i.gasTx}\n\n` : '') +
+        `Sent via BaseMail.ai`,
+      usdc_payment: { tx_hash: i.payTx, amount: b.amountStr, network: b.network },
+    };
   }
-
-  /** Re-send an email whose payment already went through (same claim / tx — nothing is paid again) */
-  async function resendEmail(addr: string) {
-    const payload = emailPayloads.current[addr];
-    if (!payload) return;
-    setResending(addr);
+  async function sendEmail(addr: string) {
+    const b = batchRef.current!;
+    const i = currentItem(addr);
     try {
-      const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(payload) });
+      const res = await apiFetch('/api/send', auth.token, { method: 'POST', body: JSON.stringify(emailPayload(b, i)) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const external = 'escrow_claim' in payload;
-      setResults(prev => ({
-        ...prev,
-        [addr]: { ...prev[addr], state: 'done', note: external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered' },
-      }));
+      const gasRecord = data.escrow_claim?.gas_topup;
+      patchItem(addr, {
+        email: 'done', emailNote: undefined, recorded: i.external ? true : i.recorded,
+        ...(gasRecord && !gasRecord.recorded ? { gasNote: `Gas paid but not linked to this claim: ${gasRecord.error}. Contact support with the gas tx.` } : {}),
+      });
     } catch (e: any) {
-      setResults(prev => ({ ...prev, [addr]: { ...prev[addr], note: `Email still failing: ${e.message}` } }));
-    } finally {
-      setResending(null);
+      patchItem(addr, { email: 'failed', emailNote: e.message });
     }
   }
 
-  const doneCount = Object.values(results).filter(r => r.state === 'done' || r.state === 'email_failed').length;
-  const allDone = phase === 'finished' && recipients.length > 0 && doneCount === recipients.length;
+  function startBatch() {
+    if (!canStart) return;
+    setBatch({
+      wallet: auth.wallet,
+      network,
+      amountRaw: amountRaw.toString(),
+      amountStr: amountNum.toFixed(2),
+      expiryHours,
+      topupWei: includeGas ? gasPerRecipient.toString() : '0',
+      items: recipients.map(r => ({
+        addr: r.addr, external: r.external, wallet: r.wallet,
+        pay: 'todo', email: 'todo', ...(includeGas ? { gas: 'todo' as TxStep } : {}),
+      })),
+    });
+    runBatch();
+  }
+
+  /**
+   * Run (or resume) the batch: reconcile anything left in flight against the
+   * chain, pay whoever isn't paid, send gas top-ups, then the emails. Every
+   * step is idempotent, so this is also the retry.
+   */
+  async function runBatch() {
+    const b0 = batchRef.current;
+    if (!b0 || running) return;
+    if (!publicClient) { setError(`Could not connect to ${net.label}. Try again.`); return; }
+    if (lockHeldByOtherTab()) { setError('Send USDC is running in another tab. Finish or close it first.'); return; }
+    writeLock();
+    const heartbeat = setInterval(writeLock, 3000);
+    setRunning(true);
+    setError('');
+    const bnet = USDC_NET_CONFIG[b0.network];
+    const amt = BigInt(b0.amountRaw);
+    const topup = BigInt(b0.topupWei);
+    const items = () => batchRef.current!.items;
+
+    try {
+      setStepLabel(`Switching to ${bnet.label}...`);
+      await switchChainAsync({ chainId: bnet.chainId });
+
+      // ── 0. Reconcile what an earlier run left unconfirmed ──
+      setStepLabel('Checking earlier payments on-chain...');
+      for (const i of items()) {
+        if (i.pay === 'sent' || i.pay === 'unconfirmed' || (i.external && i.claimId && i.pay !== 'confirmed')) {
+          if (i.external && i.claimId && await depositExists(i.claimId)) {
+            patchItem(i.addr, { pay: 'confirmed', payNote: undefined });
+          } else if (i.pay === 'sent' || i.pay === 'unconfirmed') {
+            const r = await receiptNow(i.payTx);
+            if (r?.status === 'success') patchItem(i.addr, { pay: 'confirmed', payNote: undefined });
+            else if (r) patchItem(i.addr, { pay: 'failed', payNote: 'Payment reverted on-chain' });
+            // An escrow deposit that isn't in the escrow can safely be sent again: the
+            // contract accepts one deposit per claim ID, so a late original can't double-pay.
+            else if (i.external) patchItem(i.addr, { pay: 'failed', payNote: 'Deposit never reached the escrow' });
+            else patchItem(i.addr, { pay: 'unconfirmed' });
+          }
+        }
+        if (i.gas === 'sent' || i.gas === 'unconfirmed') {
+          const r = await receiptNow(i.gasTx);
+          if (r?.status === 'success') patchItem(i.addr, { gas: 'confirmed', gasNote: undefined });
+          else if (r) patchItem(i.addr, { gas: 'failed', gasNote: 'Gas top-up reverted' });
+          else patchItem(i.addr, { gas: 'failed', gasNote: 'Gas top-up never confirmed — skipped' });
+        }
+      }
+      for (const i of items()) if (i.external && i.pay === 'confirmed' && !i.recorded) await recordClaim(i.addr);
+
+      // A direct payment we can't confirm blocks new payments: sending it again could pay twice
+      let stopMessage = '';
+      let cancelled = false;
+      const unknown = items().filter(i => i.pay === 'unconfirmed');
+      if (unknown.length) {
+        stopMessage = `${unknown.length} payment${unknown.length > 1 ? 's are' : ' is'} still unconfirmed. Check BaseScan; if it never went through, press "It didn't go through" to send it again.`;
+      }
+
+      // ── 1. USDC ──
+      const toPay = stopMessage ? [] : items().filter(i => i.pay === 'todo' || i.pay === 'failed');
+      if (toPay.length) {
+        setStepLabel('Checking balance...');
+        const needUsdc = amt * BigInt(toPay.length);
+        const usdcNow = await publicClient.readContract({ address: bnet.usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [walletAddr] });
+        if (usdcNow < needUsdc) throw new Error(`Not enough USDC: need ${fmtUsdc(needUsdc)}, you have ${fmtUsdc(usdcNow)}.`);
+        const nGas = items().filter(i => i.gas === 'todo').length;
+        const toPayExt = toPay.filter(i => i.external).length;
+        const needEth = topup * BigInt(nGas) + estimateSenderFees(toPay.length - toPayExt, toPayExt, topup > BigInt(0));
+        const ethNow = await publicClient.getBalance({ address: walletAddr });
+        if (ethNow < needEth) throw new Error(`Not enough ETH on ${bnet.label}: need ${fmtEth(needEth)}, you have ${fmtEth(ethNow)}.`);
+      }
+
+      try {
+      for (let n = 0; n < toPay.length; n++) {
+        const addr = toPay[n].addr;
+        const label = `${n + 1}/${toPay.length}`;
+        try {
+          if (toPay[n].external) {
+            // The claim ID is saved before the wallet sees the deposit, so it can never be lost
+            if (!currentItem(addr).claimId) {
+              patchItem(addr, { claimId: crypto.randomUUID(), expiresAt: Math.floor(Date.now() / 1000) + b0.expiryHours * 3600 });
+            }
+            const { claimId, expiresAt } = currentItem(addr);
+            if (await depositExists(claimId!)) { patchItem(addr, { pay: 'confirmed', payNote: undefined }); await recordClaim(addr); continue; }
+
+            // Re-check the approval each time: another tab or app may have used it up
+            const allowance = await publicClient.readContract({
+              address: bnet.usdc, abi: ERC20_ABI, functionName: 'allowance', args: [walletAddr, PAYMENT_ESCROW_ADDRESS],
+            });
+            if (allowance < amt) {
+              const want = amt * BigInt(toPay.slice(n).filter(i => i.external).length);
+              setStepLabel(`Approve ${fmtUsdc(want)} USDC for escrow in your wallet...`);
+              const approveTx = await writeContractAsync({
+                address: bnet.usdc, abi: ERC20_ABI, functionName: 'approve', args: [PAYMENT_ESCROW_ADDRESS, want], chainId: bnet.chainId,
+              });
+              setStepLabel('Waiting for approval to confirm...');
+              const r = await waitForTx(approveTx);
+              if (r?.status !== 'success') throw new Error('The escrow approval did not confirm. Press Resume to try again.');
+            }
+
+            setStepLabel(`${label} · Confirm payment to ${addr} in your wallet...`);
+            const tx = await writeContractAsync({
+              address: PAYMENT_ESCROW_ADDRESS, abi: PAYMENT_ESCROW_ABI, functionName: 'deposit',
+              args: [keccak256(toHex(claimId!)), amt, BigInt(expiresAt!)], chainId: bnet.chainId,
+            });
+            patchItem(addr, { pay: 'sent', payTx: tx, payNote: undefined });
+            setStepLabel(`${label} · Confirming payment to ${addr}...`);
+            const r = await waitForTx(tx);
+            if (r?.status === 'success' || await depositExists(claimId!)) {
+              patchItem(addr, { pay: 'confirmed' });
+              await recordClaim(addr);
+            } else if (r) {
+              patchItem(addr, { pay: 'failed', payNote: 'Deposit reverted on-chain' });
+              throw new Error(`The payment to ${addr} reverted. Press Resume to try again.`);
+            } else {
+              patchItem(addr, { pay: 'failed', payNote: 'Deposit not confirmed — Resume checks the escrow and only sends again if it isn\'t there' });
+              throw new Error(`The payment to ${addr} didn't confirm within ${TX_CONFIRM_TIMEOUT_MS / 1000}s. Press Resume to check again.`);
+            }
+          } else {
+            const memo = new TextEncoder().encode(`basemail:${addr}`);
+            const memoHex = Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('');
+            setStepLabel(`${label} · Confirm payment to ${addr} in your wallet...`);
+            const tx = await writeContractAsync({
+              address: bnet.usdc, abi: ERC20_ABI, functionName: 'transfer',
+              args: [toPay[n].wallet as `0x${string}`, amt], chainId: bnet.chainId,
+              dataSuffix: `0x${memoHex}` as `0x${string}`,
+            });
+            patchItem(addr, { pay: 'sent', payTx: tx, payNote: undefined });
+            setStepLabel(`${label} · Confirming payment to ${addr}...`);
+            const r = await waitForTx(tx);
+            if (r?.status === 'success') {
+              patchItem(addr, { pay: 'confirmed' });
+            } else if (r) {
+              patchItem(addr, { pay: 'failed', payNote: 'Payment reverted on-chain' });
+              throw new Error(`The payment to ${addr} reverted. Press Resume to try again.`);
+            } else {
+              patchItem(addr, { pay: 'unconfirmed' });
+              throw new Error(`The payment to ${addr} didn't confirm within ${TX_CONFIRM_TIMEOUT_MS / 1000}s. Press Resume to check again.`);
+            }
+          }
+        } catch (e: any) {
+          if (isRejection(e)) {
+            if (currentItem(addr).pay === 'todo' || currentItem(addr).pay === 'failed') patchItem(addr, { pay: 'failed', payNote: 'Cancelled in wallet' });
+            throw new Error('Cancelled in wallet. Recipients not marked as paid received nothing — press Resume to continue.');
+          }
+          throw e;
+        }
+      }
+      } catch (e: any) {
+        // Stop paying; whoever was already paid still gets their gas and email below
+        cancelled = isRejection(e);
+        stopMessage = e.shortMessage || e.message || 'Payment failed';
+      }
+
+      // ── 2. Gas top-ups, only for recipients who were paid ──
+      // (not after a cancel in the wallet — no more prompts; Resume picks it up)
+      if (topup > BigInt(0) && !cancelled) {
+        const ext = items().filter(i => i.external && i.pay === 'confirmed' && i.gas === 'todo');
+        if (ext.length) {
+          // External recipients have no wallet yet: one tx to BaseMail, forwarded when each one claims
+          const total = topup * BigInt(ext.length);
+          try {
+            setStepLabel(`Confirm ${fmtEth(total)} ETH gas for ${ext.length} escrow recipient${ext.length > 1 ? 's' : ''} in your wallet...`);
+            const tx = await sendTransactionAsync({ to: DEPOSIT_ADDRESS as `0x${string}`, value: total + GAS_TOPUP_TAG_WEI, chainId: bnet.chainId });
+            for (const i of ext) patchItem(i.addr, { gas: 'sent', gasTx: tx });
+            setStepLabel('Confirming the gas top-up...');
+            const r = await waitForTx(tx);
+            for (const i of ext) {
+              patchItem(i.addr, r?.status === 'success' ? { gas: 'confirmed' }
+                : r ? { gas: 'failed', gasNote: 'Gas top-up reverted' }
+                : { gas: 'unconfirmed', gasNote: 'Gas top-up not confirmed yet — Resume checks again' });
+            }
+          } catch (e: any) {
+            for (const i of ext) patchItem(i.addr, { gas: 'failed', gasNote: `Gas top-up not sent (${isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message)})` });
+          }
+        }
+        let gasCancelled = false;
+        for (const i of items().filter(i => !i.external && i.pay === 'confirmed' && i.gas === 'todo')) {
+          if (gasCancelled) { patchItem(i.addr, { gas: 'failed', gasNote: 'Gas top-up not sent' }); continue; }
+          try {
+            setStepLabel(`Confirm ${fmtEth(topup)} ETH gas for ${i.addr} in your wallet...`);
+            const tx = await sendTransactionAsync({ to: i.wallet as `0x${string}`, value: topup, chainId: bnet.chainId });
+            patchItem(i.addr, { gas: 'sent', gasTx: tx });
+            setStepLabel(`Confirming gas for ${i.addr}...`);
+            const r = await waitForTx(tx);
+            patchItem(i.addr, r?.status === 'success' ? { gas: 'confirmed' }
+              : r ? { gas: 'failed', gasNote: 'Gas top-up reverted' }
+              : { gas: 'unconfirmed', gasNote: 'Gas top-up not confirmed yet — Resume checks again' });
+          } catch (e: any) {
+            patchItem(i.addr, { gas: 'failed', gasNote: `Gas top-up not sent (${isRejection(e) ? 'cancelled in wallet' : (e.shortMessage || e.message)})` });
+            if (isRejection(e)) gasCancelled = true; // one "no" in the wallet skips the remaining top-ups
+          }
+        }
+      }
+
+      // ── 3. Emails — for paid recipients whose gas is settled, so the email says what they got ──
+      const ready = items().filter(i => i.pay === 'confirmed' && i.email !== 'done' && (i.gas === undefined || i.gas === 'confirmed' || i.gas === 'failed'));
+      for (let n = 0; n < ready.length; n++) {
+        setStepLabel(`${n + 1}/${ready.length} · Sending ${ready[n].external ? 'claim' : 'payment'} email to ${ready[n].addr}...`);
+        await sendEmail(ready[n].addr);
+      }
+      if (stopMessage) setError(stopMessage);
+    } catch (e: any) {
+      setError(isRejection(e) ? 'Cancelled in wallet. Press Resume to continue.' : (e.shortMessage || e.message || 'Failed'));
+    } finally {
+      clearInterval(heartbeat);
+      releaseLock();
+      setRunning(false);
+      setStepLabel('');
+      refetchUsdc();
+    }
+  }
+
+  /** Per-row actions */
+  async function resendEmail(addr: string) {
+    setItemAction(addr);
+    await sendEmail(addr);
+    setItemAction(null);
+  }
+  function markNotSent(addr: string) {
+    if (confirmAction !== `notsent:${addr}`) { setConfirmAction(`notsent:${addr}`); return; }
+    setConfirmAction(null);
+    patchItem(addr, { pay: 'failed', payNote: 'Marked as not sent — Resume sends it again' });
+    setError('');
+  }
+  function startOver() {
+    if (confirmAction !== 'startover') { setConfirmAction('startover'); return; }
+    setConfirmAction(null);
+    setBatch(null);
+    setError('');
+  }
+
+  const batchItems = batch?.items ?? [];
+  const allDone = !!batch && batchItems.length > 0 && batchItems.every(usdcItemDone);
+  // Discarding while a payment is unaccounted for would lose track of it
+  const inFlight = batchItems.some(i => i.pay === 'sent' || i.pay === 'unconfirmed' || i.gas === 'sent' || i.gas === 'unconfirmed');
+  const unfinished = batchItems.filter(i => !usdcItemDone(i)).length;
+  const paidNotEmailed = batchItems.filter(i => i.pay === 'confirmed' && i.email !== 'done').length;
+
+  function itemStatus(i: UsdcBatchItem): { text: string; tone: string } {
+    if (i.pay === 'confirmed') {
+      if (i.email === 'done') return { text: i.external ? 'Escrowed · claim email sent' : 'Sent · payment email delivered', tone: 'text-success' };
+      if (i.email === 'failed') return { text: `Paid, but the email failed: ${i.emailNote}${i.external ? ' — the claim link works, you can share it yourself.' : ''}`, tone: 'text-warning' };
+      return { text: i.external ? 'Escrowed · email pending' : 'Paid · email pending', tone: 'text-fg-subtle' };
+    }
+    if (i.pay === 'sent') return { text: 'Confirming payment on-chain...', tone: 'text-fg-subtle' };
+    if (i.pay === 'unconfirmed') return { text: 'Payment not confirmed. Check BaseScan before sending again.', tone: 'text-warning' };
+    if (i.pay === 'failed') return { text: i.payNote || 'Payment failed', tone: 'text-danger' };
+    return { text: running ? 'Waiting' : 'Not sent yet', tone: 'text-fg-subtle' };
+  }
+
+  const topupLabel = batch ? fmtEth(BigInt(batch.topupWei)) : '';
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="usdc-send-title">
@@ -1340,290 +1535,318 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
             <h3 id="usdc-send-title" className="text-h3 font-semibold">Send USDC</h3>
             <span className={`badge ${net.badgeColor} mt-1`}>{net.badge}</span>
           </div>
-          <button type="button" onClick={onClose} disabled={busy} className="btn btn-ghost btn-icon -mr-2" aria-label="Close">
+          <button type="button" onClick={onClose} disabled={running} className="btn btn-ghost btn-icon -mr-2" aria-label="Close">
             <Icon.Close size={18} />
           </button>
         </div>
 
-        {/* Recipients — replaced by the progress list once sending starts */}
-        {phase === 'idle' && (
-          <div className="mb-4">
-            <label className="field-label" htmlFor="usdc-recipient">
-              Recipients {recipients.length > 0 && <span className="text-fg-subtle">({recipients.length}/{MAX_USDC_RECIPIENTS})</span>}
-            </label>
-            {recipients.length > 0 && (
-              <ul className="mb-2 space-y-1 max-h-64 overflow-y-auto pr-1">
-                {recipients.map(r => (
-                  <li key={r.addr} className="card-inset flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                    <span className="min-w-0">
-                      <span className="block truncate font-mono text-fg">{r.addr}</span>
-                      {r.resolving ? <span className="text-fg-subtle">Resolving...</span>
-                        : r.error ? <span className="text-danger">{r.error}</span>
-                        : r.external ? <span className="text-warning">External — held in escrow</span>
-                        : <span className="text-success font-mono">{r.wallet?.slice(0, 6)}...{r.wallet?.slice(-4)}</span>}
-                    </span>
-                    <button type="button" onClick={() => removeRecipient(r.addr)} className="btn btn-ghost btn-icon h-7 w-7 shrink-0" aria-label={`Remove ${r.addr}`}>
-                      <Icon.Close size={14} />
-                    </button>
+        {otherTabSending && !running && (
+          <p className="card-inset mb-4 px-3 py-2.5 text-xs text-warning flex items-start gap-1.5">
+            <Icon.Warning size={14} className="mt-0.5 shrink-0" />
+            <span>Send USDC is running in another tab. Finish or close it before sending here — two batches at once share one escrow approval.</span>
+          </p>
+        )}
+
+        {batch ? (
+          <>
+            {/* ── A batch: in progress, or left unfinished by an earlier visit ── */}
+            <div className="card-inset mb-4 px-3 py-2.5 text-xs space-y-1">
+              <div className="flex justify-between gap-2">
+                <span className="text-fg-subtle">Each recipient</span>
+                <span className="font-mono text-fg">{batch.amountStr} USDC{batch.topupWei !== '0' ? ` + ${topupLabel} ETH gas` : ''}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-fg-subtle">Done</span>
+                <span className="font-mono text-fg">{batchItems.length - unfinished} / {batchItems.length}</span>
+              </div>
+              {!running && !allDone && (
+                <p className="text-fg-subtle pt-1">Progress is saved in this browser. Resume checks every payment on-chain first and never pays anyone twice.</p>
+              )}
+            </div>
+
+            <ul className="mb-4 space-y-1.5 max-h-80 overflow-y-auto pr-1" aria-live="polite">
+              {batchItems.map(i => {
+                const s = itemStatus(i);
+                const explorer = USDC_NET_CONFIG[batch.network].explorer;
+                return (
+                  <li key={i.addr} className="card-inset px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-fg">{i.addr}</span>
+                      {usdcItemDone(i) && <Icon.Check size={14} className="text-success shrink-0" />}
+                    </div>
+                    <p className={`mt-0.5 break-words ${s.tone}`}>{s.text}</p>
+                    {i.gas === 'confirmed' && i.gasTx && (
+                      <p className="mt-0.5 text-fg-subtle">
+                        + {topupLabel} ETH gas{i.external ? ', delivered when they claim' : ''}{' '}
+                        <a href={`${explorer}/tx/${i.gasTx}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
+                          tx <Icon.ExternalLink size={12} />
+                        </a>
+                      </p>
+                    )}
+                    {i.gasNote && i.gas !== 'confirmed' && <p className="mt-0.5 text-warning break-words">{i.gasNote}</p>}
+                    {!running && i.pay === 'confirmed' && i.email === 'failed' && (
+                      <button type="button" onClick={() => resendEmail(i.addr)} disabled={itemAction !== null} className="btn btn-secondary btn-sm mt-1.5">
+                        <Icon.Refresh size={14} /> {itemAction === i.addr ? 'Sending...' : 'Resend email'}
+                      </button>
+                    )}
+                    {!running && i.pay === 'unconfirmed' && (
+                      <button type="button" onClick={() => markNotSent(i.addr)} className="btn btn-secondary btn-sm mt-1.5">
+                        {confirmAction === `notsent:${i.addr}` ? 'Sure? It will be paid again on Resume' : "It didn't go through"}
+                      </button>
+                    )}
+                    {(i.payTx || (i.external && i.claimId && i.pay === 'confirmed')) && (
+                      <p className="mt-1 flex flex-wrap gap-x-3">
+                        {i.payTx && (
+                          <a href={`${explorer}/tx/${i.payTx}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
+                            BaseScan <Icon.ExternalLink size={12} />
+                          </a>
+                        )}
+                        {i.external && i.claimId && i.pay === 'confirmed' && (
+                          <a href={`https://basemail.ai/claim/${i.claimId}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
+                            Claim link <Icon.ExternalLink size={12} />
+                          </a>
+                        )}
+                      </p>
+                    )}
                   </li>
+                );
+              })}
+            </ul>
+
+            {allDone ? (
+              <button type="button" onClick={() => { setBatch(null); onClose(); }} className="btn btn-primary btn-lg w-full">
+                Done
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={runBatch}
+                disabled={running || otherTabSending}
+                className={`btn btn-lg w-full ${batch.network === 'base-mainnet' ? 'btn-primary' : 'btn-attn'}`}
+              >
+                {running ? (stepLabel || 'Working...') : `Resume — ${unfinished} unfinished`}
+              </button>
+            )}
+            {!running && !allDone && !inFlight && (
+              <button type="button" onClick={startOver} className="btn btn-ghost btn-sm w-full mt-2 text-fg-subtle">
+                {confirmAction === 'startover'
+                  ? `Discard this batch?${paidNotEmailed ? ` ${paidNotEmailed} paid recipient${paidNotEmailed > 1 ? 's haven\'t' : ' hasn\'t'} been emailed.` : ''} Click again to confirm`
+                  : 'Discard and start a new send'}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {/* ── Compose ── */}
+            <div className="mb-4">
+              <label className="field-label" htmlFor="usdc-recipient">
+                Recipients {recipients.length > 0 && <span className="text-fg-subtle">({recipients.length}/{MAX_USDC_RECIPIENTS})</span>}
+              </label>
+              {recipients.length > 0 && (
+                <ul className="mb-2 space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {recipients.map(r => (
+                    <li key={r.addr} className="card-inset flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                      <span className="min-w-0">
+                        <span className="block truncate font-mono text-fg">{r.addr}</span>
+                        {r.resolving ? <span className="text-fg-subtle">Resolving...</span>
+                          : r.error ? <span className="text-danger">{r.error}</span>
+                          : r.external ? <span className="text-warning">External — held in escrow</span>
+                          : <span className="text-success font-mono">{r.wallet?.slice(0, 6)}...{r.wallet?.slice(-4)}</span>}
+                      </span>
+                      <button type="button" onClick={() => removeRecipient(r.addr)} className="btn btn-ghost btn-icon h-7 w-7 shrink-0" aria-label={`Remove ${r.addr}`}>
+                        <Icon.Close size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {recipients.length < MAX_USDC_RECIPIENTS && (
+                <input
+                  id="usdc-recipient"
+                  type="text"
+                  value={draft}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (/[\s,;]$/.test(v)) { addRecipients(v); setDraft(''); } else { setDraft(v); }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); addRecipients(draft); setDraft(''); }
+                    if (e.key === 'Backspace' && !draft && recipients.length) removeRecipient(recipients[recipients.length - 1].addr);
+                  }}
+                  onPaste={(e) => { e.preventDefault(); addRecipients(draft + e.clipboardData.getData('text')); setDraft(''); }}
+                  onBlur={() => { if (draft) { addRecipients(draft); setDraft(''); } }}
+                  placeholder={recipients.length ? 'Add another...' : 'handle@basemail.ai or email@gmail.com'}
+                  className="input input-mono"
+                />
+              )}
+              {draftError ? <p className="mt-1.5 text-xs text-danger">{draftError}</p>
+                : <p className="field-hint">Press Enter or comma to add. Paste a list to add several at once.</p>}
+            </div>
+
+            {/* Network Selector */}
+            <div className="mb-4">
+              <span className="field-label">Network</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNetwork('base-mainnet')}
+                  aria-pressed={network === 'base-mainnet'}
+                  className={`btn ${network === 'base-mainnet' ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  Base Mainnet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNetwork('base-sepolia')}
+                  aria-pressed={network === 'base-sepolia'}
+                  className={`btn ${network === 'base-sepolia' ? 'btn-attn' : 'btn-secondary'}`}
+                >
+                  Testnet
+                </button>
+              </div>
+            </div>
+
+            {/* Amount */}
+            <div className="mb-4">
+              <label className="field-label" htmlFor="usdc-amount">Amount per recipient (USDC)</label>
+              <input
+                id="usdc-amount"
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="10.00"
+                className="input input-mono"
+              />
+              <p className="field-hint flex justify-between gap-2">
+                <span>{recipients.length > 1 && amountValid ? `Total ${totalStr} USDC (${recipients.length} × ${amountNum})` : ' '}</span>
+                <span className="font-mono">Balance {usdcBal ? fmtUsdc(usdcBal.value) : '—'}</span>
+              </p>
+            </div>
+
+            {/* Optional gas top-up */}
+            <div className="mb-4">
+              <label className="card-inset flex items-start gap-3 px-3 py-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeGas}
+                  onChange={(e) => setIncludeGas(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#7da2ff]"
+                />
+                <span className="text-xs">
+                  <span className="block text-sm text-fg">Add ETH for gas</span>
+                  <span className="block text-fg-subtle mt-0.5">
+                    {fmtEth(gasPerRecipient)} ETH{fmtUsd(gasPerRecipient)} per recipient — enough for about {GAS_TOPUP_PAYMENTS} USDC payments
+                    (e.g. buying OpenRouter credits), even if gas prices triple.
+                    {externals.length > 0 && ' Escrow recipients get it when they claim; it comes back to you if they don\'t.'}
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {/* What this costs the sender */}
+            {recipients.length > 0 && amountValid && (
+              <div className="card-inset mb-4 px-3 py-2.5 text-xs space-y-1">
+                <div className="flex justify-between gap-2">
+                  <span className="text-fg-subtle">USDC</span>
+                  <span className="font-mono text-fg">{fmtUsdc(totalRaw)}{recipients.length > 1 ? ` (${recipients.length} × ${amountNum})` : ''}</span>
+                </div>
+                {includeGas && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-fg-subtle">Gas top-ups</span>
+                    <span className="font-mono text-fg">{fmtEth(topupTotal)} ETH{recipients.length > 1 ? ` (${recipients.length} × ${fmtEth(gasPerRecipient)})` : ''}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-2">
+                  <span className="text-fg-subtle">Your network fees</span>
+                  <span className="font-mono text-fg">≈{fmtEth(senderFees)} ETH</span>
+                </div>
+                <div className="flex justify-between gap-2 border-t border-line pt-1">
+                  <span className="text-fg-subtle">ETH needed</span>
+                  <span className={`font-mono ${gasBal && gasBal.value < ethNeeded ? 'text-danger' : 'text-fg'}`}>
+                    {fmtEth(ethNeeded)}{fmtUsd(ethNeeded)} · you have {gasBal ? fmtEth(gasBal.value) : '—'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Escrow: Expiry selector */}
+            {externals.length > 0 && (
+              <div className="mb-4">
+                <span className="field-label">Claim Expiry</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: '1h', hours: 1 },
+                    { label: '24h', hours: 24 },
+                    { label: '7d', hours: 168 },
+                    { label: '30d', hours: 720 },
+                  ].map(opt => (
+                    <button
+                      key={opt.hours}
+                      type="button"
+                      onClick={() => setExpiryHours(opt.hours)}
+                      aria-pressed={expiryHours === opt.hours}
+                      className={`btn px-2 ${expiryHours === opt.hours ? 'btn-primary' : 'btn-secondary'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Info */}
+            <div className="card-inset mb-4 text-xs text-fg-subtle space-y-1">
+              {externals.length > 0 && (
+                <>
+                  <p className="text-warning font-medium">Escrow Mode{recipients.length > externals.length ? ' (external recipients)' : ''}</p>
+                  <p>USDC deposited to on-chain escrow contract. Recipient gets an email with a claim link.</p>
+                  <p>No crypto wallet needed — a BaseMail account is auto-created when they claim.</p>
+                  <p>If unclaimed, you can refund after the expiry period.</p>
+                </>
+              )}
+              {recipients.length > externals.length && (
+                <p>@basemail.ai recipients are paid directly to their wallet on {net.label}, with an on-chain memo.</p>
+              )}
+              {(recipients.length > 1 || includeGas) && (
+                <p>
+                  Your wallet asks you to confirm each payment in turn{externals.length > 0 ? ', after one approval for the escrow total' : ''}
+                  {includeGas ? `, then the gas top-ups (${recipients.length - externals.length} direct${externals.length > 0 ? ' + 1 for all escrow recipients' : ''})` : ''}.
+                  Each one is confirmed on-chain before the next.
+                </p>
+              )}
+              {network === 'base-mainnet' && (
+                <p className="text-warning flex items-start gap-1.5">
+                  <Icon.Warning size={14} className="mt-0.5" />
+                  <span>This sends real USDC. Double-check the recipients.</span>
+                </p>
+              )}
+              <p>A {externals.length === recipients.length && recipients.length ? 'claim' : 'payment'} email is sent to each recipient automatically.</p>
+            </div>
+
+            {/* Pre-flight problems */}
+            {problems.length > 0 && (
+              <ul className="mb-4 space-y-1 text-xs text-danger">
+                {problems.map(p => (
+                  <li key={p} className="flex items-start gap-1.5"><Icon.Warning size={14} className="mt-0.5 shrink-0" /><span>{p}</span></li>
                 ))}
               </ul>
             )}
-            {recipients.length < MAX_USDC_RECIPIENTS && (
-              <input
-                id="usdc-recipient"
-                type="text"
-                value={draft}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (/[\s,;]$/.test(v)) { addRecipients(v); setDraft(''); } else { setDraft(v); }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); addRecipients(draft); setDraft(''); }
-                  if (e.key === 'Backspace' && !draft && recipients.length) removeRecipient(recipients[recipients.length - 1].addr);
-                }}
-                onPaste={(e) => { e.preventDefault(); addRecipients(draft + e.clipboardData.getData('text')); setDraft(''); }}
-                onBlur={() => { if (draft) { addRecipients(draft); setDraft(''); } }}
-                placeholder={recipients.length ? 'Add another...' : 'handle@basemail.ai or email@gmail.com'}
-                className="input input-mono"
-              />
-            )}
-            {draftError ? <p className="mt-1.5 text-xs text-danger">{draftError}</p>
-              : <p className="field-hint">Press Enter or comma to add. Paste a list to add several at once.</p>}
-          </div>
-        )}
 
-        {/* Network Selector */}
-        <div className="mb-4">
-          <span className="field-label">Network</span>
-          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setNetwork('base-mainnet')}
-              disabled={phase !== 'idle'}
-              aria-pressed={network === 'base-mainnet'}
-              className={`btn ${network === 'base-mainnet' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={startBatch}
+              disabled={!canStart}
+              className={`btn btn-lg w-full ${network === 'base-mainnet' ? 'btn-primary' : 'btn-attn'}`}
             >
-              Base Mainnet
+              {recipients.length > 1 ? `Send ${amountValid ? totalStr : '0'} USDC to ${recipients.length} recipients`
+                : externals.length ? `Escrow ${amount || '0'} USDC`
+                : `Send ${amount || '0'} USDC`}
             </button>
-            <button
-              type="button"
-              onClick={() => setNetwork('base-sepolia')}
-              disabled={phase !== 'idle'}
-              aria-pressed={network === 'base-sepolia'}
-              className={`btn ${network === 'base-sepolia' ? 'btn-attn' : 'btn-secondary'}`}
-            >
-              Testnet
-            </button>
-          </div>
-        </div>
-
-        {/* Amount */}
-        <div className="mb-4">
-          <label className="field-label" htmlFor="usdc-amount">Amount per recipient (USDC)</label>
-          <input
-            id="usdc-amount"
-            type="text"
-            inputMode="decimal"
-            value={amount}
-            disabled={phase !== 'idle'}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-            placeholder="10.00"
-            className="input input-mono"
-          />
-          <p className="field-hint flex justify-between gap-2">
-            <span>{recipients.length > 1 && amountValid ? `Total ${totalStr} USDC (${recipients.length} × ${amountNum})` : ' '}</span>
-            <span className="font-mono">Balance {usdcBal ? fmtUsdc(usdcBal.value) : '—'}</span>
-          </p>
-        </div>
-
-        {/* Optional gas top-up */}
-        <div className="mb-4">
-          <label className={`card-inset flex items-start gap-3 px-3 py-2.5 ${phase === 'idle' ? 'cursor-pointer' : 'opacity-70'}`}>
-            <input
-              type="checkbox"
-              checked={includeGas}
-              disabled={phase !== 'idle'}
-              onChange={(e) => setIncludeGas(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[#7da2ff]"
-            />
-            <span className="text-xs">
-              <span className="block text-sm text-fg">Add ETH for gas</span>
-              <span className="block text-fg-subtle mt-0.5">
-                {fmtEth(gasPerRecipient)} ETH{fmtUsd(gasPerRecipient)} per recipient — enough for about {GAS_TOPUP_PAYMENTS} USDC payments
-                (e.g. buying OpenRouter credits), even if gas prices triple.
-                {externals.length > 0 && ' Escrow recipients get it when they claim; it comes back to you if they don\'t.'}
-              </span>
-            </span>
-          </label>
-        </div>
-
-        {/* What this costs the sender */}
-        {phase === 'idle' && recipients.length > 0 && amountValid && (
-          <div className="card-inset mb-4 px-3 py-2.5 text-xs space-y-1">
-            <div className="flex justify-between gap-2">
-              <span className="text-fg-subtle">USDC</span>
-              <span className="font-mono text-fg">{fmtUsdc(pendingTotalRaw)}{pending.length > 1 ? ` (${pending.length} × ${amountNum})` : ''}</span>
-            </div>
-            {includeGas && (
-              <div className="flex justify-between gap-2">
-                <span className="text-fg-subtle">Gas top-ups</span>
-                <span className="font-mono text-fg">{fmtEth(topupTotal)} ETH{pending.length > 1 ? ` (${pending.length} × ${fmtEth(gasPerRecipient)})` : ''}</span>
-              </div>
-            )}
-            <div className="flex justify-between gap-2">
-              <span className="text-fg-subtle">Your network fees</span>
-              <span className="font-mono text-fg">≈{fmtEth(senderFees)} ETH</span>
-            </div>
-            <div className="flex justify-between gap-2 border-t border-line pt-1">
-              <span className="text-fg-subtle">ETH needed</span>
-              <span className={`font-mono ${gasBal && gasBal.value < ethNeeded ? 'text-danger' : 'text-fg'}`}>
-                {fmtEth(ethNeeded)}{fmtUsd(ethNeeded)} · you have {gasBal ? fmtEth(gasBal.value) : '—'}
-              </span>
-            </div>
-          </div>
+          </>
         )}
 
-        {/* Escrow: Expiry selector */}
-        {externals.length > 0 && (
-          <div className="mb-4">
-            <span className="field-label">Claim Expiry</span>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { label: '1h', hours: 1 },
-                { label: '24h', hours: 24 },
-                { label: '7d', hours: 168 },
-                { label: '30d', hours: 720 },
-              ].map(opt => (
-                <button
-                  key={opt.hours}
-                  type="button"
-                  onClick={() => setExpiryHours(opt.hours)}
-                  disabled={phase !== 'idle'}
-                  aria-pressed={expiryHours === opt.hours}
-                  className={`btn px-2 ${expiryHours === opt.hours ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Info */}
-        {phase === 'idle' && (
-          <div className="card-inset mb-4 text-xs text-fg-subtle space-y-1">
-            {externals.length > 0 && (
-              <>
-                <p className="text-warning font-medium">Escrow Mode{recipients.length > externals.length ? ' (external recipients)' : ''}</p>
-                <p>USDC deposited to on-chain escrow contract. Recipient gets an email with a claim link.</p>
-                <p>No crypto wallet needed — a BaseMail account is auto-created when they claim.</p>
-                <p>If unclaimed, you can refund after the expiry period.</p>
-              </>
-            )}
-            {recipients.length > externals.length && (
-              <p>@basemail.ai recipients are paid directly to their wallet on {net.label}, with an on-chain memo.</p>
-            )}
-            {(recipients.length > 1 || includeGas) && (
-              <p>
-                Your wallet asks you to confirm each payment in turn{externals.length > 0 ? ', after one approval for the escrow total' : ''}
-                {includeGas ? `, then the gas top-ups (${recipients.length - externals.length} direct${externals.length > 0 ? ' + 1 for all escrow recipients' : ''})` : ''}.
-              </p>
-            )}
-            {network === 'base-mainnet' && (
-              <p className="text-warning flex items-start gap-1.5">
-                <Icon.Warning size={14} className="mt-0.5" />
-                <span>This sends real USDC. Double-check the recipients.</span>
-              </p>
-            )}
-            <p>A {externals.length === recipients.length && recipients.length ? 'claim' : 'payment'} email is sent to each recipient automatically.</p>
-          </div>
-        )}
-
-        {/* Pre-flight problems */}
-        {!busy && problems.length > 0 && (
-          <ul className="mb-4 space-y-1 text-xs text-danger">
-            {problems.map(p => (
-              <li key={p} className="flex items-start gap-1.5"><Icon.Warning size={14} className="mt-0.5 shrink-0" /><span>{p}</span></li>
-            ))}
-          </ul>
-        )}
-
-        {/* Per-recipient progress */}
-        {phase !== 'idle' && (
-          <ul className="mb-4 space-y-1.5 max-h-80 overflow-y-auto pr-1" aria-live="polite">
-            {recipients.map(r => {
-              const res = results[r.addr];
-              const tone = res?.state === 'done' ? 'text-success'
-                : res?.state === 'email_failed' ? 'text-warning'
-                : res?.state === 'failed' ? 'text-danger'
-                : 'text-fg-subtle';
-              return (
-                <li key={r.addr} className="card-inset px-3 py-2 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-mono text-fg">{r.addr}</span>
-                    {res?.state === 'done' && <Icon.Check size={14} className="text-success shrink-0" />}
-                  </div>
-                  <p className={`mt-0.5 break-words ${tone}`}>{res?.note || 'Waiting'}</p>
-                  {res?.gasTx && (
-                    <p className="mt-0.5 text-fg-subtle">
-                      + {res.gasEth} ETH gas{r.external ? ', delivered when they claim' : ''}{' '}
-                      <a href={`${net.explorer}/tx/${res.gasTx}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
-                        tx <Icon.ExternalLink size={12} />
-                      </a>
-                    </p>
-                  )}
-                  {res?.gasNote && <p className="mt-0.5 text-warning break-words">{res.gasNote}</p>}
-                  {res?.state === 'email_failed' && emailPayloads.current[r.addr] && (
-                    <button
-                      type="button"
-                      onClick={() => resendEmail(r.addr)}
-                      disabled={resending !== null}
-                      className="btn btn-secondary btn-sm mt-1.5"
-                    >
-                      <Icon.Refresh size={14} /> {resending === r.addr ? 'Sending...' : 'Resend email'}
-                    </button>
-                  )}
-                  {(res?.txHash || res?.claimUrl) && (
-                    <p className="mt-1 flex flex-wrap gap-x-3">
-                      {res.txHash && (
-                        <a href={`${net.explorer}/tx/${res.txHash}`} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
-                          BaseScan <Icon.ExternalLink size={12} />
-                        </a>
-                      )}
-                      {res.claimUrl && (
-                        <a href={res.claimUrl} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
-                          Claim link <Icon.ExternalLink size={12} />
-                        </a>
-                      )}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {allDone ? (
-          <button type="button" onClick={onClose} className="btn btn-primary btn-lg w-full">
-            Done
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!canSend}
-            className={`btn btn-lg w-full ${network === 'base-mainnet' ? 'btn-primary' : 'btn-attn'}`}
-          >
-            {busy ? (stepLabel || 'Working...')
-              : phase === 'finished' ? `Retry ${pending.length} unsent`
-              : recipients.length > 1 ? `Send ${amountValid ? totalStr : '0'} USDC to ${recipients.length} recipients`
-              : externals.length ? `Escrow ${amount || '0'} USDC`
-              : `Send ${amount || '0'} USDC`}
-          </button>
-        )}
-
-        {error && <p className="text-danger text-sm mt-3">{error}</p>}
+        {error && <p className="text-danger text-sm mt-3 break-words">{error}</p>}
       </div>
     </div>
   );
