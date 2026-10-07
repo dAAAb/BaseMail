@@ -14,7 +14,7 @@
 
 ### API
 - `to: string | string[]`，新增 `cc?: string[]`、`bcc?: string[]`；保留單一字串的舊行為（SDK / MCP / 既有 agent 不能壞）。
-- 收件人總數上限（建議 20，與 Send USDC 一致），去重、全部先驗證格式，有任何一個無效就整封拒絕。
+- 收件人總數上限（建議 20；Send USDC 是 100，但一般信件更容易被拿來 spam，宜從嚴），去重、全部先驗證格式，有任何一個無效就整封拒絕。
 - 回應改成逐一收件人結果：`results: [{ to, internal, delivered, error? }]`，頂層 `success` 表示至少一位成功；OpenAPI、`llms.txt`、SDK（`sdk/node`）、MCP（`mcp/`）一起更新。
 
 ### 防濫用（最重要）

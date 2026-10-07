@@ -895,7 +895,7 @@ const USDC_NET_CONFIG: Record<UsdcNetwork, { chainId: number; usdc: `0x${string}
   },
 };
 
-const MAX_USDC_RECIPIENTS = 20;
+const MAX_USDC_RECIPIENTS = 100;
 const FREE_EXTERNAL_PER_HOUR = 10; // mirrors EXTERNAL_SEND_PER_HANDLE_PER_HOUR in worker/src/ratelimit.ts
 const MIN_ESCROW_USDC = 0.1;       // PaymentEscrow.MIN_AMOUNT
 
@@ -1326,7 +1326,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
               Recipients {recipients.length > 0 && <span className="text-fg-subtle">({recipients.length}/{MAX_USDC_RECIPIENTS})</span>}
             </label>
             {recipients.length > 0 && (
-              <ul className="mb-2 space-y-1">
+              <ul className="mb-2 space-y-1 max-h-64 overflow-y-auto pr-1">
                 {recipients.map(r => (
                   <li key={r.addr} className="card-inset flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
                     <span className="min-w-0">
@@ -1525,7 +1525,7 @@ function UsdcSendModal({ auth, onClose }: { auth: AuthState; onClose: () => void
 
         {/* Per-recipient progress */}
         {phase !== 'idle' && (
-          <ul className="mb-4 space-y-1.5" aria-live="polite">
+          <ul className="mb-4 space-y-1.5 max-h-80 overflow-y-auto pr-1" aria-live="polite">
             {recipients.map(r => {
               const res = results[r.addr];
               const tone = res?.state === 'done' ? 'text-success'
