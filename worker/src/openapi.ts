@@ -1208,7 +1208,7 @@ Object.assign(paths, {
     post: {
       operationId: 'buyPro', tags: ['Pro'],
       summary: 'Redeem an ETH payment for Pro (lifetime)',
-      description: 'Send ≥ 0.008 ETH to the deposit address on Base or ETH mainnet, then submit the tx hash. Pro removes the email signature, adds a gold badge and lifts free-tier send limits. Overpayment is converted to credits. Auth: Bearer.',
+      description: 'Send ≥ 0.008 ETH to the deposit address on Base (recommended, `chain_id` 8453 — fees under $0.01) or Ethereum mainnet (`chain_id` 1), then submit the tx hash. Pro removes the email signature, adds a gold badge and lifts free-tier send limits. Overpayment is converted to credits. Auth: Bearer.',
       requestBody: jsonBody(ref('TxHashRequest'), { tx_hash: '0x…', chain_id: 8453 }),
       responses: {
         '200': jsonRes('Upgraded to Pro', ref('ProBuyResponse')),

@@ -3369,8 +3369,9 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
               <div className="card-inset">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-fg-muted text-sm">Price</span>
-                  <span className="text-xl font-semibold font-mono text-accent">0.008 ETH</span>
+                  <span className="text-xl font-semibold font-mono text-accent">0.008 ETH <span className="text-sm font-sans font-medium text-fg-muted">on Base</span></span>
                 </div>
+                <p className="text-fg-subtle text-xs mb-3">Paid in ETH on the Base network (not Ethereum mainnet) — network fee under $0.01.</p>
                 <ul className="text-fg-subtle text-xs space-y-1 mb-4">
                   <li className="flex items-center gap-2"><Icon.Check size={14} className="text-success" /> Remove email signature forever</li>
                   <li className="flex items-center gap-2"><Icon.Check size={14} className="text-success" /> Gold badge on your profile</li>
@@ -3400,7 +3401,8 @@ function Settings({ auth, setAuth, onUpgrade, upgrading }: { auth: AuthState; se
                       setTimeout(() => setShowProConfetti(false), 4000);
                       setAuth({ ...auth, tier: 'pro' });
                     } catch (e: any) {
-                      setProError(e.message || 'Purchase failed');
+                      const msg = `${e?.shortMessage || ''} ${e?.message || ''}`;
+                      setProError(/reject|denied|cancel/i.test(msg) ? 'Cancelled in wallet.' : (e.shortMessage || e.message || 'Purchase failed'));
                       setProStatus('idle');
                     }
                   }}

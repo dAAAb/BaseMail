@@ -434,7 +434,7 @@ app.get('/api/docs', (c) => {
         description: 'Purchase BaseMail Pro with ETH payment (one-time lifetime)',
         body: '{ tx_hash: "0x...", chain_id?: 8453|1 }',
         response: '{ success, tier: "pro", eth_spent, benefits, bonus_credits }',
-        note: `Send 0.008 ETH to ${DEPOSIT} on Base or ETH Mainnet, then submit tx hash. Pro removes email signatures, adds gold badge.`,
+        note: `Send 0.008 ETH to ${DEPOSIT} on Base (recommended, chain_id 8453) or ETH Mainnet (chain_id 1), then submit tx hash with chain_id. Pro removes email signatures, adds gold badge.`,
       },
 
       // — Attention Bonds (v2) —

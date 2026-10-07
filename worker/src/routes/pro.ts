@@ -49,7 +49,8 @@ proRoutes.get('/status', async (c) => {
       price_wei: PRO_PRICE_WEI.toString(),
       description: 'One-time lifetime purchase. Removes BaseMail signature from emails, adds gold badge.',
       method: 'POST /api/pro/buy',
-      body: '{ "tx_hash": "0x..." }',
+      body: '{ "tx_hash": "0x...", "chain_id": 8453 }',
+      chain: 'Send ETH on Base (chain_id 8453) — fees under $0.01. Ethereum mainnet (chain_id 1) is also accepted.',
       deposit_address: c.env.WALLET_ADDRESS || 'Contact admin',
     },
   });
